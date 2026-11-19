@@ -1,9 +1,9 @@
 name: Build
 
+# Manual only: nothing runs on push or pull request. Start it from the Actions tab ("Run workflow")
+# when you want a clean-machine build + test run, or a release. Locally: build.bat and
+# tests\build_tests.bat do the same.
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
     inputs:
       version:
@@ -45,6 +45,24 @@ jobs:
           MWT_VERSION: ${{ steps.ver.outputs.version }}
         run: build.bat
 
+      # Unit, regression and fuzz tests (no game needed): /RTC1 build, then AddressSanitizer if the
+      # toolset has it for x86 (the script skips that part with a note otherwise).
+      - name: Tests
+        shell: cmd
+        run: tests\build_tests.bat
+
+      - name: Build launcher
+        shell: cmd
+        run: |
+          if not exist build mkdir build
+          C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe /nologo /target:winexe /out:build\MWTogetherLauncher.exe launcher\Launcher.cs
+
+      # MSVC /analyze over the plugin sources. Report only: it never fails the run.
+      - name: Static analysis (report only)
+        shell: cmd
+        continue-on-error: true
+        run: tests\build_tests.bat analyze
+
       - name: Package
         shell: pwsh
         run: |
@@ -65,7 +83,7 @@ jobs:
           path: MWTogether-${{ steps.ver.outputs.version }}.zip
 
       - name: Release
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != ''
+        if: github.event.inputs.version != ''
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash

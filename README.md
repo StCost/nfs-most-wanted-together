@@ -110,10 +110,27 @@ Every option is in `scripts\MWTogether.ini`, which comments each one. Main secti
 - Visual Studio 2022 with the C++ workload (MSVC x86).
 - Run `build.bat`. It produces `build\MWTogether.asi`. When this folder sits inside the game folder
   (`<game>\MWTogether-src\`), the script also installs the plugin into `<game>\scripts\`.
-- CI: every push builds the plugin (see **Actions**). To publish a release, run the **Build** workflow
-  manually with a version number. It builds, packages the zip with the ASI loader, and creates the GitHub release.
+- Nothing builds automatically on GitHub. The **Build** workflow under **Actions** runs only when you start it
+  by hand: it builds the plugin and the launcher, runs the tests and packages the zip with the ASI loader. Give
+  it a version number and it also creates the GitHub release.
 - Local release, without Actions: `tools\release.ps1 -Version 0.2.0` publishes a pre-release; add `-Final` for a
   normal release. `-DryRun` only builds the zip in `dist\`.
+
+## Testing
+The network code, the config reader and the maths behind the remote cars have tests that run without the game:
+
+```
+tests\build_tests.bat
+```
+
+It builds `build\tests.exe` and runs it, then runs the same tests again under AddressSanitizer when your
+MSVC supports it. About 80 tests: packet layouts and protocol version, connecting / leaving / timeouts,
+snapshot interpolation and extrapolation, clock sync, traffic / event / roster / restart packets, `MWTogether.ini`
+parsing, and fuzz tests that throw several hundred thousand random and damaged datagrams at the packet
+handler to make sure nothing a network can deliver crashes the game. Exit code 0 means everything passed.
+
+What the tests can't cover is everything inside the game itself (spawning cars, races, cops): that still needs
+two PCs. See [CONTRIBUTING.md](CONTRIBUTING.md) for the details and for adding tests.
 
 ## How it works (short)
 `MWTogether.asi` is loaded by the ASI loader inside `speed.exe`. It hooks Direct3D 9 `Present` to run once per
@@ -126,6 +143,7 @@ The code is in `src/`:
 |---|---|
 | `main.cpp` | frame loop, hotkeys, overlay text, start-up patches |
 | `net.*` | UDP protocol (hello, state, car info, traffic, events, roster, restart, keep-alive) |
+| `netutil.h` | pure helpers: interpolation maths, traffic ids, name limits, validation of received numbers |
 | `game.cpp` | vehicles, spawning, the other player's car (ghost), race integration, autopilot |
 | `traffic.inl` | traffic, cop and race-opponent mirroring |
 | `event.inl` | shared event start, roster, co-op rules (speedbreaker, no pause, restart sync) |
