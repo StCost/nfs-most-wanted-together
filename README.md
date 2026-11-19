@@ -81,6 +81,8 @@ Every option is in `scripts\CoopMod.ini`, which comments each one. Main sections
   (`<game>\CoopMod-src\`), the script also installs the plugin into `<game>\scripts\`.
 - CI: every push builds the plugin (see **Actions**). To publish a release, run the **Build** workflow
   manually with a version number. It builds, packages the zip with the ASI loader, and creates the GitHub release.
+- Local release, without Actions: `tools\release.ps1 -Version 0.2.0` publishes a pre-release; add `-Final` for a
+  normal release. `-DryRun` only builds the zip in `dist\`.
 
 ## How it works (short)
 `CoopMod.asi` is loaded by the ASI loader inside `speed.exe`. It hooks Direct3D 9 `Present` to run once per
