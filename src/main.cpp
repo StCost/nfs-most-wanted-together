@@ -7,6 +7,7 @@
 #include <string>
 #include <cstdio>
 #include "log.h"
+#include "perf.h"
 #include "config.h"
 #include "net.h"
 #include "overlay.h"
@@ -47,6 +48,8 @@ namespace {
             g_netOk = Net::Init();
         }
 
+        Perf::FrameStart();
+        { Perf::Scope perfMenus(Perf::Menus);
         static int lastFlow = -2;
         int flowNow = Game::GameFlowState();
         Input::Tick();
@@ -69,6 +72,7 @@ namespace {
             lastFlow = flowNow;
         }
 
+        }
         // Hotkeys: F8 overlay, F9 ghost on/off (only while game window focused)
         bool fg = Overlay::GameWindow() == GetForegroundWindow();   // hotkeys only for the focused game
         bool down = (fg && GetAsyncKeyState(g_cfg.toggleKey) & 0x8000) != 0;
@@ -108,6 +112,7 @@ namespace {
         // --- networking ---
         CarState local{};
         bool haveLocal = false;
+        { Perf::Scope perfNet(Perf::Net);
         if (g_netOk) {
             Net::Poll();
             Net::Tick();
@@ -124,24 +129,30 @@ namespace {
             }
         }
 
+        }
         // --- ghost ---
         std::string ghostStatus = "off";
         const NetStats& st = Net::Stats();
+        { Perf::Scope perfGhost(Perf::Ghost);
         if (g_netOk && g_gameOk && st.connected) {
             ghostStatus = Game::UpdateGhost(Net::Latest(), Net::Previous(), g_ghostOn && g_cfg.ghostEnabled);
         } else if (g_gameOk) {
             Game::ReleaseGhost();
         }
-        if (g_netOk && g_gameOk) Game::TrafficTick(st.connected, Net::Latest());
-        if (g_netOk && g_gameOk) Game::PursuitTick(st.connected, Net::Latest());
+        }
+        { Perf::Scope p(Perf::Traffic); if (g_netOk && g_gameOk) Game::TrafficTick(st.connected, Net::Latest()); }
+        { Perf::Scope p(Perf::Pursuit); if (g_netOk && g_gameOk) Game::PursuitTick(st.connected, Net::Latest()); }
+        { Perf::Scope perfRules(Perf::Rules);
         if (g_netOk && g_gameOk) Game::EventTick(st.connected);
         if (g_netOk && g_gameOk) Game::CoopRulesTick(st.connected);
         if (g_netOk && g_gameOk) Game::PauseRuleTick(st.connected);
         if (g_gameOk) Game::AutopilotTick();
         Macro::Tick();
+        }
 
         // --- overlay text (rebuild ~5x per second, texture upload is not free) ---
         uint32_t now = GetTickCount();
+        Perf::Scope perfOverlay(Perf::Overlay);
         if (Overlay::IsVisible() && now - g_lastOverlay > 200) {
             g_lastOverlay = now;
             char buf[1024];
@@ -190,6 +201,7 @@ namespace {
             if (flow == 3 && FEScreens::Current()[0]) s += std::string("Screen: ") + FEScreens::Current() + "\n";
             if (!g_spawnMsg.empty()) s += "Spawn test (F10/F11): " + g_spawnMsg + "\n";
             s += Game::DebugInfo();
+            s += Perf::Summary();
             Overlay::SetText(s);
         }
     }
@@ -215,6 +227,7 @@ BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
         Net::SetDataDir(g_dir);
 
         // Front-end tweaks (code patches; applied before any menu exists, only if the bytes match v1.3).
+        Perf::Enable(g_cfg.perf);
         Game::InstallBootPatches();
         SetUnhandledExceptionFilter([](EXCEPTION_POINTERS* e) -> LONG {
             LOG("CRASH: exception %08X at %p", (unsigned)e->ExceptionRecord->ExceptionCode, e->ExceptionRecord->ExceptionAddress);

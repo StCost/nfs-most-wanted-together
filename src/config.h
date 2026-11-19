@@ -23,6 +23,7 @@ struct Config {
     bool        directFreeRoam = true;   // [Start] DirectFreeRoam - load career free roam right after the profile
     bool        skipLeaveSafeHouseDialog = true; // [Start] SkipLeaveSafeHouseDialog
     bool        skipPursuitResults = false; // [UI] SkipPursuitResults - close the pursuit result screen in free roam
+    bool        perf = false;            // [Debug] Perf - log fps / frame times / mod cost every 5 s
     bool        autoPilot = false;       // [Debug] AutoPilot - the AI drives the local car in free roam and races (F5 toggles)
     bool        runInBackground = true;  // [Coop] RunInBackground - keep running when the window loses focus
     bool        uiIntroInput = true;  // [UI] IntroInput - menus accept input while their intro animation plays
