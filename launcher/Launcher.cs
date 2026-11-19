@@ -1,11 +1,12 @@
 // NFS MW Together launcher: edits scripts\MWTogether.ini (comments kept) and starts speed.exe.
-// Lives next to speed.exe. Build: launcher\build.bat (csc from .NET Framework 4, no extra installs).
+// Lives next to speed.exe. Build (csc from .NET Framework 4, nothing to install):
+//   csc /target:winexe /out:MWTogetherLauncher.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll
+//       /resource:docs\banner.png,banner.png launcher\Launcher.cs
 using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -24,55 +25,147 @@ static class Ini {
     public static void SetB(string s, string k, bool v) { Set(s, k, v ? "1" : "0"); }
 }
 
+// Most Wanted look: near-black panels, light grey text, amber highlight.
+static class Theme {
+    public static readonly Color Back = Color.FromArgb(14, 16, 18), Panel = Color.FromArgb(28, 32, 36), Field = Color.FromArgb(40, 45, 50);
+    public static readonly Color Text = Color.FromArgb(225, 228, 230), Dim = Color.FromArgb(140, 148, 155), Accent = Color.FromArgb(242, 169, 0);
+    public static readonly Font Body = new Font("Segoe UI", 10f), Small = new Font("Segoe UI", 8.5f),
+                                Head = new Font("Segoe UI", 9f, FontStyle.Bold), Big = new Font("Segoe UI", 15f, FontStyle.Bold | FontStyle.Italic);
+}
+
 class LauncherForm : Form {
     readonly string gameDir;
-    TextBox name = new TextBox(), hostIp = new TextBox(), clientIp = new TextBox(), port = new TextBox();
-    RadioButton host = new RadioButton { Text = "Host (others join me)" }, join = new RadioButton { Text = "Join a host" };
-    CheckBox skipIntro = new CheckBox { Text = "Skip intro screens" }, direct = new CheckBox { Text = "Go straight into career free roam" },
-             noSafeHouse = new CheckBox { Text = "No \"leave the safe house?\" question" }, pursuitRes = new CheckBox { Text = "Close pursuit results by itself (free roam)" },
-             introInput = new CheckBox { Text = "Menus react during their animations" }, overlay = new CheckBox { Text = "Show status overlay (F8)" };
-    ComboBox menuSpeed = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
-    Label status = new Label { AutoSize = false, ForeColor = Color.DimGray };
+    const int W = 480;   // content width
+    TextBox name = new TextBox(), hostIp = new TextBox(), port = new TextBox();
+    Button hostBtn = new Button(), joinBtn = new Button(), play = new Button(), settingsBtn = new Button();
+    bool isHost = true;
+    Panel hostIpRow, myIpRow, settings;
+    Label myIps = new Label();
+    CheckBox skipIntro = Check("Skip the intro screens"), direct = Check("Go straight into career free roam"),
+             noSafeHouse = Check("No \"leave the safe house?\" question"), pursuitRes = Check("Close pursuit results by itself (free roam)"),
+             introInput = Check("Menus react during their animations"), overlay = Check("Show the status overlay (F8)");
+    Button[] speedBtns = { new Button(), new Button(), new Button() };
+    int menuSpeed = 2;
+    Label status = new Label { AutoSize = false, ForeColor = Theme.Accent, Font = Theme.Small };
+
+    static CheckBox Check(string t) {
+        return new CheckBox { Text = t, AutoSize = false, Size = new Size(W, 24), ForeColor = Theme.Text, Font = Theme.Body, FlatStyle = FlatStyle.Flat, Margin = new Padding(0, 1, 0, 1) };
+    }
+    static Label Caption(string t) {
+        return new Label { Text = t.ToUpperInvariant(), AutoSize = true, ForeColor = Theme.Dim, Font = Theme.Head, Margin = new Padding(0, 10, 0, 3) };
+    }
+    static void StyleField(TextBox tb) { tb.BorderStyle = BorderStyle.FixedSingle; tb.BackColor = Theme.Field; tb.ForeColor = Theme.Text; tb.Font = Theme.Body; }
+    static void StyleButton(Button b, string text, bool primary) {
+        b.Text = text; b.FlatStyle = FlatStyle.Flat; b.Cursor = Cursors.Hand; b.UseVisualStyleBackColor = false;
+        b.FlatAppearance.BorderColor = primary ? Theme.Accent : Theme.Field;
+        b.FlatAppearance.MouseOverBackColor = primary ? Color.FromArgb(255, 190, 40) : Color.FromArgb(55, 62, 68);
+        b.BackColor = primary ? Theme.Accent : Theme.Panel; b.ForeColor = primary ? Color.Black : Theme.Text;
+    }
+    static Panel Row(int h) { return new Panel { Size = new Size(W, h), Margin = new Padding(0), BackColor = Color.Transparent }; }
 
     public LauncherForm(string dir) {
         gameDir = dir;
         Text = "NFS MW Together";
-        FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false;
-        Font = new Font("Segoe UI", 9f);
-        ClientSize = new Size(440, 470);
+        FormBorderStyle = FormBorderStyle.FixedSingle; MaximizeBox = false;
+        BackColor = Theme.Back; ForeColor = Theme.Text; Font = Theme.Body;
         StartPosition = FormStartPosition.CenterScreen;
+        AutoSize = true; AutoSizeMode = AutoSizeMode.GrowAndShrink;
         try { Icon = Icon.ExtractAssociatedIcon(Path.Combine(dir, "speed.exe")); } catch { }
 
-        int y = 14;
-        Controls.Add(new Label { Text = "Your name", Location = new Point(16, y + 3), AutoSize = true });
-        name.SetBounds(130, y, 290, 24); Controls.Add(name); y += 34;
-        host.SetBounds(16, y, 200, 24); join.SetBounds(220, y, 200, 24); Controls.Add(host); Controls.Add(join); y += 30;
-        Controls.Add(new Label { Text = "Host's IP", Location = new Point(16, y + 3), AutoSize = true });
-        hostIp.SetBounds(130, y, 290, 24); Controls.Add(hostIp); y += 30;
-        Controls.Add(new Label { Text = "Friend's IP (optional)", Location = new Point(16, y + 3), AutoSize = true });
-        clientIp.SetBounds(150, y, 270, 24); Controls.Add(clientIp); y += 30;
-        Controls.Add(new Label { Text = "UDP port", Location = new Point(16, y + 3), AutoSize = true });
-        port.SetBounds(130, y, 80, 24); Controls.Add(port); y += 30;
-        var ips = new Label { Text = "My IPs: " + MyIps(), Location = new Point(16, y), Size = new Size(410, 34), ForeColor = Color.DimGray };
-        Controls.Add(ips); y += 40;
+        var root = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Padding = new Padding(0, 0, 0, 16), Margin = new Padding(0) };
+        Controls.Add(root);
 
-        foreach (var c in new Control[] { skipIntro, direct, noSafeHouse, pursuitRes, introInput, overlay }) { c.SetBounds(16, y, 410, 22); Controls.Add(c); y += 24; }
-        Controls.Add(new Label { Text = "Menu animation speed", Location = new Point(16, y + 3), AutoSize = true });
-        menuSpeed.Items.AddRange(new object[] { "1x (normal)", "2x", "3x" });
-        menuSpeed.SetBounds(170, y, 120, 24); Controls.Add(menuSpeed); y += 36;
+        // banner + title
+        var banner = new PictureBox { Size = new Size(W + 40, 228), SizeMode = PictureBoxSizeMode.Zoom, Margin = new Padding(0), BackColor = Color.Black };
+        try { var s = typeof(LauncherForm).Assembly.GetManifestResourceStream("banner.png"); if (s != null) banner.Image = Image.FromStream(s); } catch { }
+        banner.SizeMode = PictureBoxSizeMode.StretchImage;
+        root.Controls.Add(banner);
+        var body = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Padding = new Padding(20, 6, 20, 0), Margin = new Padding(0) };
+        root.Controls.Add(body);
+        body.Controls.Add(new Label { Text = "NFS MW TOGETHER", AutoSize = true, ForeColor = Theme.Accent, Font = Theme.Big, Margin = new Padding(0, 4, 0, 0) });
+        body.Controls.Add(new Label { Text = "Co-op career for Most Wanted", AutoSize = true, ForeColor = Theme.Dim, Font = Theme.Small, Margin = new Padding(2, 0, 0, 4) });
 
-        var play = new Button { Text = "Play", Font = new Font("Segoe UI", 11f, FontStyle.Bold) };
-        play.SetBounds(16, y, 200, 40); play.Click += (s, e) => Play(); Controls.Add(play);
-        var log = new Button { Text = "Open log" };
-        log.SetBounds(230, y, 90, 40); log.Click += (s, e) => OpenFile(Path.Combine(gameDir, "scripts", "MWTogether.log")); Controls.Add(log);
-        var ini = new Button { Text = "All settings" };
-        ini.SetBounds(330, y, 90, 40); ini.Click += (s, e) => OpenFile(Ini.Path); Controls.Add(ini);
-        y += 48;
-        status.SetBounds(16, y, 410, 20); Controls.Add(status);
+        // name
+        body.Controls.Add(Caption("Your name"));
+        StyleField(name); name.Size = new Size(W, 26); name.MaxLength = 15; name.Margin = new Padding(0);
+        body.Controls.Add(name);
+
+        // host / join
+        body.Controls.Add(Caption("Play as"));
+        var modeRow = Row(36);
+        StyleButton(hostBtn, "HOST", false); hostBtn.SetBounds(0, 0, W / 2 - 4, 34);
+        StyleButton(joinBtn, "JOIN", false); joinBtn.SetBounds(W / 2 + 4, 0, W / 2 - 4, 34);
+        hostBtn.Click += (s, e) => SetMode(true); joinBtn.Click += (s, e) => SetMode(false);
+        modeRow.Controls.Add(hostBtn); modeRow.Controls.Add(joinBtn);
+        body.Controls.Add(modeRow);
+
+        hostIpRow = Row(58);
+        var hl = Caption("Host's IP address"); hl.Location = new Point(0, 6); hostIpRow.Controls.Add(hl);
+        StyleField(hostIp); hostIp.SetBounds(0, 30, W, 26); hostIpRow.Controls.Add(hostIp);
+        body.Controls.Add(hostIpRow);
+
+        myIpRow = Row(46);
+        myIps.SetBounds(0, 8, W, 36); myIps.ForeColor = Theme.Dim; myIps.Font = Theme.Small;
+        myIps.Text = "Your friend joins with one of your IPs: " + MyIps();
+        myIpRow.Controls.Add(myIps);
+        body.Controls.Add(myIpRow);
+
+        // play
+        StyleButton(play, "PLAY", true); play.Font = new Font("Segoe UI", 14f, FontStyle.Bold | FontStyle.Italic);
+        play.Size = new Size(W, 48); play.Margin = new Padding(0, 14, 0, 6);
+        play.Click += (s, e) => Play();
+        body.Controls.Add(play);
+        status.Size = new Size(W, 18); status.Margin = new Padding(0);
+        body.Controls.Add(status);
+
+        // settings (collapsed)
+        StyleButton(settingsBtn, "Settings  ▸", false);
+        settingsBtn.TextAlign = ContentAlignment.MiddleLeft; settingsBtn.FlatAppearance.BorderSize = 0;
+        settingsBtn.BackColor = Theme.Back; settingsBtn.ForeColor = Theme.Dim; settingsBtn.Size = new Size(W, 28); settingsBtn.Margin = new Padding(0, 4, 0, 0);
+        settingsBtn.Click += (s, e) => { settings.Visible = !settings.Visible; settingsBtn.Text = settings.Visible ? "Settings  ▾" : "Settings  ▸"; };
+        body.Controls.Add(settingsBtn);
+
+        var sp = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = Theme.Panel, Padding = new Padding(12, 4, 12, 12), Margin = new Padding(0), Visible = false };
+        settings = sp;
+        foreach (var c in new CheckBox[] { skipIntro, direct, noSafeHouse, pursuitRes, introInput, overlay }) { c.Width = W - 24; sp.Controls.Add(c); }
+        var msRow = new Panel { Size = new Size(W - 24, 32), Margin = new Padding(0, 4, 0, 0) };
+        msRow.Controls.Add(new Label { Text = "Menu animation speed", AutoSize = true, Location = new Point(0, 6), ForeColor = Theme.Text });
+        for (int i = 0; i < 3; ++i) {
+            int v = i + 1;
+            speedBtns[i].SetBounds(200 + i * 62, 0, 58, 28);
+            speedBtns[i].Click += (s, e) => SetSpeed(v);
+            msRow.Controls.Add(speedBtns[i]);
+        }
+        sp.Controls.Add(msRow);
+        var portRow = new Panel { Size = new Size(W - 24, 32), Margin = new Padding(0, 2, 0, 0) };
+        portRow.Controls.Add(new Label { Text = "UDP port", AutoSize = true, Location = new Point(0, 6), ForeColor = Theme.Text });
+        StyleField(port); port.SetBounds(200, 2, 120, 26); portRow.Controls.Add(port);
+        sp.Controls.Add(portRow);
+        var btnRow = new Panel { Size = new Size(W - 24, 36), Margin = new Padding(0, 8, 0, 0) };
+        var log = new Button(); StyleButton(log, "Open log", false); log.SetBounds(0, 0, 130, 32);
+        log.Click += (s, e) => OpenFile(Path.Combine(gameDir, "scripts", "MWTogether.log"));
+        var ini = new Button(); StyleButton(ini, "All settings (ini)", false); ini.SetBounds(140, 0, 160, 32);
+        ini.Click += (s, e) => OpenFile(Ini.Path);
+        btnRow.Controls.Add(log); btnRow.Controls.Add(ini);
+        sp.Controls.Add(btnRow);
+        body.Controls.Add(sp);
+
         AcceptButton = play;
-
-        host.CheckedChanged += (s, e) => { hostIp.Enabled = join.Checked; clientIp.Enabled = host.Checked; };
         LoadSettings();
+    }
+
+    void SetSpeed(int v) {
+        menuSpeed = v;
+        for (int i = 0; i < 3; ++i) StyleButton(speedBtns[i], (i + 1) + "x", i + 1 == v);
+    }
+
+    public void ShowSettings() { settings.Visible = true; settingsBtn.Text = "Settings  ▾"; }
+
+    void SetMode(bool host) {
+        isHost = host;
+        StyleButton(hostBtn, "HOST", host); StyleButton(joinBtn, "JOIN", !host);
+        hostIpRow.Visible = !host;      // only joining needs the host's address
+        myIpRow.Visible = host;         // the host tells their friend their IP
     }
 
     static string MyIps() {
@@ -90,10 +183,7 @@ class LauncherForm : Form {
 
     void LoadSettings() {
         name.Text = Ini.Get("Player", "Name", Environment.UserName);
-        bool isHost = !Ini.Get("Network", "Mode", "host").Trim().Equals("client", StringComparison.OrdinalIgnoreCase);
-        host.Checked = isHost; join.Checked = !isHost;
         hostIp.Text = Ini.Get("Network", "HostIP", "");
-        clientIp.Text = Ini.Get("Network", "ClientIP", "");
         port.Text = Ini.Get("Network", "Port", "47555");
         skipIntro.Checked = Ini.GetB("Start", "SkipIntro", true);
         direct.Checked = Ini.GetB("Start", "DirectFreeRoam", true);
@@ -102,26 +192,25 @@ class LauncherForm : Form {
         introInput.Checked = Ini.GetB("UI", "IntroInput", true);
         overlay.Checked = Ini.GetB("Debug", "Overlay", false);
         int ms; if (!int.TryParse(Ini.Get("UI", "MenuSpeed", "2"), out ms)) ms = 2;
-        menuSpeed.SelectedIndex = Math.Max(0, Math.Min(2, ms - 1));
-        hostIp.Enabled = join.Checked; clientIp.Enabled = host.Checked;
+        SetSpeed(Math.Max(1, Math.Min(3, ms)));
+        SetMode(!Ini.Get("Network", "Mode", "host").Trim().Equals("client", StringComparison.OrdinalIgnoreCase));
     }
 
     bool Save() {
         int p;
         if (!int.TryParse(port.Text.Trim(), out p) || p < 1 || p > 65535) { status.Text = "The port must be a number from 1 to 65535."; return false; }
-        if (join.Checked && hostIp.Text.Trim().Length == 0) { status.Text = "Enter the host's IP address to join."; return false; }
+        if (!isHost && hostIp.Text.Trim().Length == 0) { status.Text = "Enter the host's IP address to join."; return false; }
         if (name.Text.Trim().Length == 0) { status.Text = "Enter your name."; return false; }
-        Ini.Set("Player", "Name", name.Text.Trim().Length > 15 ? name.Text.Trim().Substring(0, 15) : name.Text.Trim());
-        Ini.Set("Network", "Mode", host.Checked ? "host" : "client");
-        Ini.Set("Network", "HostIP", hostIp.Text.Trim());
-        Ini.Set("Network", "ClientIP", clientIp.Text.Trim());
+        Ini.Set("Player", "Name", name.Text.Trim());
+        Ini.Set("Network", "Mode", isHost ? "host" : "client");
+        if (!isHost) Ini.Set("Network", "HostIP", hostIp.Text.Trim());
         Ini.Set("Network", "Port", p.ToString());
         Ini.SetB("Start", "SkipIntro", skipIntro.Checked);
         Ini.SetB("Start", "DirectFreeRoam", direct.Checked);
         Ini.SetB("Start", "SkipLeaveSafeHouseDialog", noSafeHouse.Checked);
         Ini.SetB("UI", "SkipPursuitResults", pursuitRes.Checked);
         Ini.SetB("UI", "IntroInput", introInput.Checked);
-        Ini.Set("UI", "MenuSpeed", (menuSpeed.SelectedIndex + 1).ToString());
+        Ini.Set("UI", "MenuSpeed", menuSpeed.ToString());
         Ini.SetB("Debug", "Overlay", overlay.Checked);
         return true;
     }
@@ -138,6 +227,7 @@ class LauncherForm : Form {
 }
 
 static class Program {
+    [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
     [STAThread]
     static void Main() {
         string dir = AppDomain.CurrentDomain.BaseDirectory;
@@ -155,6 +245,17 @@ static class Program {
                 MessageBox.Show("NFS MW Together isn't installed: scripts\\MWTogether.asi is missing.", "NFS MW Together");
                 return;
             }
+        }
+        var args = Environment.GetCommandLineArgs();
+        if (args.Length >= 3 && args[1] == "--screenshot") {   // render to a PNG and exit (docs / checks)
+            var f = new LauncherForm(dir);
+            if (args.Length >= 4 && args[3] == "settings") f.ShowSettings();
+            f.StartPosition = FormStartPosition.Manual; f.Location = new Point(-4000, -4000); f.ShowInTaskbar = false;
+            f.Show(); for (int i = 0; i < 20; ++i) { Application.DoEvents(); System.Threading.Thread.Sleep(15); }
+            var bmp = new Bitmap(f.Width, f.Height);
+            f.DrawToBitmap(bmp, new Rectangle(0, 0, f.Width, f.Height));
+            bmp.Save(args[2], System.Drawing.Imaging.ImageFormat.Png);
+            return;
         }
         Application.Run(new LauncherForm(dir));
     }

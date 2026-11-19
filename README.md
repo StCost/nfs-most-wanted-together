@@ -43,8 +43,8 @@ Unticked items are still to do.
 - [x] Stays connected when a game is paused, minimized or alt-tabbed
 - [x] Game keeps running in the background when alt-tabbed
 - [x] Status overlay on F8, and it remembers whether you hid it
-- [x] Launcher (`MWTogetherLauncher.exe` next to `speed.exe`): name, host or join, IPs, start options, then Play (?)
-- [x] A short notice in the corner when the other player joins or leaves, even with the overlay hidden (?)
+- [x] Launcher (`MWTogetherLauncher.exe` next to `speed.exe`) in the game's style: name, host or join, the host's IP, start options under Settings, then Play
+- [x] A short notice in the corner when the other player joins or leaves, even with the overlay hidden
 - [ ] Those notices in the game's own UI (text messages / chyron)
 - [ ] Joining while the other player is in a race (you wait in free roam and join the next event)
 - [ ] Safer internet play (only accept packets from your partner, resend important messages)
