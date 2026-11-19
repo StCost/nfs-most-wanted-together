@@ -10,3 +10,4 @@ package/
 *.peercar.bin
 tools/saves.ps1
 .vs/
+dist/

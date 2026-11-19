@@ -1,0 +1,57 @@
+# Local release (same result as the GitHub "Build" workflow, without Actions):
+#   tools\release.ps1 -Version 0.2.0            build, package, publish a pre-release on GitHub
+#   tools\release.ps1 -Version 0.2.0 -Final     publish as a normal (latest) release
+#   tools\release.ps1 -Version 0.2.0 -DryRun    only build and package (dist\CoopMod-0.2.0.zip)
+# Needs: Visual Studio 2022 C++ (x86), and the GitHub CLI (gh) logged in for publishing.
+param(
+    [Parameter(Mandatory = $true)][string]$Version,
+    [switch]$Final,
+    [switch]$DryRun
+)
+$ErrorActionPreference = 'Stop'
+$root = Split-Path $PSScriptRoot -Parent
+Set-Location $root
+
+if (-not $DryRun) {
+    if (git status --porcelain) { throw "Uncommitted changes - commit or stash them first." }
+    if (git tag --list "v$Version") { throw "Tag v$Version already exists." }
+}
+
+# 1. build with the version stamped in
+$env:COOPMOD_VERSION = $Version
+& (Join-Path $root "build.bat")
+if ($LASTEXITCODE -ne 0) { throw "build failed" }
+Remove-Item Env:COOPMOD_VERSION
+
+# 2. package: dinput8.dll (Ultimate ASI Loader, MIT) + scripts\CoopMod.asi/.ini + README
+$dist = Join-Path $root 'dist'
+$pkg = Join-Path $dist "CoopMod-$Version"
+Remove-Item $pkg -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force (Join-Path $pkg 'scripts') | Out-Null
+Copy-Item build\CoopMod.asi, CoopMod.ini (Join-Path $pkg 'scripts')
+Copy-Item README.md $pkg
+
+$loader = Join-Path $dist 'dinput8.dll'
+if (-not (Test-Path $loader)) {
+    $tmp = Join-Path $env:TEMP "uasi-$([guid]::NewGuid())"
+    New-Item -ItemType Directory $tmp | Out-Null
+    Invoke-WebRequest 'https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/latest/download/Ultimate-ASI-Loader.zip' -OutFile "$tmp\uasi.zip"
+    Expand-Archive "$tmp\uasi.zip" -DestinationPath "$tmp\x"
+    Copy-Item "$tmp\x\dinput8.dll" $loader
+    Remove-Item $tmp -Recurse -Force
+}
+Copy-Item $loader $pkg
+
+$zip = Join-Path $dist "CoopMod-$Version.zip"
+Remove-Item $zip -ErrorAction SilentlyContinue
+Compress-Archive -Path "$pkg\*" -DestinationPath $zip
+Write-Host "Packaged $zip"
+if ($DryRun) { return }
+
+# 3. tag + GitHub release
+git tag "v$Version"
+git push origin "v$Version"
+$flags = @('--generate-notes', '--title', "CoopMod $Version")
+if (-not $Final) { $flags += '--prerelease' }
+gh release create "v$Version" $zip @flags
+Write-Host "Released v$Version"
