@@ -43,8 +43,9 @@ Unticked items are still to do.
 - [x] Stays connected when a game is paused, minimized or alt-tabbed
 - [x] Game keeps running in the background when alt-tabbed
 - [x] Status overlay on F8, and it remembers whether you hid it
-- [ ] Lobby / launcher with name, host-or-join and IP fields
-- [ ] Notifications in the game's own UI when someone joins or leaves
+- [x] Launcher (`MWTogetherLauncher.exe` next to `speed.exe`): name, host or join, IPs, start options, then Play (?)
+- [x] A short notice in the corner when the other player joins or leaves, even with the overlay hidden (?)
+- [ ] Those notices in the game's own UI (text messages / chyron)
 - [ ] Joining while the other player is in a race (you wait in free roam and join the next event)
 - [ ] Safer internet play (only accept packets from your partner, resend important messages)
 - [ ] Up to 4 players
@@ -110,8 +111,8 @@ Every option is in `scripts\MWTogether.ini`, which comments each one. Main secti
 - Visual Studio 2022 with the C++ workload (MSVC x86).
 - Run `build.bat`. It produces `build\MWTogether.asi`. When this folder sits inside the game folder
   (`<game>\MWTogether-src\`), the script also installs the plugin into `<game>\scripts\`.
-- CI: every push builds the plugin (see **Actions**). To publish a release, run the **Build** workflow
-  manually with a version number. It builds, packages the zip with the ASI loader, and creates the GitHub release.
+- Optional CI: nothing runs automatically. If you want, run the **Build** workflow by hand in the **Actions** tab;
+  with a version number it also packages the zip with the ASI loader and creates the GitHub release.
 - Local release, without Actions: `tools\release.ps1 -Version 0.2.0` publishes a pre-release; add `-Final` for a
   normal release. `-DryRun` only builds the zip in `dist\`.
 

@@ -20,7 +20,7 @@ Thanks for helping! This is a reverse-engineering-heavy project, so a few rules 
 
 ## Workflow
 1. Fork or branch from `main`: `feature/<name>` or `fix/<name>`.
-2. Build with `build.bat`. CI builds every pull request.
+2. Build with `build.bat`. (CI is optional and manual, nothing runs on push.)
 3. Test on two PCs (LAN or VPN), host and client.
 4. Open a pull request with what changed, how you tested it, and any new addresses with their source.
 

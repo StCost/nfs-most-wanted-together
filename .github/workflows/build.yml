@@ -1,9 +1,7 @@
 name: Build
 
+# Manual only (Actions tab > Build > Run workflow). Optional: local builds/releases work without it.
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
     inputs:
       version:

@@ -72,7 +72,7 @@ class LauncherForm : Form {
         AcceptButton = play;
 
         host.CheckedChanged += (s, e) => { hostIp.Enabled = join.Checked; clientIp.Enabled = host.Checked; };
-        Load();
+        LoadSettings();
     }
 
     static string MyIps() {
@@ -88,7 +88,7 @@ class LauncherForm : Form {
 
     void OpenFile(string p) { try { if (File.Exists(p)) Process.Start("notepad.exe", "\"" + p + "\""); else status.Text = "Not found yet: " + p; } catch (Exception ex) { status.Text = ex.Message; } }
 
-    void Load() {
+    void LoadSettings() {
         name.Text = Ini.Get("Player", "Name", Environment.UserName);
         bool isHost = !Ini.Get("Network", "Mode", "host").Trim().Equals("client", StringComparison.OrdinalIgnoreCase);
         host.Checked = isHost; join.Checked = !isHost;
