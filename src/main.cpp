@@ -172,6 +172,7 @@ namespace {
             local.gameFlowState = Game::GameFlowState();
             haveLocal = g_gameOk && Game::ReadLocalCar(local);
             local.hasCar = haveLocal ? 1 : 0;
+            local.nisHash = g_gameOk ? Game::NisSceneHash() : 0;   // also during scenes without a car
 
             static double nextSend = 0;
             double nowMs = Net::NowMs();
@@ -199,6 +200,7 @@ namespace {
         if (g_netOk && g_gameOk) Game::CoopRulesTick(st.connected);
         if (g_netOk && g_gameOk) Game::PauseRuleTick(st.connected);
         if (g_gameOk) Game::AutopilotTick();
+        if (g_netOk && g_gameOk) Game::NisTick(st.connected);
         Macro::Tick();
         }
 
@@ -214,6 +216,22 @@ namespace {
             } else if (st.connected && !st.peerName.empty() && g_toast == "Player joined") {
                 Toast(st.peerName + " joined");   // the name arrives right after the connection
             }
+        }
+        // --- the other player is in an event while we roam (or back): say so ---
+        {
+            static int lastPeerRacing = -1;
+            const Net::Snapshot& pr = Net::Latest();
+            int peerRacing = (st.connected && pr.valid && pr.s.hasCar && pr.s.inRace) ? 1 : 0;
+            bool meRacing = haveLocal && local.inRace;
+            if (lastPeerRacing >= 0 && peerRacing != lastPeerRacing && !meRacing && st.connected) {
+                std::string who = st.peerName.empty() ? std::string("The other player") : st.peerName;
+                Toast(peerRacing ? who + " is in a race - you'll go together in the next event" : who + " is back in free roam");
+            }
+            lastPeerRacing = peerRacing;
+        }        {   // cutscene skip votes
+            static std::string lastNis;
+            std::string ns = g_gameOk ? Game::NisStatus() : "";
+            if (ns != lastNis) { if (!ns.empty()) Toast("Cutscene: " + ns); lastNis = ns; }
         }
         bool toastOn = !g_toast.empty() && GetTickCount() < g_toastUntil;
         Overlay::SetForceShow(toastOn);
@@ -269,6 +287,7 @@ namespace {
                 s += tb;
             }
             s += std::string("AutoStart: ") + AutoStart::Status() + "\n";
+            if (Game::NisStatus()[0]) s += std::string("Cutscene: ") + Game::NisStatus() + "\n";
             if (Game::EventStatus()[0]) s += std::string("Event: ") + Game::EventStatus() + "\n";
             if (flow == 3 && FEScreens::Current()[0]) s += std::string("Screen: ") + FEScreens::Current() + "\n";
             if (!g_spawnMsg.empty()) s += "Spawn test (F10/F11): " + g_spawnMsg + "\n";

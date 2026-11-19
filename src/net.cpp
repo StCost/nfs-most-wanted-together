@@ -196,6 +196,11 @@ namespace {
             if (Net::OnEvent) Net::OnEvent(p->eventHash, id);
             break;
         }
+        case PKT_NISSKIP: {
+            if (len < (int)sizeof(EventPacket)) return;
+            if (Net::OnNisSkip) Net::OnNisSkip(((const EventPacket*)buf)->eventHash);
+            break;
+        }
         case PKT_RESTART: {
             if (len < (int)sizeof(EventPacket)) return;
             const EventPacket* p = (const EventPacket*)buf;
@@ -421,6 +426,15 @@ void (*Net::OnEvent)(uint32_t, const char*) = nullptr;
 void (*Net::OnRoster)(const RosterPacket&) = nullptr;
 void (*Net::OnRacerName)(uint16_t, const char*) = nullptr;
 void (*Net::OnRestart)(uint32_t) = nullptr;
+void (*Net::OnNisSkip)(uint32_t) = nullptr;
+
+void Net::SendNisSkip(uint32_t sceneHash) {
+    if (!g_stats.connected) return;
+    EventPacket p{};
+    FillHeader(p.h, PKT_NISSKIP);
+    p.eventHash = sceneHash;
+    for (int i = 0; i < 3; ++i) SendRaw(&p, sizeof(p));
+}
 
 void Net::SendRestart(uint32_t eventHash) {
     if (!g_stats.connected) return;

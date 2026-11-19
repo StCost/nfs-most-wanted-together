@@ -15,7 +15,8 @@ enum PacketType : uint16_t {
     PKT_EVENT   = 8, // "I just started this career event" (both directions)
     PKT_ROSTER  = 9, // one AI opponent of the event the sender starts (sent before PKT_EVENT)
     PKT_RACERNAME = 10, // host -> client: display name of a race opponent (by traffic id)
-    PKT_RESTART = 11,   // "I restarted the current race" (EventPacket layout)
+    PKT_RESTART = 11,
+    PKT_NISSKIP = 12,   // "I want to skip this cutscene" (EventPacket layout, eventHash = scene hash)   // "I restarted the current race" (EventPacket layout)
 };
 
 struct PacketHeader {
@@ -54,6 +55,7 @@ struct CarState {
     int16_t  pursuitHeat;   // heat x10 of the sender's pursuit, 0 = not in a pursuit
     float    racePct;
     float    lapPct;
+    uint32_t nisHash;       // cutscene the sender is watching (scene name hash), 0 = none
 };
 
 struct StatePacket {
@@ -115,7 +117,7 @@ struct TrafficPacket {
 #pragma pack(pop)
 
 constexpr uint32_t COOP_MAGIC   = 0x4F43574D; // "MWCO"
-constexpr uint16_t COOP_VERSION = 9;
+constexpr uint16_t COOP_VERSION = 10;
 
 struct NetStats {
     bool        connected = false;
@@ -160,6 +162,8 @@ namespace Net {
     extern void (*OnRoster)(const RosterPacket& p);
     void SendRacerName(uint16_t id, const char* name);
     void SendRestart(uint32_t eventHash);
+    void SendNisSkip(uint32_t sceneHash);
+    extern void (*OnNisSkip)(uint32_t sceneHash);
     extern void (*OnRestart)(uint32_t eventHash);
     extern void (*OnRacerName)(uint16_t id, const char* name);
 

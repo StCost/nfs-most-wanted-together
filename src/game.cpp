@@ -445,6 +445,7 @@ bool Game::ReadLocalCar(CarState& out) {
             }
         }
         out.pursuitHeat = Game::LocalPursuitHeat();
+        out.nisHash = Game::NisSceneHash();
         return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         LOG("ReadLocalCar: exception");
@@ -634,6 +635,7 @@ bool Game::InstallVehicleFactoryHook() {
     InstallEventSync();
     InstallRestartSync();
     InstallStreamHook();
+    InstallNisHook();
     InstallMinimapHook();
     InstallWorldMapHook();
     LOG("Hooked vehicle factory (races: AI racer -> peer car)");
@@ -690,6 +692,7 @@ bool Game::ReadLocalCarInfo(CarInfo& out) {
 #include "pursuit.inl"
 #include "stream.inl"
 #include "boot.inl"
+#include "nis.inl"
 
 void Game::ReleaseGhost() {
     g_streamPeer = false;

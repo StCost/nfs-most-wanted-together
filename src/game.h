@@ -43,7 +43,11 @@ namespace Game {
     bool InstallStreamHook();
     void InstallBootPatches();          // call from DllMain (before the front end starts)
     void BootTick();
-    void PursuitResultTick();           // [UI] SkipPursuitResults                    // [Start] DirectFreeRoam
+    void PursuitResultTick();
+    bool InstallNisHook();              // cutscene skip voting
+    void NisTick(bool connected);
+    uint32_t NisSceneHash();
+    const char* NisStatus();           // [UI] SkipPursuitResults                    // [Start] DirectFreeRoam
     bool DirectStartActive();   // co-op rules (no speedbreaker)
     std::string DebugStartEvent(const char* eventId);   // F7 test
     void TrafficTick(bool connected, const Net::Snapshot& peer);
