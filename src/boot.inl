@@ -36,6 +36,17 @@ namespace {
         return ((bool(__thiscall*)(void*, uint32_t, int))0x5DCA70)(db, eh, 2);
     }
 
+    // "Press accept" on a front-end screen: a real key when the game is focused, otherwise the FE
+    // message the pad/keyboard would produce (PAD_ACCEPT 0x406415E3 via cFEng::QueueGameMessage
+    // 0x516C50), so the fast start also works with the game in the background.
+    bool PressAccept(const char* pkg) {
+        if (Overlay::GameWindow() == GetForegroundWindow()) return Input::Tap(0x1C);
+        void* fe = nullptr;
+        if (!Mem::Read(0x91CADC, fe) || !fe) return false;
+        ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0x406415E3, pkg, 0xFF);
+        return true;
+    }
+
     enum class Boot { Waiting, Settling, Done } g_boot = Boot::Waiting;
     DWORD g_bootReadyAt = 0;
 
@@ -110,7 +121,7 @@ void Game::BootTick() {
             if (!since) since = GetTickCount();
             if (GetTickCount() - since > 1500 && GetTickCount() - lastTap > 2500) {
                 lastTap = GetTickCount();
-                if (Input::Tap(0x1C)) LOG("Start: pressing START on the title screen");
+                if (PressAccept("WS_MW_LS_Splash.fng")) LOG("Start: pressing START on the title screen");
             }
             return;
         }
@@ -119,7 +130,7 @@ void Game::BootTick() {
             if (!since) since = GetTickCount();
             if (GetTickCount() - since > 800 && GetTickCount() - lastTap > 2500) {
                 lastTap = GetTickCount();
-                if (Input::Tap(0x1C)) LOG("Start: confirming the profile load screen (ENTER)");
+                if (PressAccept("MC_Main.fng")) LOG("Start: confirming the profile load screen");
             }
             return;
         }

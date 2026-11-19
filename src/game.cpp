@@ -3,6 +3,7 @@
 #include "log.h"
 #include "config.h"
 #include "input.h"
+#include "overlay.h"
 #include <cmath>
 #include <cstdio>
 #include <initializer_list>

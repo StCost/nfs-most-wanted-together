@@ -29,6 +29,7 @@ namespace {
     bool     g_ghostKeyWasDown = false;
     bool     g_ghostOn = true;
     std::string g_spawnMsg;
+    HWND        g_prevForeground = nullptr;   // the window that had focus when the game started
 
     const char* FlowName(int s) {
         switch (s) {
@@ -46,6 +47,21 @@ namespace {
             LOG("First frame rendered");
             g_gameOk = Game::Init();
             g_netOk = Net::Init();
+        }
+        // [Window] StartInBackground: once the game window exists, hand the focus back to the window
+        // that had it before launch, and tell the game it's inactive (it mutes itself, like alt-tab).
+        static int bgFrames = 0;
+        if (g_cfg.startInBackground && bgFrames >= 0 && ++bgFrames > 3) {
+            HWND gw = Overlay::GameWindow();
+            if (gw) {
+                bgFrames = -1;
+                if (g_prevForeground && g_prevForeground != gw && IsWindow(g_prevForeground)) SetForegroundWindow(g_prevForeground);
+                if (GetForegroundWindow() != gw) {
+                    PostMessageA(gw, WM_ACTIVATE, WA_INACTIVE, 0);
+                    PostMessageA(gw, WM_ACTIVATEAPP, FALSE, 0);
+                }
+                LOG("Window: started in the background (focus returned, game muted until clicked)");
+            }
         }
 
         Perf::FrameStart();
@@ -228,6 +244,7 @@ BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
 
         // Front-end tweaks (code patches; applied before any menu exists, only if the bytes match v1.3).
         Perf::Enable(g_cfg.perf);
+        g_prevForeground = GetForegroundWindow();
         Game::InstallBootPatches();
         SetUnhandledExceptionFilter([](EXCEPTION_POINTERS* e) -> LONG {
             LOG("CRASH: exception %08X at %p", (unsigned)e->ExceptionRecord->ExceptionCode, e->ExceptionRecord->ExceptionAddress);

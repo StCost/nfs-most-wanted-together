@@ -36,6 +36,7 @@ void Config::Load(const char* ini) {
     runInBackground = ReadInt(ini, "Coop", "RunInBackground", 1) != 0;
     autoPilot = ReadInt(ini, "Debug", "AutoPilot", 0) != 0;
     perf = ReadInt(ini, "Debug", "Perf", 0) != 0;
+    startInBackground = ReadInt(ini, "Window", "StartInBackground", 0) != 0;
     skipPursuitResults = ReadInt(ini, "UI", "SkipPursuitResults", 0) != 0;
     skipIntro = ReadInt(ini, "Start", "SkipIntro", 1) != 0;
     directFreeRoam = ReadInt(ini, "Start", "DirectFreeRoam", 1) != 0;

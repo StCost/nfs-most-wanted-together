@@ -54,9 +54,9 @@ Unticked items are still to do.
 - [x] Smooth movement of the other player's car (about 1-10 mm of jitter)
 - [x] Spawn protection, so two cars appearing on the same spot don't launch each other
 - [x] Other player's blip on the minimap
-- [x] Other player on the world map, coloured like your own arrow and moving while the map is open (?)
-- [x] Car-to-car collisions between players (?)
-- [x] Your names in the race standings instead of the shared save name (?)
+- [x] Other player on the world map, coloured like your own arrow and moving while the map is open
+- [x] Car-to-car collisions between players
+- [x] Your names in the race standings instead of the shared save name
 
 ### The world
 - [x] Shared traffic when you're near each other
@@ -66,14 +66,14 @@ Unticked items are still to do.
 - [x] Cars near the other player keep full physics instead of floating along the road (?)
 - [x] Hitting the other player's traffic or cops pushes them on their PC too (?)
 - [x] Pause menu and world map don't freeze the world while you're connected
-- [x] No speedbreaker in co-op (slow motion can't work for two people) (?)
+- [x] No speedbreaker in co-op (slow motion can't work for two people)
 
 ### Events and races
 - [x] Starting an event takes the other player into it too
 - [x] Both games build the same AI opponents (car models and tuning)
-- [x] Opponents on the client follow the host's opponents, so the race looks the same on both screens (?)
-- [x] Opponent names match on both PCs (?)
-- [x] Race positions use each player's real progress (?)
+- [x] Opponents on the client follow the host's opponents, so the race looks the same on both screens
+- [x] Opponent names match on both PCs
+- [x] Race positions use each player's real progress
 - [x] Restarting a race restarts it for both of you (?)
 - [x] Race intro cutscenes play normally for both
 - [ ] Both players get credit for a win (cash, unlocks, bounty)
@@ -88,13 +88,14 @@ Unticked items are still to do.
 
 ### Quality of life (settings in `[Start]` and `[UI]`)
 - [x] Skip the intro logos and movie and load straight into career free roam after the profile (`SkipIntro`, `DirectFreeRoam`)
-- [x] No "leave the safe house?" question (`SkipLeaveSafeHouseDialog`) (?)
-- [x] Menus react while their opening animation plays, and animate 2x faster (`IntroInput`, `MenuSpeed`) (?)
+- [x] No "leave the safe house?" question (`SkipLeaveSafeHouseDialog`)
+- [x] Menus react while their opening animation plays, and animate 2x faster (`IntroInput`, `MenuSpeed`)
 - [x] Optional: close the pursuit result screen in free roam by itself, off by default (`SkipPursuitResults`) (?)
 
 ### Test tools (`[Debug] TestKeys=1`)
 - [x] **F5** autopilot: the game's AI drives your car, cruising in free roam and following the route in races. `AutoPilot=1` turns it on by itself
 - [ ] Autopilot uses nitrous
+- [x] `[Window] StartInBackground=1`: the game starts without taking the focus and stays muted until you click it; the fast start works in the background too
 - [x] Performance diagnostics: `[Debug] Perf=1` logs fps, 1% lows, worst frame and how many milliseconds each part of the mod takes, every 5 seconds (it's also shown in the F8 overlay)
 - [x] **F7** starts the test event (`TestEvent`) for both players
 - [x] **F10 / F11** spawn or remove a test copy of the other player's car, **F12** spawns a test cop
