@@ -262,3 +262,15 @@ bool Game::InstallRestartSync() {
     };
     return true;
 }
+// Test command: restart the current race here (the restart is then sent to the peer as usual).
+static const char* DebugRestartSafe() {
+    __try {
+        int mode = 0; CurrentParms(&mode);
+        if (Game::GameFlowState() != 6 || mode != 1) return "not racing";
+        return TriggerRestart() ? "restarting the race" : "restart failed";
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return "exception"; }
+}
+std::string Game::DebugRestart() {
+    if (!g_ok) return "game not recognised";
+    return DebugRestartSafe();
+}

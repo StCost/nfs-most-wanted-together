@@ -8,6 +8,8 @@
 #include <cstdio>
 #include "log.h"
 #include "perf.h"
+#include <vector>
+#include <share.h>
 #include "config.h"
 #include "net.h"
 #include "overlay.h"
@@ -124,6 +126,35 @@ namespace {
         if (g_cfg.testKeys && d12 && !f12) g_spawnMsg = Game::DebugSpawnCop();
         f12 = d12;
         f10 = d10; f11 = d11;
+
+        // Test commands ([Debug] TestKeys=1): one command per line in scripts\MWTogether.cmd, the file is
+        // deleted once read. Lets tests drive the game while it runs in the background.
+        //   event <id> | restart | autopilot | cop | clone | unclone
+        static DWORD nextCmdCheck = 0;
+        if (g_cfg.testKeys && g_gameOk && GetTickCount() >= nextCmdCheck) {
+            nextCmdCheck = GetTickCount() + 500;
+            std::string cmdPath = std::string(g_dir) + "MWTogether.cmd";
+            if (FILE* cf = _fsopen(cmdPath.c_str(), "r", _SH_DENYNO)) {
+                char line[128];
+                std::vector<std::string> cmds;
+                while (fgets(line, sizeof(line), cf)) { std::string s = line; while (!s.empty() && (s.back() == '\n' || s.back() == '\r' || s.back() == ' ')) s.pop_back(); if (!s.empty()) cmds.push_back(s); }
+                fclose(cf);
+                DeleteFileA(cmdPath.c_str());
+                for (const std::string& c : cmds) {
+                    std::string r;
+                    if (c.rfind("event ", 0) == 0) r = Game::DebugStartEvent(c.substr(6).c_str());
+                    else if (c == "event") r = Game::DebugStartEvent(g_cfg.testEvent.c_str());
+                    else if (c == "restart") r = Game::DebugRestart();
+                    else if (c == "autopilot") r = Game::ToggleAutopilot();
+                    else if (c == "cop") r = Game::DebugSpawnCop();
+                    else if (c == "clone") r = Game::DebugSpawnClone();
+                    else if (c == "unclone") r = Game::DebugKillClone();
+                    else r = "unknown command";
+                    LOG("Command '%s': %s", c.c_str(), r.c_str());
+                    g_spawnMsg = r;
+                }
+            }
+        }
 
         // --- networking ---
         CarState local{};
