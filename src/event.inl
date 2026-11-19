@@ -64,6 +64,8 @@ namespace {
         // free the vehicle budget so every racer can be built: our free-roam copy of the peer's car
         // and the traffic mirrors go (the race builds the peer's car itself)
         Game::ReleaseGhost();
+        g_racerReplacedThisLoad = false;   // a new race (also when started from free roam: no world load)
+        g_replacedRacer = nullptr;
         g_noSpawnUntil = GetTickCount() + 8000;
         for (auto& m : g_mirrors) if (m.used) RemoveMirror(m);
         g_joinStartedAt = GetTickCount();
@@ -213,9 +215,11 @@ namespace {
         LOG("Coop: pause menu %s%s", on ? "no longer stops the world" : "pauses again", ok ? "" : " (patch FAILED)");
     }
 
-    void TriggerRestart() {
+    bool TriggerRestart() {
         void* m = ((void*(__cdecl*)(uint32_t))0x627400)(8);
-        if (m) ((void*(__thiscall*)(void*))0x6307F0)(m);
+        if (!m) return false;
+        ((void*(__thiscall*)(void*))0x6307F0)(m);
+        return true;
     }
 }
 
@@ -252,7 +256,7 @@ bool Game::InstallRestartSync() {
             if (Game::GameFlowState() != 6 || mode != 1 || pending) { LOG("Race: peer restarted, but we're not racing - ignored"); return; }
             if (hash && EventHashOf(parms) != hash) { LOG("Race: peer restarted a different event - ignored"); return; }
             g_restartFromPeer = true;
-            TriggerRestart();
+            if (!TriggerRestart()) { g_restartFromPeer = false; LOG("Race: restart failed"); return; }
             LOG("Race: peer restarted the race - restarting here too");
         } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Race: exception restarting"); }
     };

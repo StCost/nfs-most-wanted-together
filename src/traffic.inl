@@ -308,6 +308,7 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
     const float* myPos = RB_GetVec(myRb, RB_GetPosition);
     float distToPeer = Dist(myPos, peer.s.pos);
     static double nextSend = 0;
+    if (nextSend - now > 1000) nextSend = now;   // the sim clock restarted (world reload)
     bool sendNow = now >= nextSend;
     if (sendNow) nextSend = now + 50; // 20 Hz
 
@@ -327,6 +328,7 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
         }
         // opponents' names, every 2 s while racing (the client shows the same names)
         static double nextNames = 0;
+        if (nextNames - now > 5000) nextNames = now;
         if (inRace && now >= nextNames) {
             nextNames = now + 2000;
             void** b = nullptr;

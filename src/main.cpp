@@ -69,14 +69,15 @@ namespace {
         }
 
         // Hotkeys: F8 overlay, F9 ghost on/off (only while game window focused)
-        bool down = (GetAsyncKeyState(g_cfg.toggleKey) & 0x8000) != 0;
+        bool fg = Overlay::GameWindow() == GetForegroundWindow();   // hotkeys only for the focused game
+        bool down = (fg && GetAsyncKeyState(g_cfg.toggleKey) & 0x8000) != 0;
         if (down && !g_keyWasDown) {
             Overlay::SetVisible(!Overlay::IsVisible());
             // remember it for the next launch
             WritePrivateProfileStringA("Debug", "Overlay", Overlay::IsVisible() ? "1" : "0", (std::string(g_dir) + "MWTogether.ini").c_str());
         }
         g_keyWasDown = down;
-        bool gdown = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
+        bool gdown = (fg && GetAsyncKeyState(VK_F9) & 0x8000) != 0;
         if (gdown && !g_ghostKeyWasDown) {
             g_ghostOn = !g_ghostOn;
             if (!g_ghostOn) Game::ReleaseGhost();
@@ -86,19 +87,19 @@ namespace {
 
         // Debug: F10 spawn a clone of my car, F11 remove it
         static bool f10 = false, f11 = false;
-        bool d10 = (GetAsyncKeyState(VK_F10) & 0x8000) != 0, d11 = (GetAsyncKeyState(VK_F11) & 0x8000) != 0;
+        bool d10 = (fg && GetAsyncKeyState(VK_F10) & 0x8000) != 0, d11 = (fg && GetAsyncKeyState(VK_F11) & 0x8000) != 0;
         if (g_cfg.testKeys && d10 && !f10) g_spawnMsg = Game::DebugSpawnClone();
         if (g_cfg.testKeys && d11 && !f11) g_spawnMsg = Game::DebugKillClone();
         static bool f7 = false;
-        bool d7 = (GetAsyncKeyState(VK_F7) & 0x8000) != 0;
+        bool d7 = (fg && GetAsyncKeyState(VK_F7) & 0x8000) != 0;
         if (g_cfg.testKeys && d7 && !f7) g_spawnMsg = Game::DebugStartEvent(g_cfg.testEvent.c_str());
         f7 = d7;
         static bool f5 = false;
-        bool d5 = (GetAsyncKeyState(VK_F5) & 0x8000) != 0;
+        bool d5 = (fg && GetAsyncKeyState(VK_F5) & 0x8000) != 0;
         if (g_cfg.testKeys && d5 && !f5 && Overlay::GameWindow() == GetForegroundWindow()) g_spawnMsg = Game::ToggleAutopilot();
         f5 = d5;
         static bool f12 = false;
-        bool d12 = (GetAsyncKeyState(VK_F12) & 0x8000) != 0;
+        bool d12 = (fg && GetAsyncKeyState(VK_F12) & 0x8000) != 0;
         if (g_cfg.testKeys && d12 && !f12) g_spawnMsg = Game::DebugSpawnCop();
         f12 = d12;
         f10 = d10; f11 = d11;

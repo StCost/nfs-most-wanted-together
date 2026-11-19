@@ -244,6 +244,7 @@ namespace {
 
     bool DisableAI(void* iv) {
         if (!IsVehicle(iv)) return false;
+        for (auto& o : g_aiOv) if (o.iv && !ListContains(-1, o.iv)) o.iv = nullptr;   // cars that are gone
         for (auto& o : g_aiOv) if (o.iv == iv) return true;
         void* ai = VCall<void* (__thiscall*)(void*)>(iv, 0xAC / 4)(iv);   // GetAIVehiclePtr
         if (!ai) return false;
@@ -639,6 +640,7 @@ bool Game::InstallVehicleFactoryHook() {
 }
 
 void Game::OnFlow(int flow) {
+    if (flow != 6) for (auto& o : g_aiOv) o.iv = nullptr;   // world unloading: the cars (and their AI) are gone
     static int last = -1;
     if (flow != last) {
         if (flow == 4) { g_racerReplacedThisLoad = false; g_replacedRacer = nullptr; g_spawnFails = 0; } // new world loading
@@ -697,6 +699,10 @@ void Game::ReleaseGhost() {
                 if (g_ghostKind == GK_SPAWNED) KillVehicle(g_ghost); // our own car: remove it
                 else SetCollisions(g_ghost, true);                 // borrowed car: give it back
             }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        __try {
+            if (g_ghostKind == GK_RACER) RestoreAI(g_ghost);          // give the racer its AI back
+            ReleaseRetarget(PursuitOf(LocalVehicle()));               // no cop may keep chasing a dead car
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
         g_ghostKind = GK_NONE;
         g_spawnedKey = g_spawnedHash = 0;

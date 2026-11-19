@@ -60,6 +60,7 @@ int16_t Game::LocalPursuitHeat() {
 
 static void PursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     double now = Net::LocalClockMs();
+    if (g_nextPursuitCheck - now > 1000) g_nextPursuitCheck = now;   // sim clock restarted
     if (now < g_nextPursuitCheck) return;
     g_nextPursuitCheck = now + 400;
     void* me = LocalVehicle();

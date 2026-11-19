@@ -46,7 +46,7 @@ namespace {
                 LOG("Minimap: remote list %d car(s), ghost %p %s", n7, g_ghost, ghostDrawn ? "in a drawn list" : "drawn directly");
             }
         }
-        if (!ghostDrawn && slot < 8 && IsVehicle(g_ghost)) {
+        if (!ghostDrawn && slot < 8 && IsVehicle(g_ghost) && ListContains(-1, g_ghost)) {
             void* sim = VCall<void* (__thiscall*)(void*)>(g_ghost, 1)(g_ghost);
             void* icon = *(void**)((uint8_t*)minimap + 0xF0 + slot * 4);
             if (sim && icon) {

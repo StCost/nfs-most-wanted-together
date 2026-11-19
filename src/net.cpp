@@ -50,8 +50,11 @@ namespace {
         h.timeMs = (uint32_t)Net::NowMs();
     }
 
+    bool  g_leaving = false;   // we said bye: send nothing more (the peer would see us reconnect)
+    DWORD g_byeAt = 0;         // the peer said bye: ignore its leftover packets for a moment
+
     void SendRaw(const void* data, int len) {
-        if (g_sock == INVALID_SOCKET || !g_havePeer) return;
+        if (g_sock == INVALID_SOCKET || !g_havePeer || g_leaving) return;
         int r = sendto(g_sock, (const char*)data, len, 0, (sockaddr*)&g_peer, sizeof(g_peer));
         if (r == len) g_stats.packetsOut++;
     }
@@ -79,6 +82,9 @@ namespace {
             sprintf_s(g_err, "peer protocol v%u != ours v%u", h->version, COOP_VERSION);
             return;
         }
+        // after a bye, the leaving game may still send a few packets (and the bye's copies): don't
+        // reconnect to it - only a fresh HELLO (the game started again) counts
+        if (g_byeAt && GetTickCount() - g_byeAt < 2000 && h->type != PKT_HELLO) return;
 
         if (g_cfg.isHost) {
             // Host accepts the first peer, or the same peer again (port may change after NAT rebind).
@@ -207,6 +213,7 @@ namespace {
             break;
         }
         case PKT_BYE:
+            g_byeAt = GetTickCount();
             LOG("Peer said bye");
             g_stats.connected = false;
             g_latest.valid = g_prev.valid = false;
@@ -315,6 +322,7 @@ void Net::SendBye() {
     PacketHeader bye{};
     FillHeader(bye, PKT_BYE);
     for (int i = 0; i < 3; ++i) SendRaw(&bye, sizeof(bye));
+    g_leaving = true;
     LOG("Sent bye to peer");
 }
 
@@ -349,7 +357,7 @@ static DWORD WINAPI KeepAliveThread(void*) {
         SOCKET s = g_sock;
         if (s == INVALID_SOCKET) return 0;
         DWORD last = g_lastTickCall;
-        if (!last || !g_stats.connected || GetTickCount() - last < 1000) continue;
+        if (!last || !g_stats.connected || g_leaving || GetTickCount() - last < 1000) continue;
         PingPacket p{};
         p.h.magic = COOP_MAGIC; p.h.version = COOP_VERSION; p.h.type = (uint16_t)PKT_PING;
         p.h.seq = 0; p.h.timeMs = (uint32_t)Net::NowMs();
