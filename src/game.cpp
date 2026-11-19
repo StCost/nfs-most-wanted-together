@@ -483,7 +483,7 @@ namespace {
 
     // __fastcall(ecx = this, edx = unused, stack args...) matches MSVC __thiscall with callee cleanup.
     void        __fastcall Cache_Dtor(void*, void*, int) {}
-    const char* __fastcall Cache_GetName(void*, void*) { return "CoopModRemotePlayers"; }
+    const char* __fastcall Cache_GetName(void*, void*) { return "MWTogetherRemotePlayers"; }
     int         __fastcall Cache_OnQuery(void*, void*, void* iv, void* /*asking*/) { return IsKeptCar(iv) ? 0 : 1; }
     void        __fastcall Cache_OnRemoved(void*, void*, void* iv) {
         if (IsKeptCar(iv)) {

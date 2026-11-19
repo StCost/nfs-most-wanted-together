@@ -1,6 +1,6 @@
-# CoopMod: co-op career for Need for Speed: Most Wanted (2005)
+# NFS MW Together: co-op career for Need for Speed: Most Wanted (2005)
 
-Play the Most Wanted career together. Two players share one world: each drives their own
+**NFS MW Together** (MWT) lets you play the Most Wanted career together. Two players share one world: each drives their own
 car with its own tuning, sees the other player's car, traffic and cops, and they start events
 together. The host's game is the reference world, and the client mirrors it.
 
@@ -12,7 +12,7 @@ together. The host's game is the reference world, and the client mirrors it.
 - NFS Most Wanted (2005), PC, **v1.3** `speed.exe`. Other versions are detected and the mod
   stays inactive.
 - [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) (`dinput8.dll`, included in releases).
-- Both players need the same CoopMod version: the protocol version is checked on connect.
+- Both players need the same NFS MW Together (MWT) version: the protocol version is checked on connect.
 - A network path between the PCs: LAN, a VPN such as Radmin VPN or ZeroTier, or UDP port 47555
   forwarded to the host.
 
@@ -20,10 +20,12 @@ This repository contains **only the mod**. It does not include game files or sav
 own copy of the game.
 
 ## Install
+> **Upgrading from CoopMod?** Delete `scripts\CoopMod.asi`. Your `CoopMod.ini` settings are copied to `MWTogether.ini` on the first start.
+
 1. Download the latest release zip from the **Releases** page.
 2. Copy `dinput8.dll` and the `scripts` folder next to `speed.exe`. If you already have an ASI loader,
-   keep yours and copy only `scripts\CoopMod.asi` and `scripts\CoopMod.ini`.
-3. Edit `scripts\CoopMod.ini`:
+   keep yours and copy only `scripts\MWTogether.asi` and `scripts\MWTogether.ini`.
+3. Edit `scripts\MWTogether.ini`:
    - **Host:** `Mode=host`, `Name=<you>`. `ClientIP=<client IP>` is optional; set it to skip firewall rules on a LAN.
    - **Client:** `Mode=client`, `HostIP=<host IP>`, `Name=<you>`.
 4. Start the game on both PCs. The game skips the intro and loads career free roam by itself, and the
@@ -72,20 +74,20 @@ own copy of the game.
 - **F10 / F11:** spawn or remove a test copy of the other player's car. **F12:** spawn a test cop.
 
 ## Configuration
-Every option is in `scripts\CoopMod.ini`, which comments each one. Main sections:
+Every option is in `scripts\MWTogether.ini`, which comments each one. Main sections:
 `[Network]`, `[Player]`, `[Ghost]`, `[Traffic]`, `[Coop]`, `[Start]`, `[AutoStart]`, `[UI]`, `[Window]`, `[Debug]`.
 
 ## Build from source
 - Visual Studio 2022 with the C++ workload (MSVC x86).
-- Run `build.bat`. It produces `build\CoopMod.asi`. When this folder sits inside the game folder
-  (`<game>\CoopMod-src\`), the script also installs the plugin into `<game>\scripts\`.
+- Run `build.bat`. It produces `build\MWTogether.asi`. When this folder sits inside the game folder
+  (`<game>\MWTogether-src\`), the script also installs the plugin into `<game>\scripts\`.
 - CI: every push builds the plugin (see **Actions**). To publish a release, run the **Build** workflow
   manually with a version number. It builds, packages the zip with the ASI loader, and creates the GitHub release.
 - Local release, without Actions: `tools\release.ps1 -Version 0.2.0` publishes a pre-release; add `-Final` for a
   normal release. `-DryRun` only builds the zip in `dist\`.
 
 ## How it works (short)
-`CoopMod.asi` is loaded by the ASI loader inside `speed.exe`. It hooks Direct3D 9 `Present` to run once per
+`MWTogether.asi` is loaded by the ASI loader inside `speed.exe`. It hooks Direct3D 9 `Present` to run once per
 frame on the game thread, and it patches game code and vtables at known v1.3 addresses, found by reverse
 engineering. Remote cars are real game vehicles (`PVehicle`) whose rigid bodies are set every frame from
 interpolated network snapshots. Race opponents and traffic of the other PC are "mirrors" driven the same way.

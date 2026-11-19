@@ -230,7 +230,7 @@ static bool Resolve(const std::string& host, sockaddr_in& out) {
 }
 
 void Net::SetDataDir(const char* dir) {
-    sprintf_s(g_peerCarFile, "%sCoopMod.peercar.bin", dir);
+    sprintf_s(g_peerCarFile, "%sMWTogether.peercar.bin", dir);
     FILE* f = nullptr;
     if (fopen_s(&f, g_peerCarFile, "rb") == 0 && f) {
         CarInfo c{};

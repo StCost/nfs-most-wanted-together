@@ -1,4 +1,4 @@
-# CoopMod roadmap: co-op career for NFS Most Wanted (2005, v1.3)
+# NFS MW Together roadmap: co-op career for NFS Most Wanted (2005, v1.3)
 
 ## Goal
 The whole career is playable together: every Blacklist race, every challenge, free roam,

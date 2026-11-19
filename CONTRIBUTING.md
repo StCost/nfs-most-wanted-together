@@ -1,4 +1,4 @@
-# Contributing to CoopMod
+# Contributing to NFS MW Together
 
 Thanks for helping! This is a reverse-engineering-heavy project, so a few rules keep it stable.
 
@@ -14,7 +14,7 @@ Thanks for helping! This is a reverse-engineering-heavy project, so a few rules 
 - **Guard game calls** with `__try/__except`. Keep `std::string` and other objects with destructors out of
   `__try` functions (C2712): split into a small "Safe" helper.
 - **Both players see the same world.** A feature isn't done until it is tested on two PCs. Describe the test
-  in the pull request: what you did on each PC and the relevant `scripts\CoopMod.log` lines.
+  in the pull request: what you did on each PC and the relevant `scripts\MWTogether.log` lines.
 - **Protocol changes:** bump `COOP_VERSION` in `src/net.h` whenever a packet layout changes. Add new
   packet types at the end, with a length check in the receiver.
 
@@ -26,7 +26,7 @@ Thanks for helping! This is a reverse-engineering-heavy project, so a few rules 
 
 ## Reporting bugs
 Open an issue and include:
-- `scripts\CoopMod.log` from **both** PCs,
+- `scripts\MWTogether.log` from **both** PCs,
 - which PC was host and which was client,
 - what you did, what you expected and what happened instead.
 

@@ -1,4 +1,4 @@
-// CoopMod for Need for Speed: Most Wanted (2005) v1.3
+// NFS MW Together (MWT) for Need for Speed: Most Wanted (2005) v1.3
 // Step 1: plugin loads, shows overlay, networking between two game instances.
 // Step 2: "ghost car" - the other player's car is shown and moved in your world.
 
@@ -14,8 +14,8 @@
 #include "input.h"
 #include "mem.h"
 
-#ifndef COOPMOD_VERSION
-#define COOPMOD_VERSION "0.2.0-dev"
+#ifndef MWT_VERSION
+#define MWT_VERSION "0.2.0-dev"
 #endif
 
 namespace {
@@ -73,7 +73,7 @@ namespace {
         if (down && !g_keyWasDown) {
             Overlay::SetVisible(!Overlay::IsVisible());
             // remember it for the next launch
-            WritePrivateProfileStringA("Debug", "Overlay", Overlay::IsVisible() ? "1" : "0", (std::string(g_dir) + "CoopMod.ini").c_str());
+            WritePrivateProfileStringA("Debug", "Overlay", Overlay::IsVisible() ? "1" : "0", (std::string(g_dir) + "MWTogether.ini").c_str());
         }
         g_keyWasDown = down;
         bool gdown = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
@@ -144,7 +144,7 @@ namespace {
             g_lastOverlay = now;
             char buf[1024];
             std::string s;
-            sprintf_s(buf, "CoopMod %s  [%s]  F8: hide  F9: ghost %s\n", COOPMOD_VERSION,
+            sprintf_s(buf, "MW Together %s  [%s]  F8: hide  F9: ghost %s\n", MWT_VERSION,
                       g_cfg.isHost ? "HOST" : "CLIENT", g_ghostOn ? "ON" : "OFF");
             s += buf;
 
@@ -201,10 +201,13 @@ BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
         char* slash = strrchr(g_dir, '\\');
         if (slash) slash[1] = 0;
 
-        std::string logPath = std::string(g_dir) + "CoopMod.log";
-        std::string iniPath = std::string(g_dir) + "CoopMod.ini";
+        std::string logPath = std::string(g_dir) + "MWTogether.log";
+        std::string iniPath = std::string(g_dir) + "MWTogether.ini";
+        // renamed from CoopMod: carry the old settings over once
+        if (GetFileAttributesA(iniPath.c_str()) == INVALID_FILE_ATTRIBUTES)
+            CopyFileA((std::string(g_dir) + "CoopMod.ini").c_str(), iniPath.c_str(), TRUE);
         Log::Init(logPath.c_str());
-        LOG("CoopMod %s loading (dir %s)", COOPMOD_VERSION, g_dir);
+        LOG("NFS MW Together %s loading (dir %s)", MWT_VERSION, g_dir);
 
         g_cfg.Load(iniPath.c_str());
         Net::SetDataDir(g_dir);
@@ -243,7 +246,7 @@ BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
 
         // Sanity check: v1.3 speed.exe has its entry point at 0x7C4040.
         // (Patching the IAT is just a memory write, safe inside DllMain.)
-        Overlay::SetText("CoopMod " COOPMOD_VERSION " loading...");
+        Overlay::SetText("MW Together " MWT_VERSION " loading...");
         Overlay::SetFrameCallback(&OnFrame);
         Overlay::SetCloseCallback([]() { if (g_netOk) Net::SendBye(); });
         if (!Input::InstallHooks())

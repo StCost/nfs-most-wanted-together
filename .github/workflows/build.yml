@@ -39,30 +39,30 @@ jobs:
             echo "version=0.0.0-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build CoopMod.asi
+      - name: Build MWTogether.asi
         shell: cmd
         env:
-          COOPMOD_VERSION: ${{ steps.ver.outputs.version }}
+          MWT_VERSION: ${{ steps.ver.outputs.version }}
         run: build.bat
 
       - name: Package
         shell: pwsh
         run: |
-          $pkg = "package/CoopMod-${{ steps.ver.outputs.version }}"
+          $pkg = "package/MWTogether-${{ steps.ver.outputs.version }}"
           New-Item -ItemType Directory -Force "$pkg/scripts" | Out-Null
-          Copy-Item build/CoopMod.asi "$pkg/scripts/"
-          Copy-Item CoopMod.ini "$pkg/scripts/"
+          Copy-Item build/MWTogether.asi "$pkg/scripts/"
+          Copy-Item MWTogether.ini "$pkg/scripts/"
           Copy-Item README.md "$pkg/"
           # Ultimate ASI Loader (MIT, ThirteenAG) loads the plugin: ship its 32-bit dinput8.dll
           Invoke-WebRequest "https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/latest/download/Ultimate-ASI-Loader.zip" -OutFile asi.zip
           Expand-Archive asi.zip -DestinationPath asi
           Copy-Item asi/dinput8.dll "$pkg/"
-          Compress-Archive -Path "$pkg/*" -DestinationPath "CoopMod-${{ steps.ver.outputs.version }}.zip"
+          Compress-Archive -Path "$pkg/*" -DestinationPath "MWTogether-${{ steps.ver.outputs.version }}.zip"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: CoopMod-${{ steps.ver.outputs.version }}
-          path: CoopMod-${{ steps.ver.outputs.version }}.zip
+          name: MWTogether-${{ steps.ver.outputs.version }}
+          path: MWTogether-${{ steps.ver.outputs.version }}.zip
 
       - name: Release
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != ''
@@ -73,4 +73,4 @@ jobs:
           v="${{ steps.ver.outputs.version }}"
           flags=""
           if [ "${{ github.event.inputs.prerelease }}" = "true" ]; then flags="--prerelease"; fi
-          gh release create "v$v" "CoopMod-$v.zip" --title "CoopMod $v" --generate-notes --target "${{ github.sha }}" $flags
+          gh release create "v$v" "MWTogether-$v.zip" --title "NFS MW Together $v" --generate-notes --target "${{ github.sha }}" $flags

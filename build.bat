@@ -1,6 +1,6 @@
 @echo off
-rem Builds CoopMod.asi (32-bit). If the game folder is the parent (..\speed.exe), also installs it
-rem into ..\scripts. Set COOPMOD_VERSION to stamp a version (CI does this).
+rem Builds MWTogether.asi (32-bit). If the game folder is the parent (..\speed.exe), also installs it
+rem into ..\scripts. Set MWT_VERSION to stamp a version (CI does this).
 setlocal
 cd /d "%~dp0"
 
@@ -15,15 +15,18 @@ call "%VCVARS%" >nul || (echo vcvars32 not found & exit /b 1)
 
 if not exist build mkdir build
 set VERDEF=
-if defined COOPMOD_VERSION set VERDEF=/DCOOPMOD_VERSION=\"%COOPMOD_VERSION%\"
+if defined MWT_VERSION set VERDEF=/DMWT_VERSION=\"%MWT_VERSION%\"
 
 cl /nologo /O2 /MT /EHsc /std:c++17 /W3 /DWIN32_LEAN_AND_MEAN /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS %VERDEF% ^
    /Fo"build\\" /Fd"build\\" ^
    src\main.cpp src\log.cpp src\config.cpp src\net.cpp src\overlay.cpp src\mem.cpp src\game.cpp src\input.cpp ^
-   /LD /Fe"build\CoopMod.asi" ^
+   /LD /Fe"build\MWTogether.asi" ^
    /link /SAFESEH:NO /DYNAMICBASE:NO ws2_32.lib user32.lib gdi32.lib dxguid.lib || exit /b 1
 
-if not exist "..\speed.exe" (echo Built build\CoopMod.asi & exit /b 0)
-copy /y "build\CoopMod.asi" "..\scripts\CoopMod.asi" >nul || (echo copy failed - is the game running? & exit /b 1)
-if not exist "..\scripts\CoopMod.ini" copy /y "CoopMod.ini" "..\scripts\CoopMod.ini" >nul
-echo Built and installed scripts\CoopMod.asi
+if not exist "..\speed.exe" (echo Built build\MWTogether.asi & exit /b 0)
+rem renamed from CoopMod: remove the old plugin (both would load) and keep its settings
+if exist "..\scripts\CoopMod.asi" del "..\scripts\CoopMod.asi"
+if not exist "..\scripts\MWTogether.ini" if exist "..\scripts\CoopMod.ini" copy /y "..\scripts\CoopMod.ini" "..\scripts\MWTogether.ini" >nul
+copy /y "build\MWTogether.asi" "..\scripts\MWTogether.asi" >nul || (echo copy failed - is the game running? & exit /b 1)
+if not exist "..\scripts\MWTogether.ini" copy /y "MWTogether.ini" "..\scripts\MWTogether.ini" >nul
+echo Built and installed scripts\MWTogether.asi
