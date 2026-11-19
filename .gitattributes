@@ -1,0 +1,2 @@
+# cmd mis-parses labels in batch files with LF-only line ends
+*.bat text eol=crlf
