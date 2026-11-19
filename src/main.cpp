@@ -32,6 +32,9 @@ namespace {
     bool     g_ghostOn = true;
     std::string g_spawnMsg;
     HWND        g_prevForeground = nullptr;   // the window that had focus when the game started
+    std::string g_toast;                      // short notification (player joined / left)
+    uint32_t    g_toastUntil = 0;
+    void Toast(const std::string& s) { g_toast = s; g_toastUntil = GetTickCount() + 6000; g_lastOverlay = 0; LOG("Notice: %s", s.c_str()); }
 
     const char* FlowName(int s) {
         switch (s) {
@@ -197,13 +200,33 @@ namespace {
         Macro::Tick();
         }
 
+        // --- join / leave notices ---
+        {
+            static bool wasConnected = false;
+            static std::string lastPeer;
+            if (st.connected && !st.peerName.empty()) lastPeer = st.peerName;
+            if (st.connected != wasConnected) {
+                if (st.connected) Toast((st.peerName.empty() ? std::string("Player") : st.peerName) + " joined");
+                else Toast((lastPeer.empty() ? std::string("The other player") : lastPeer) + (Net::PeerSaidBye() ? " left" : " lost connection"));
+                wasConnected = st.connected;
+            } else if (st.connected && !st.peerName.empty() && g_toast == "Player joined") {
+                Toast(st.peerName + " joined");   // the name arrives right after the connection
+            }
+        }
+        bool toastOn = !g_toast.empty() && GetTickCount() < g_toastUntil;
+        Overlay::SetForceShow(toastOn);
+
         // --- overlay text (rebuild ~5x per second, texture upload is not free) ---
         uint32_t now = GetTickCount();
         Perf::Scope perfOverlay(Perf::Overlay);
-        if (Overlay::IsVisible() && now - g_lastOverlay > 200) {
+        if (toastOn && !Overlay::IsVisible() && now - g_lastOverlay > 200) {
+            g_lastOverlay = now;
+            Overlay::SetText("MW Together: " + g_toast + "\n");
+        } else if (Overlay::IsVisible() && now - g_lastOverlay > 200) {
             g_lastOverlay = now;
             char buf[1024];
             std::string s;
+            if (toastOn) s += ">> " + g_toast + "\n";
             sprintf_s(buf, "MW Together %s  [%s]  F8: hide  F9: ghost %s\n", MWT_VERSION,
                       g_cfg.isHost ? "HOST" : "CLIENT", g_ghostOn ? "ON" : "OFF");
             s += buf;

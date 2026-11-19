@@ -30,6 +30,7 @@ namespace {
     std::string g_text, g_texText;
     int  g_textW = 0, g_textH = 0;
     bool g_visible = true;
+    bool g_forceShow = false;   // a notification is up: draw even when the overlay is hidden (F8)
     // Initialised at DLL load (static constructor), before anything can call SetText.
     struct TextLock {
         CRITICAL_SECTION cs;
@@ -275,7 +276,7 @@ namespace {
         if (dev == g_dev) {
             ++g_frames;
             if (g_cb) g_cb(dev);
-            if (g_visible) DrawOnBackBuffer(dev);
+            if (g_visible || g_forceShow) DrawOnBackBuffer(dev);
         }
         HRESULT hr = o_Present(dev, src, dst, wnd, dirty);
         g_inPresent = false;
@@ -373,6 +374,7 @@ void Overlay::SetText(const std::string& text) {
 }
 
 void Overlay::SetVisible(bool v) { g_visible = v; }
+void Overlay::SetForceShow(bool v) { g_forceShow = v; }
 bool Overlay::IsVisible() { return g_visible; }
 IDirect3DDevice9* Overlay::Device() { return g_dev; }
 HWND Overlay::GameWindow() { return g_gameWnd; }

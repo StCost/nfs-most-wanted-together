@@ -50,6 +50,7 @@ namespace {
         h.timeMs = (uint32_t)Net::NowMs();
     }
 
+    bool  g_peerSaidBye = false;
     bool  g_leaving = false;   // we said bye: send nothing more (the peer would see us reconnect)
     DWORD g_byeAt = 0;         // the peer said bye: ignore its leftover packets for a moment
 
@@ -103,6 +104,7 @@ namespace {
         g_stats.lastRecvTick = GetTickCount();
         if (!g_stats.connected) {
             g_stats.connected = true;
+            g_peerSaidBye = false;
             g_lastStateSeq = 0; // the peer may have restarted and begun counting from 1 again
             g_ringCount = 0;
             g_latest.valid = g_prev.valid = false;
@@ -214,6 +216,7 @@ namespace {
         }
         case PKT_BYE:
             g_byeAt = GetTickCount();
+            g_peerSaidBye = true;
             LOG("Peer said bye");
             g_stats.connected = false;
             g_latest.valid = g_prev.valid = false;
@@ -555,3 +558,5 @@ const Net::Snapshot& Net::Latest() { return g_latest; }
 const Net::Snapshot& Net::Previous() { return g_prev; }
 const NetStats& Net::Stats() { return g_stats; }
 const char* Net::LastError() { return g_err; }
+
+bool Net::PeerSaidBye() { return g_peerSaidBye; }

@@ -144,6 +144,7 @@ namespace Net {
     const Snapshot& Previous();
 
     const NetStats& Stats();
+    bool PeerSaidBye();   // the last disconnect was a clean bye (not a timeout)
 
     double NowMs();   // high-resolution clock (QueryPerformanceCounter), milliseconds
     double PeerClockOffsetMs();          // our clock minus the peer's (min one-way), from state packets
