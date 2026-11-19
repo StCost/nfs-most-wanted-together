@@ -1,5 +1,7 @@
 # NFS MW Together: co-op career for Need for Speed: Most Wanted (2005)
 
+![NFS MW Together](docs/banner.png)
+
 **NFS MW Together** (MWT) lets you play the Most Wanted career together. Two players share one world: each drives their own
 car with its own tuning, sees the other player's car, traffic and cops, and they start events
 together. The host's game is the reference world, and the client mirrors it.
