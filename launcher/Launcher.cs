@@ -25,26 +25,61 @@ static class Ini {
     public static void SetB(string s, string k, bool v) { Set(s, k, v ? "1" : "0"); }
 }
 
-// Most Wanted look: near-black panels, light grey text, amber highlight.
+// Most Wanted look (taken from the game's main menu): lowercase heavy serif headings, bold white
+// labels, dark panels with diagonal hatch stripes, amber corner brackets on the selected item, amber
+// chevrons.
+class GameButton : Button {
+    public bool Selected, Plain, Chevrons;
+    bool hover;
+    public GameButton() { SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true); }
+    protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnPaint(PaintEventArgs e) {
+        var g = e.Graphics; var r = ClientRectangle;
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        g.Clear(Parent != null ? Parent.BackColor : Theme.Back);
+        if (!Plain) {
+            Color a = hover || Selected ? Color.FromArgb(58, 58, 54) : Color.FromArgb(38, 38, 36), b = Color.FromArgb(20, 20, 19);
+            using (var hb = new System.Drawing.Drawing2D.HatchBrush(System.Drawing.Drawing2D.HatchStyle.WideUpwardDiagonal, a, b)) g.FillRectangle(hb, r);
+            if (Selected) {   // amber corner brackets, like the game's selection marker
+                using (var p = new Pen(Theme.Accent, 3)) {
+                    int L = Math.Min(14, r.Height / 2), x0 = 1, y0 = 1, x1 = r.Width - 2, y1 = r.Height - 2;
+                    g.DrawLines(p, new[] { new Point(x0, y0 + L), new Point(x0, y0), new Point(x0 + L, y0) });
+                    g.DrawLines(p, new[] { new Point(x1 - L, y0), new Point(x1, y0), new Point(x1, y0 + L) });
+                    g.DrawLines(p, new[] { new Point(x0, y1 - L), new Point(x0, y1), new Point(x0 + L, y1) });
+                    g.DrawLines(p, new[] { new Point(x1 - L, y1), new Point(x1, y1), new Point(x1, y1 - L) });
+                }
+            }
+        }
+        Color fg = Plain ? (hover ? Theme.Text : Theme.Dim) : (Selected || hover ? Color.White : Theme.Dim);
+        var flags = (Plain ? TextFormatFlags.Left : TextFormatFlags.HorizontalCenter) | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix;
+        string txt = Text + (Chevrons ? "" : "");
+        var tr = r; if (Chevrons) tr.Width -= 30;
+        TextRenderer.DrawText(g, txt, Font, tr, fg, flags);
+        if (Chevrons) TextRenderer.DrawText(g, "»", new Font("Arial Black", Font.Size + 2), new Rectangle(r.Right - 44, 0, 36, r.Height), Theme.Accent, TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter);
+    }
+}
+
 static class Theme {
     public static readonly Color Back = Color.FromArgb(14, 16, 18), Panel = Color.FromArgb(28, 32, 36), Field = Color.FromArgb(40, 45, 50);
     public static readonly Color Text = Color.FromArgb(225, 228, 230), Dim = Color.FromArgb(140, 148, 155), Accent = Color.FromArgb(242, 169, 0);
     public static readonly Font Body = new Font("Segoe UI", 10f), Small = new Font("Segoe UI", 8.5f),
-                                Head = new Font("Segoe UI", 9f, FontStyle.Bold), Big = new Font("Segoe UI", 15f, FontStyle.Bold | FontStyle.Italic);
+                                Head = new Font("Georgia", 12f, FontStyle.Bold), Big = new Font("Georgia", 22f, FontStyle.Bold),
+                                Label = new Font("Arial", 10f, FontStyle.Bold), Button = new Font("Arial", 11f, FontStyle.Bold);
 }
 
 class LauncherForm : Form {
     readonly string gameDir;
     const int W = 480;   // content width
     TextBox name = new TextBox(), hostIp = new TextBox(), port = new TextBox();
-    Button hostBtn = new Button(), joinBtn = new Button(), play = new Button(), settingsBtn = new Button();
+    GameButton hostBtn = new GameButton(), joinBtn = new GameButton(), play = new GameButton(), settingsBtn = new GameButton();
     bool isHost = true;
     Panel hostIpRow, myIpRow, settings;
     Label myIps = new Label();
     CheckBox skipIntro = Check("Skip the intro screens"), direct = Check("Go straight into career free roam"),
              noSafeHouse = Check("No \"leave the safe house?\" question"), pursuitRes = Check("Close pursuit results by itself (free roam)"),
              introInput = Check("Menus react during their animations"), overlay = Check("Show the status overlay (F8)");
-    Button[] speedBtns = { new Button(), new Button(), new Button() };
+    GameButton[] speedBtns = { new GameButton(), new GameButton(), new GameButton() };
     int menuSpeed = 2;
     Label status = new Label { AutoSize = false, ForeColor = Theme.Accent, Font = Theme.Small };
 
@@ -52,14 +87,11 @@ class LauncherForm : Form {
         return new CheckBox { Text = t, AutoSize = false, Size = new Size(W, 24), ForeColor = Theme.Text, Font = Theme.Body, FlatStyle = FlatStyle.Flat, Margin = new Padding(0, 1, 0, 1) };
     }
     static Label Caption(string t) {
-        return new Label { Text = t.ToUpperInvariant(), AutoSize = true, ForeColor = Theme.Dim, Font = Theme.Head, Margin = new Padding(0, 10, 0, 3) };
+        return new Label { Text = t.ToLowerInvariant(), AutoSize = true, ForeColor = Color.White, Font = Theme.Head, Margin = new Padding(0, 12, 0, 4) };
     }
     static void StyleField(TextBox tb) { tb.BorderStyle = BorderStyle.FixedSingle; tb.BackColor = Theme.Field; tb.ForeColor = Theme.Text; tb.Font = Theme.Body; }
-    static void StyleButton(Button b, string text, bool primary) {
-        b.Text = text; b.FlatStyle = FlatStyle.Flat; b.Cursor = Cursors.Hand; b.UseVisualStyleBackColor = false;
-        b.FlatAppearance.BorderColor = primary ? Theme.Accent : Theme.Field;
-        b.FlatAppearance.MouseOverBackColor = primary ? Color.FromArgb(255, 190, 40) : Color.FromArgb(55, 62, 68);
-        b.BackColor = primary ? Theme.Accent : Theme.Panel; b.ForeColor = primary ? Color.Black : Theme.Text;
+    static void StyleButton(GameButton b, string text, bool selected) {
+        b.Text = text; b.Cursor = Cursors.Hand; b.Font = Theme.Button; b.Selected = selected; b.Invalidate();
     }
     static Panel Row(int h) { return new Panel { Size = new Size(W, h), Margin = new Padding(0), BackColor = Color.Transparent }; }
 
@@ -82,8 +114,8 @@ class LauncherForm : Form {
         root.Controls.Add(banner);
         var body = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Padding = new Padding(20, 6, 20, 0), Margin = new Padding(0) };
         root.Controls.Add(body);
-        body.Controls.Add(new Label { Text = "NFS MW TOGETHER", AutoSize = true, ForeColor = Theme.Accent, Font = Theme.Big, Margin = new Padding(0, 4, 0, 0) });
-        body.Controls.Add(new Label { Text = "Co-op career for Most Wanted", AutoSize = true, ForeColor = Theme.Dim, Font = Theme.Small, Margin = new Padding(2, 0, 0, 4) });
+        body.Controls.Add(new Label { Text = "nfs mw together", AutoSize = true, ForeColor = Color.White, Font = Theme.Big, Margin = new Padding(0, 6, 0, 0) });
+        body.Controls.Add(new Label { Text = "co-op career for Most Wanted", AutoSize = true, ForeColor = Theme.Accent, Font = Theme.Label, Margin = new Padding(3, 0, 0, 2) });
 
         // name
         body.Controls.Add(Caption("Your name"));
@@ -93,8 +125,8 @@ class LauncherForm : Form {
         // host / join
         body.Controls.Add(Caption("Play as"));
         var modeRow = Row(36);
-        StyleButton(hostBtn, "HOST", false); hostBtn.SetBounds(0, 0, W / 2 - 4, 34);
-        StyleButton(joinBtn, "JOIN", false); joinBtn.SetBounds(W / 2 + 4, 0, W / 2 - 4, 34);
+        StyleButton(hostBtn, "Host", false); hostBtn.SetBounds(0, 0, W / 2 - 4, 34);
+        StyleButton(joinBtn, "Join", false); joinBtn.SetBounds(W / 2 + 4, 0, W / 2 - 4, 34);
         hostBtn.Click += (s, e) => SetMode(true); joinBtn.Click += (s, e) => SetMode(false);
         modeRow.Controls.Add(hostBtn); modeRow.Controls.Add(joinBtn);
         body.Controls.Add(modeRow);
@@ -111,7 +143,7 @@ class LauncherForm : Form {
         body.Controls.Add(myIpRow);
 
         // play
-        StyleButton(play, "PLAY", true); play.Font = new Font("Segoe UI", 14f, FontStyle.Bold | FontStyle.Italic);
+        StyleButton(play, "Play", true); play.Chevrons = true; play.Font = new Font("Arial", 16f, FontStyle.Bold);
         play.Size = new Size(W, 48); play.Margin = new Padding(0, 14, 0, 6);
         play.Click += (s, e) => Play();
         body.Controls.Add(play);
@@ -119,10 +151,9 @@ class LauncherForm : Form {
         body.Controls.Add(status);
 
         // settings (collapsed)
-        StyleButton(settingsBtn, "Settings  ▸", false);
-        settingsBtn.TextAlign = ContentAlignment.MiddleLeft; settingsBtn.FlatAppearance.BorderSize = 0;
-        settingsBtn.BackColor = Theme.Back; settingsBtn.ForeColor = Theme.Dim; settingsBtn.Size = new Size(W, 28); settingsBtn.Margin = new Padding(0, 4, 0, 0);
-        settingsBtn.Click += (s, e) => { settings.Visible = !settings.Visible; settingsBtn.Text = settings.Visible ? "Settings  ▾" : "Settings  ▸"; };
+        StyleButton(settingsBtn, "settings  ▸", false); settingsBtn.Plain = true; settingsBtn.Font = Theme.Head;
+        settingsBtn.Size = new Size(W, 30); settingsBtn.Margin = new Padding(0, 6, 0, 0);
+        settingsBtn.Click += (s, e) => { settings.Visible = !settings.Visible; settingsBtn.Text = settings.Visible ? "settings  ▾" : "settings  ▸"; settingsBtn.Invalidate(); };
         body.Controls.Add(settingsBtn);
 
         var sp = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = Theme.Panel, Padding = new Padding(12, 4, 12, 12), Margin = new Padding(0), Visible = false };
@@ -142,9 +173,9 @@ class LauncherForm : Form {
         StyleField(port); port.SetBounds(200, 2, 120, 26); portRow.Controls.Add(port);
         sp.Controls.Add(portRow);
         var btnRow = new Panel { Size = new Size(W - 24, 36), Margin = new Padding(0, 8, 0, 0) };
-        var log = new Button(); StyleButton(log, "Open log", false); log.SetBounds(0, 0, 130, 32);
+        var log = new GameButton(); StyleButton(log, "Open log", false); log.SetBounds(0, 0, 130, 32);
         log.Click += (s, e) => OpenFile(Path.Combine(gameDir, "scripts", "MWTogether.log"));
-        var ini = new Button(); StyleButton(ini, "All settings (ini)", false); ini.SetBounds(140, 0, 160, 32);
+        var ini = new GameButton(); StyleButton(ini, "All settings (ini)", false); ini.SetBounds(140, 0, 160, 32);
         ini.Click += (s, e) => OpenFile(Ini.Path);
         btnRow.Controls.Add(log); btnRow.Controls.Add(ini);
         sp.Controls.Add(btnRow);
@@ -159,11 +190,11 @@ class LauncherForm : Form {
         for (int i = 0; i < 3; ++i) StyleButton(speedBtns[i], (i + 1) + "x", i + 1 == v);
     }
 
-    public void ShowSettings() { settings.Visible = true; settingsBtn.Text = "Settings  ▾"; }
+    public void ShowSettings() { settings.Visible = true; settingsBtn.Text = "settings  ▾"; }
 
     void SetMode(bool host) {
         isHost = host;
-        StyleButton(hostBtn, "HOST", host); StyleButton(joinBtn, "JOIN", !host);
+        StyleButton(hostBtn, "Host", host); StyleButton(joinBtn, "Join", !host);
         hostIpRow.Visible = !host;      // only joining needs the host's address
         myIpRow.Visible = host;         // the host tells their friend their IP
     }

@@ -30,7 +30,39 @@ namespace {
     std::string g_text, g_texText;
     int  g_textW = 0, g_textH = 0;
     bool g_visible = true;
-    bool g_forceShow = false;   // a notification is up: draw even when the overlay is hidden (F8)
+    bool g_forceShow = false;
+    std::string g_shotPath;     // test command: save the next frame (without our overlay) as a BMP
+
+    void SaveBackBuffer(IDirect3DDevice9* dev, const std::string& path) {
+        IDirect3DSurface9* bb = nullptr; IDirect3DSurface9* sys = nullptr;
+        if (FAILED(dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) || !bb) return;
+        D3DSURFACE_DESC d; bb->GetDesc(&d);
+        IDirect3DSurface9* src = bb; IDirect3DSurface9* rt = nullptr;
+        if (d.MultiSampleType != D3DMULTISAMPLE_NONE) {   // resolve first
+            if (SUCCEEDED(dev->CreateRenderTarget(d.Width, d.Height, d.Format, D3DMULTISAMPLE_NONE, 0, FALSE, &rt, nullptr))) {
+                dev->StretchRect(bb, nullptr, rt, nullptr, D3DTEXF_NONE); src = rt;
+            }
+        }
+        if (SUCCEEDED(dev->CreateOffscreenPlainSurface(d.Width, d.Height, d.Format, D3DPOOL_SYSTEMMEM, &sys, nullptr)) &&
+            SUCCEEDED(dev->GetRenderTargetData(src, sys))) {
+            D3DLOCKED_RECT lr;
+            if (SUCCEEDED(sys->LockRect(&lr, nullptr, D3DLOCK_READONLY))) {
+                if (FILE* f = fopen(path.c_str(), "wb")) {   // 32-bit BMP, top-down (X8R8G8B8 / A8R8G8B8)
+                    BITMAPFILEHEADER fh{}; BITMAPINFOHEADER ih{};
+                    ih.biSize = sizeof(ih); ih.biWidth = d.Width; ih.biHeight = -(LONG)d.Height; ih.biPlanes = 1; ih.biBitCount = 32;
+                    fh.bfType = 0x4D42; fh.bfOffBits = sizeof(fh) + sizeof(ih); fh.bfSize = fh.bfOffBits + d.Width * d.Height * 4;
+                    fwrite(&fh, sizeof(fh), 1, f); fwrite(&ih, sizeof(ih), 1, f);
+                    for (UINT y = 0; y < d.Height; ++y) fwrite((uint8_t*)lr.pBits + y * lr.Pitch, 4, d.Width, f);
+                    fclose(f);
+                    LOG("Screenshot saved: %s (%ux%u)", path.c_str(), d.Width, d.Height);
+                }
+                sys->UnlockRect();
+            }
+        }
+        if (sys) sys->Release();
+        if (rt) rt->Release();
+        bb->Release();
+    }   // a notification is up: draw even when the overlay is hidden (F8)
     // Initialised at DLL load (static constructor), before anything can call SetText.
     struct TextLock {
         CRITICAL_SECTION cs;
@@ -276,6 +308,7 @@ namespace {
         if (dev == g_dev) {
             ++g_frames;
             if (g_cb) g_cb(dev);
+            if (!g_shotPath.empty()) { SaveBackBuffer(dev, g_shotPath); g_shotPath.clear(); }   // before our overlay
             if (g_visible || g_forceShow) DrawOnBackBuffer(dev);
         }
         HRESULT hr = o_Present(dev, src, dst, wnd, dirty);
@@ -375,6 +408,7 @@ void Overlay::SetText(const std::string& text) {
 
 void Overlay::SetVisible(bool v) { g_visible = v; }
 void Overlay::SetForceShow(bool v) { g_forceShow = v; }
+void Overlay::Screenshot(const std::string& path) { g_shotPath = path; }
 bool Overlay::IsVisible() { return g_visible; }
 IDirect3DDevice9* Overlay::Device() { return g_dev; }
 HWND Overlay::GameWindow() { return g_gameWnd; }

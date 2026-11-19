@@ -110,13 +110,13 @@ void Game::InstallBootPatches() {
 bool Game::DirectStartActive() { return g_cfg.directFreeRoam && g_boot != Boot::Done; }
 
 void Game::BootTick() {
-    if (!g_ok || !g_cfg.directFreeRoam || g_boot == Boot::Done) return;
+    if (!g_ok || g_boot == Boot::Done || !(g_cfg.directFreeRoam || g_cfg.skipLoadComplete)) return;
     __try {
         if (GameFlowState() != 3) { if (GameFlowState() == 6) g_boot = Boot::Done; return; }
         uint8_t* fedb = nullptr; void* bfm = (void*)1; void* fe = nullptr;
         Mem::Read(0x91CF90, fedb); Mem::Read(0x91CF48, bfm); Mem::Read(0x91CADC, fe);
         // "Press START" (splash) and "load complete" (MC_Main) wait for a key: press it
-        if (fe && bfm && ((bool(__thiscall*)(void*, const char*))0x516B50)(fe, "WS_MW_LS_Splash.fng")) {
+        if (g_cfg.directFreeRoam && fe && bfm && ((bool(__thiscall*)(void*, const char*))0x516B50)(fe, "WS_MW_LS_Splash.fng")) {
             static DWORD since = 0, lastTap = 0;
             if (!since) since = GetTickCount();
             if (GetTickCount() - since > 1500 && GetTickCount() - lastTap > 2500) {
@@ -128,12 +128,14 @@ void Game::BootTick() {
         if (fe && bfm && ((bool(__thiscall*)(void*, const char*))0x516B50)(fe, "MC_Main.fng")) {
             static DWORD since = 0, lastTap = 0;
             if (!since) since = GetTickCount();
-            if (GetTickCount() - since > 800 && GetTickCount() - lastTap > 2500) {
+            // [Start] SkipLoadComplete: confirm it right away (retry until the screen accepts it)
+            if (GetTickCount() - since > 300 && GetTickCount() - lastTap > 1000) {
                 lastTap = GetTickCount();
                 if (PressAccept("MC_Main.fng")) LOG("Start: confirming the profile load screen");
             }
             return;
         }
+        if (!g_cfg.directFreeRoam) { if (!bfm) g_boot = Boot::Done; return; }   // only skipping the load screen
         bool ready = fedb && fedb[3] /*profile loaded*/ && !bfm && fe &&
                      ((bool(__thiscall*)(void*, const char*))0x516B50)(fe, "MainMenu.fng");
         if (!ready) { g_boot = Boot::Waiting; return; }
@@ -158,4 +160,10 @@ void Game::PursuitResultTick() {
         lastTap = GetTickCount();
         if (Input::Tap(0x1C)) LOG("UI: closing the pursuit result screen");
     }
+}
+std::string Game::FEAccept(const char* pkg) {
+    void* fe = nullptr;
+    if (!g_ok || !Mem::Read(0x91CADC, fe) || !fe) return "no front end";
+    ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0x406415E3, pkg, 0xFF);
+    return std::string("accept sent to ") + pkg;
 }

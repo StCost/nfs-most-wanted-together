@@ -20,7 +20,8 @@ struct Config {
     bool        noPause = true;          // [Coop] NoPause - the world keeps running while a pause menu / map is open (connected only)
     bool        streamAroundPeer = true; // [Coop] StreamAroundPeer - load the world around the other player (full physics there)
     bool        skipIntro = true;        // [Start] SkipIntro - no logos / intro movie / Press START
-    bool        directFreeRoam = true;   // [Start] DirectFreeRoam - load career free roam right after the profile
+    bool        directFreeRoam = true;
+    bool        skipLoadComplete = true; // [Start] SkipLoadComplete - confirm the "load complete" screen by itself   // [Start] DirectFreeRoam - load career free roam right after the profile
     bool        skipLeaveSafeHouseDialog = true; // [Start] SkipLeaveSafeHouseDialog
     bool        skipPursuitResults = false; // [UI] SkipPursuitResults - close the pursuit result screen in free roam
     bool        startInBackground = false; // [Window] StartInBackground - give focus back on start, game muted until clicked

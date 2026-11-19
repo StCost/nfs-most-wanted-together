@@ -152,6 +152,8 @@ namespace {
                     else if (c == "cop") r = Game::DebugSpawnCop();
                     else if (c == "clone") r = Game::DebugSpawnClone();
                     else if (c == "unclone") r = Game::DebugKillClone();
+                    else if (c.rfind("shot ", 0) == 0) { Overlay::Screenshot(c.substr(5)); r = "screenshot"; }
+                    else if (c.rfind("accept ", 0) == 0) r = Game::FEAccept(c.substr(7).c_str());
                     else r = "unknown command";
                     LOG("Command '%s': %s", c.c_str(), r.c_str());
                     g_spawnMsg = r;

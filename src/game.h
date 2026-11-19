@@ -36,7 +36,8 @@ namespace Game {
     void CoopRulesTick(bool connected);
     void PauseRuleTick(bool connected);
     std::string ToggleAutopilot();
-    std::string DebugRestart();         // test: restart the current race
+    std::string DebugRestart();
+    std::string FEAccept(const char* package);   // test: send PAD_ACCEPT to a front-end screen         // test: restart the current race
     void AutopilotTick();               // [Debug] AutoPilot: AI drives in free roam / races      // test key: the game's AI drives the local car   // no pause while connected + race restart sync
     bool InstallRestartSync();
     bool InstallStreamHook();

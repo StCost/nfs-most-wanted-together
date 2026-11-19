@@ -89,6 +89,7 @@ Unticked items are still to do.
 
 ### Quality of life (settings in `[Start]` and `[UI]`)
 - [x] Skip the intro logos and movie and load straight into career free roam after the profile (`SkipIntro`, `DirectFreeRoam`)
+- [x] The "load complete" screen after the title confirms itself (`SkipLoadComplete`, on by default)
 - [x] No "leave the safe house?" question (`SkipLeaveSafeHouseDialog`)
 - [x] Menus react while their opening animation plays, and animate 2x faster (`IntroInput`, `MenuSpeed`)
 - [x] Optional: close the pursuit result screen in free roam by itself, off by default (`SkipPursuitResults`) (?)

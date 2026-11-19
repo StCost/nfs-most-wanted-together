@@ -13,7 +13,8 @@ namespace Overlay {
     // Text to show in the top-left corner (multi-line, '\n' separated).
     void SetText(const std::string& text);
     void SetVisible(bool v);
-    void SetForceShow(bool v);   // draw even when hidden (notifications)
+    void SetForceShow(bool v);
+    void Screenshot(const std::string& path);   // save the next frame as a BMP (test tool)   // draw even when hidden (notifications)
     bool IsVisible();
 
     IDirect3DDevice9* Device();
