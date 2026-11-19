@@ -1,0 +1,1050 @@
+#include "game.h"
+#include "mem.h"
+#include "log.h"
+#include "config.h"
+#include "input.h"
+#include <cmath>
+#include <cstdio>
+#include <initializer_list>
+
+// ---------------------------------------------------------------------------
+// speed.exe v1.3 addresses. Each one was checked against the exe's own code:
+//  * game flow:   `cmp dword ptr [0x925E90], 6` appears ~150 times
+//  * UCOM Find:   0x5D59F0 (thiscall Object*, handle); handles are functions that
+//                 `mov eax, <own address>; ret` (0x4039F0 / 0x4039E0 / 0x4040E0)
+//  * vtables:     taken from the constructors that register each interface
+//                 (RBVehicle ctor @0x6B7B1A, PVehicle ctor @0x689072)
+//  * vtable slot meaning: disassembled (e.g. slot 23 copies 3 floats to +0x10)
+// Reference: nya-common-nfsmw / MostWantedTimeTrialGhosts (MPL-2.0), ExOpts.
+// ---------------------------------------------------------------------------
+namespace Addr {
+    constexpr uintptr_t EntryPoint     = 0x7C4040;
+    constexpr uintptr_t GameFlowState  = 0x925E90; // 3 = front end, 4/5 = loading, 6 = in game
+    constexpr uintptr_t VehicleLists   = 0x92CD18; // UTL::ListableSet<IVehicle,20,eVehicleList,10>
+    constexpr uint32_t  VehicleBucket  = 0x60;     // FixedVector: vt, mBegin, mCap, mSize, slots[20]
+    constexpr uintptr_t UCOM_Find      = 0x5D59F0;
+
+    constexpr uint32_t  H_IRigidBody   = 0x4039F0;
+    constexpr uint32_t  H_IRBVehicle   = 0x4039E0;
+
+    // Expected vtables (runtime sanity checks - we refuse to touch anything else)
+    constexpr uintptr_t VT_PVehicle_IVehicle  = 0x8AA828;
+    constexpr uintptr_t VT_RBVehicle_IRigid   = 0x8AC880;
+    constexpr uintptr_t VT_Simple_IRigid      = 0x8AC548; // SimpleRigidBody: same slots 8-10,17,23-25,29 (verified)
+    constexpr uintptr_t VT_RBVehicle_IRBVeh   = 0x8AC990;
+
+    // AIVehicleRacecar::Update pointer slot; swapping in AIVehicleEmpty's update stops racer AI.
+    constexpr uintptr_t RacerAIUpdateSlot = 0x892748;
+    constexpr uintptr_t RacerAIUpdate     = 0x42AA80;
+    constexpr uintptr_t EmptyAIUpdate     = 0x43CE60;
+
+    // Vehicle creation. The game registers PVehicle::Construct (0x689820) as the "PVehicle" factory
+    // (writes it to 0x92C534 at startup). Construct takes a Sim::Param by value and checks:
+    //   param.mType == *VehicleParamsType(&out)  (UCrc32 of "VehicleParams", from 0x4040F0)
+    //   param.mName == 0xA6B47FAC                ("BASE")
+    // then reads VehicleParams at param.mData (+0x10 class, +0x14 model key, +0x18 dir*, +0x1C pos*,
+    // +0x20 customization*, +0x24 cache, +0x28 matched perf, +0x2C flags).
+    constexpr uintptr_t PVehicleConstruct = 0x689820;
+    constexpr uintptr_t VehicleParamsType = 0x4040F0;
+    constexpr uint32_t  ParamNameBase     = 0xA6B47FAC;
+    constexpr uintptr_t VT_PVehicle_ISimable = 0x8AA940; // slot 2 = Kill (0x6851D0, deferred delete)
+}
+
+enum VehicleList { VL_ALL = 0, VL_PLAYERS = 1, VL_AI = 2, VL_AIRACERS = 3, VL_AICOPS = 4, VL_AITRAFFIC = 5 };
+
+// IRigidBody vtable slots (verified)
+enum RB {
+    RB_GetPosition = 8, RB_GetLinearVelocity = 9, RB_GetAngularVelocity = 10,
+    RB_GetOrientation = 17, // quaternion, Vector4
+    RB_SetPosition = 23, RB_SetLinearVelocity = 24, RB_SetAngularVelocity = 25,
+    RB_SetOrientationQuat = 29,
+};
+// IVehicle slots
+enum IV { IV_GetSimable = 1, IV_IsSpooled = 16, IV_GetVehicleName = 19, IV_GetVehicleKey = 20,
+          IV_SetDriverClass = 21, IV_GetDriverClass = 22, IV_IsLoading = 23, IV_GetCustomizations = 50 };
+enum DriverClassE { DRV_HUMAN = 0, DRV_TRAFFIC = 1, DRV_COP = 2, DRV_RACER = 3, DRV_NONE = 4, DRV_NIS = 5, DRV_REMOTE = 6 };
+// IRBVehicle slots
+enum IRBV { IRBV_EnableObjectCollisions = 3 };
+
+namespace {
+    bool g_ok = false;
+
+    struct Vec3 { float x, y, z; };
+    struct Quat { float x, y, z, w; };
+
+    // ---- raw helpers ----
+    template <typename T> T VCall(void* obj, int slot) {
+        auto fn = (*(T**)obj)[slot];
+        return fn;
+    }
+    uintptr_t VTable(void* obj) { uintptr_t vt = 0; Mem::Read((uintptr_t)obj, vt); return vt; }
+
+    void* Find(void* iface, uint32_t handle) {
+        // iface is a UCOM::IUnknown: [0]=vtable, [4]=Object*
+        void* object = nullptr;
+        if (!Mem::Read((uintptr_t)iface + 4, object) || !object) return nullptr;
+        using Fn = void* (__thiscall*)(void*, uint32_t);
+        return ((Fn)Addr::UCOM_Find)(object, handle);
+    }
+
+    int ListSize(int list, void*** begin) {
+        uintptr_t bucket = Addr::VehicleLists + list * Addr::VehicleBucket;
+        void** b = nullptr; uint32_t size = 0;
+        if (!Mem::Read(bucket + 4, b) || !Mem::Read(bucket + 0xC, size)) return 0;
+        if (!b || size > 64) return 0;
+        *begin = b;
+        return (int)size;
+    }
+
+    void* ListGet(int list, int i) {
+        void** b = nullptr;
+        int n = ListSize(list, &b);
+        if (i < 0 || i >= n) return nullptr;
+        void* v = nullptr;
+        Mem::Read((uintptr_t)&b[i], v);
+        return v;
+    }
+
+    bool ListContainsOne(int list, void* v);
+    // list == -1: search every vehicle list (used for cars we spawned ourselves)
+    bool ListContains(int list, void* v) {
+        if (list < 0) {
+            for (int l = 0; l < 10; ++l) if (ListContainsOne(l, v)) return true;
+            return false;
+        }
+        return ListContainsOne(list, v);
+    }
+    bool ListContainsOne(int list, void* v) {
+        void** b = nullptr;
+        int n = ListSize(list, &b);
+        for (int i = 0; i < n; ++i) {
+            void* x = nullptr;
+            if (Mem::Read((uintptr_t)&b[i], x) && x == v) return true;
+        }
+        return false;
+    }
+
+    bool IsVehicle(void* iv) { return iv && VTable(iv) == Addr::VT_PVehicle_IVehicle; }
+
+    // Accept any IRigidBody whose slots we use point to the exact functions verified in the exe
+    // (RBVehicle 0x8AC880 and the remote-player body 0x8AD178 share them).
+    bool RigidVtableMatches(uintptr_t vt) {
+        static const struct { int slot; uintptr_t fn; } k[] = {
+            {RB_GetPosition, 0x671180}, {RB_GetLinearVelocity, 0x671190}, {RB_GetAngularVelocity, 0x6711A0},
+            {RB_GetOrientation, 0x671320}, {RB_SetPosition, 0x696FB0}, {RB_SetLinearVelocity, 0x696FD0},
+            {RB_SetAngularVelocity, 0x696FF0}, {RB_SetOrientationQuat, 0x696E00} };
+        for (auto& e : k) {
+            uintptr_t f = 0;
+            if (!Mem::Read(vt + e.slot * 4, f) || f != e.fn) return false;
+        }
+        return true;
+    }
+
+    void* RigidBodyOf(void* iv) {
+        if (!IsVehicle(iv)) return nullptr;
+        void* rb = Find(iv, Addr::H_IRigidBody);
+        if (!rb) return nullptr;
+        uintptr_t vt = VTable(rb);
+        if (vt != Addr::VT_RBVehicle_IRigid && vt != Addr::VT_Simple_IRigid && !RigidVtableMatches(vt)) return nullptr;
+        return rb;
+    }
+
+    void* RBVehicleOf(void* iv) {
+        if (!IsVehicle(iv)) return nullptr;
+        void* r = Find(iv, Addr::H_IRBVehicle);
+        if (!r) return nullptr;
+        // accept any IRBVehicle whose EnableObjectCollisions slot is the verified function (0x6B7CA0)
+        uintptr_t f = 0;
+        if (VTable(r) != Addr::VT_RBVehicle_IRBVeh && (!Mem::Read(VTable(r) + IRBV_EnableObjectCollisions * 4, f) || f != 0x6B7CA0)) return nullptr;
+        return r;
+    }
+
+    const float* RB_GetVec(void* rb, int slot) {
+        using Fn = const float* (__thiscall*)(void*);
+        return VCall<Fn>(rb, slot)(rb);
+    }
+    void RB_SetVec(void* rb, int slot, const void* v) {
+        using Fn = void(__thiscall*)(void*, const void*);
+        VCall<Fn>(rb, slot)(rb, v);
+    }
+    const char* VehName(void* iv) {
+        using Fn = const char* (__thiscall*)(void*);
+        const char* n = VCall<Fn>(iv, IV_GetVehicleName)(iv);
+        return (n && Mem::IsReadable(n, 1)) ? n : "?";
+    }
+    int DriverClass(void* iv) {
+        using Fn = int(__thiscall*)(void*);
+        return VCall<Fn>(iv, IV_GetDriverClass)(iv);
+    }
+    void SetCollisions(void* iv, bool on) {
+        void* r = RBVehicleOf(iv);
+        if (!r) return;
+        using Fn = void(__thiscall*)(void*, bool);
+        VCall<Fn>(r, IRBV_EnableObjectCollisions)(r, on);
+    }
+
+    // IRBVehicle slot 4 SetInvulnerability(type, seconds) (0x6B7CB0 on RBVehicle: stores +0x44/+0x48).
+    // INVULNERABLE_FROM_RESET (2) is the game's post-reset state: the car blinks and ghosts through
+    // other cars. On the remote-player body class this slot is an empty stub (harmless).
+    void SetInvulnerable(void* iv, int type, float seconds) {
+        void* r = RBVehicleOf(iv);
+        if (!r) return;
+        using Fn = void(__thiscall*)(void*, int, float);
+        VCall<Fn>(r, 4)(r, type, seconds);
+    }
+
+    void* LocalVehicle() {
+        // The players list also holds remote-player cars we spawned (DRIVER_REMOTE): pick the human one.
+        void** b = nullptr;
+        int n = ListSize(VL_PLAYERS, &b);
+        for (int i = 0; i < n; ++i) {
+            void* iv = ListGet(VL_PLAYERS, i);
+            if (IsVehicle(iv) && DriverClass(iv) == 0 /*DRIVER_HUMAN*/) return iv;
+        }
+        return nullptr;
+    }
+
+    // ---- ghost state ----
+    void*  g_ghost = nullptr;       // IVehicle* we are puppeting (an AI racer, or our spawned peer car)
+    bool   g_ghostStarved = false;
+    DWORD  g_noSpawnUntil = 0;      // an event is starting: the race builds the peer's car, don't spawn one  // spawning the peer car failed: traffic mirrors give up budget
+    int    g_ghostList = VL_AIRACERS; // which vehicle list g_ghost came from (VL_ALL for our spawned car)
+    enum GhostKind { GK_NONE, GK_RACER, GK_SPAWNED, GK_TRAFFIC };
+    GhostKind g_ghostKind = GK_NONE;
+    uint32_t g_spawnedKey = 0, g_spawnedHash = 0; // which peer car g_ghost was spawned as
+    int      g_spawnFails = 0;
+    DWORD    g_nextSpawnTry = 0;            // backoff between spawn attempts
+    void*    g_replacedRacer = nullptr;            // racer built as the peer's car by the factory hook
+    bool     g_racerReplacedThisLoad = false;
+    uint32_t g_origRacer[1] = {};
+    void*    g_origRacerCustom = nullptr;
+    void*    g_origRacerMatched = nullptr;
+    uint8_t  g_peerCustomForRace[0x198];
+    // Race rosters: each game picks its AI opponents at random, so the game that starts an event sends
+    // the opponents it built (model + tuning, in construction order) and the other game builds the same.
+    struct RosterEntry { uint32_t key; bool hasCustom; char name[24]; uint8_t custom[0x198]; };
+    RosterEntry g_localRoster[8];  int g_localRosterN = 0;     // AI racers built here since the last event
+    RosterEntry g_peerRoster[8];   int g_peerRosterN = 0;      // received from the peer
+    DWORD    g_peerRosterAt = 0;
+    bool     g_usePeerRoster = false;  int g_peerRosterNext = 0;
+    bool   g_aiPatched = false;
+    bool   g_ghostCollide = false;  // collisions currently enabled on the ghost
+    bool   g_separated = false;     // has the pair ever been far enough apart?
+    char   g_ghostName[48] = "";
+    float  g_jitterMm = 0, g_extrapMs = 0;
+    bool   g_protectHoldReset = false;  // set when a new ghost is acquired: start a hold period
+    bool   g_protectHolding = false;
+    LARGE_INTEGER g_qpf{}, g_lastQpc{};
+
+    // Switch off the racing AI of ONE car (the ones we drive from the network), leaving every other
+    // racer alone: give that car's AI object a private copy of its vtable with the update slot
+    // (0x892748 in the shared vtable) pointing to an empty function.
+    struct AIOverride { void* iv; uint32_t* field; uint32_t origVt; uint32_t copy[0x200]; };
+    AIOverride g_aiOv[12];
+
+    bool DisableAI(void* iv) {
+        if (!IsVehicle(iv)) return false;
+        for (auto& o : g_aiOv) if (o.iv == iv) return true;
+        void* ai = VCall<void* (__thiscall*)(void*)>(iv, 0xAC / 4)(iv);   // GetAIVehiclePtr
+        if (!ai) return false;
+        // find the field holding the racer vtable (a pointer a little below the update slot)
+        uint32_t* field = nullptr; uint32_t vt = 0;
+        for (int off = -0x100; off <= 0x100; off += 4) {
+            uint32_t v = 0;
+            if (!Mem::Read((uintptr_t)ai + off, v)) continue;
+            if (v > Addr::RacerAIUpdateSlot || v + 0x600 < Addr::RacerAIUpdateSlot || (v & 3)) continue;
+            uint32_t first = 0, slot = 0;
+            if (!Mem::Read(v, first) || first < 0x401000 || first > 0x880000) continue;
+            if (!Mem::Read(Addr::RacerAIUpdateSlot, slot) || slot != Addr::RacerAIUpdate) continue;
+            if (v > vt) { vt = v; field = (uint32_t*)((uintptr_t)ai + off); }
+        }
+        if (!field) { LOG("AI: no racer vtable found on %p", iv); return false; }
+        for (auto& o : g_aiOv) {
+            if (o.iv) continue;
+            o.iv = iv; o.field = field; o.origVt = vt;
+            Mem::SafeRead((void*)(vt - 4), o.copy, sizeof(o.copy));        // RTTI pointer + entries
+            o.copy[1 + (Addr::RacerAIUpdateSlot - vt) / 4] = Addr::EmptyAIUpdate;
+            *field = (uint32_t)&o.copy[1];
+            LOG("AI: disabled racing AI of %p (vtable %08X)", iv, vt);
+            return true;
+        }
+        return false;
+    }
+    void RestoreAI(void* iv) {
+        for (auto& o : g_aiOv) {
+            if (!o.iv || (iv && o.iv != iv)) continue;
+            if (Game::GameFlowState() == 6 && ListContains(-1, o.iv)) __try { if (*o.field == (uint32_t)&o.copy[1]) *o.field = o.origVt; } __except (EXCEPTION_EXECUTE_HANDLER) {}
+            o.iv = nullptr;
+        }
+    }
+    // A cutscene (NIS: race intro, arrest, story scene) is running: the game animates the cars itself.
+    // INIS::mInstance 0x9885C8, state dword +0x2AC (3 loaded, 4/6 pre/post movie, 5 playing, 7 skipped)
+    bool NisActive() {
+        void* nis = nullptr; int st = 0;
+        if (!Mem::Read(0x9885C8, nis) || !nis || !Mem::Read((uintptr_t)nis + 0x2AC, st)) return false;
+        return st >= 3 && st <= 6;
+    }    void PatchRacerAI(bool disable) {   // the ghost racer only
+        if (disable) { if (g_ghost) DisableAI(g_ghost); }
+        else if (g_ghost) RestoreAI(g_ghost);
+        g_aiPatched = disable;
+    }
+
+    Quat Nlerp(Quat a, Quat b, float t) {
+        float dot = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+        if (dot < 0) { b.x = -b.x; b.y = -b.y; b.z = -b.z; b.w = -b.w; }
+        Quat r{ a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t };
+        float len = sqrtf(r.x * r.x + r.y * r.y + r.z * r.z + r.w * r.w);
+        if (len < 1e-6f) return b;
+        r.x /= len; r.y /= len; r.z /= len; r.w /= len;
+        return r;
+    }
+
+    float Dist(const float* a, const float* b) {
+        float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+        return sqrtf(dx * dx + dy * dy + dz * dz);
+    }
+}
+
+static double SimClockMs();
+
+bool Game::Init() {
+    uintptr_t base = (uintptr_t)GetModuleHandleA(nullptr);
+    uint32_t peOff = 0, ep = 0;
+    if (!Mem::Read(base + 0x3C, peOff) || !Mem::Read(base + peOff + 0x28, ep) || base + ep != Addr::EntryPoint) {
+        LOG("Game::Init: unexpected speed.exe (entry %08X) - game features disabled", (unsigned)(base + ep));
+        return false;
+    }
+    uintptr_t slot = 0;
+    Mem::Read(Addr::RacerAIUpdateSlot, slot);
+    if (slot != Addr::RacerAIUpdate) {
+        LOG("Game::Init: racer AI slot holds %08X, expected %08X (another mod?) - ghost disabled", (unsigned)slot, (unsigned)Addr::RacerAIUpdate);
+        return false;
+    }
+    QueryPerformanceFrequency(&g_qpf);
+    QueryPerformanceCounter(&g_lastQpc);
+    g_ok = true;
+    LOG("Game::Init: speed.exe v1.3 detected");
+    InstallVehicleFactoryHook();
+    Net::LocalClockMs = &SimClockMs;
+    return true;
+}
+
+int Game::GameFlowState() {
+    int s = -1;
+    if (!Mem::Read(Addr::GameFlowState, s)) return -1;
+    return s;
+}
+
+static double SimClockMs() {
+    float t = 0;
+    if (!Mem::Read(0x9885D8, t)) return Net::NowMs();   // Sim::GetTime() reads this float (seconds)
+    return (double)t * 1000.0;
+}
+float Game::SimTimeSec() { float t = 0; Mem::Read(0x9885D8, t); return t; }
+
+static void* RacerInfoOfLocal() {
+    void* rs = nullptr;
+    if (!Mem::Read(0x91E000, rs) || !rs) return nullptr;
+    void* iv = LocalVehicle();
+    if (!IsVehicle(iv)) return nullptr;
+    void* sim = VCall<void* (__thiscall*)(void*)>(iv, IV_GetSimable)(iv);
+    return sim ? ((void*(__thiscall*)(void*, void*))0x5E8B20)(rs, sim) : nullptr;
+}
+
+// Test: hand the local car to the game's racer AI and back (IHumanAI::SetAiControl, the same call the
+// game uses after the finish line). In a race it drives the route, in free roam it cruises the roads.
+static bool g_apUserOff = false;   // the player switched the automatic autopilot off (until the next world/race)
+static bool AutopilotIsOn(void* hai) { return VCall<bool(__thiscall*)(void*)>(hai, 3)(hai); }
+
+static const char* ToggleAutopilotSafe() {
+    __try {
+        void* iv = LocalVehicle();
+        void* hai = IsVehicle(iv) ? Find(iv, 0x403770 /*IHumanAI*/) : nullptr;
+        if (!hai) return "no human AI on the local car";
+        bool on = VCall<bool(__thiscall*)(void*)>(hai, 3)(hai);
+        VCall<void(__thiscall*)(void*, bool)>(hai, 4)(hai, !on);
+        if (!on) {
+            void* vai = VCall<void* (__thiscall*)(void*)>(iv, 0xAC / 4)(iv);
+            if (vai) VCall<void(__thiscall*)(void*, int)>(vai, 0x50 / 4)(vai, 1);   // ResetDriveToNav(current lane)
+        } else if (void* rb = Find(iv, Addr::H_IRBVehicle)) {
+            VCall<void(__thiscall*)(void*, int, float)>(rb, 4)(rb, 3, 1.0f);       // 1 s invulnerability
+        }
+        LOG("Autopilot %s", on ? "OFF" : "ON");
+        g_apUserOff = on;
+        return on ? "autopilot off" : "autopilot ON (AI drives your car)";
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return "exception"; }
+}
+// [Debug] AutoPilot=1: switch the autopilot on whenever we're driving in free roam or a race.
+void Game::AutopilotTick() {
+    if (!g_ok || !g_cfg.autoPilot) return;
+    static int lastFlow = -1, lastMode = -1;
+    int flow = GameFlowState(), mode = 0;
+    void* rs = nullptr;
+    if (Mem::Read(0x91E000, rs) && rs) Mem::Read((uintptr_t)rs + 0x1960, mode);
+    if (flow != lastFlow || mode != lastMode) g_apUserOff = false;   // new world or race: auto again
+    lastFlow = flow; lastMode = mode;
+    static DWORD next = 0;
+    if (flow != 6 || g_apUserOff || NisActive() || GetTickCount() < next) return;
+    next = GetTickCount() + 1000;
+    __try {
+        void* iv = LocalVehicle();
+        void* hai = IsVehicle(iv) ? Find(iv, 0x403770) : nullptr;
+        if (!hai || AutopilotIsOn(hai)) return;
+        ToggleAutopilotSafe();
+        g_apUserOff = false;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+std::string Game::ToggleAutopilot() {
+    if (!g_ok || GameFlowState() != 6) return "not in game";
+    return ToggleAutopilotSafe();
+}
+
+bool Game::ReadLocalCar(CarState& out) {
+    if (!g_ok || GameFlowState() != 6) return false;
+    __try {
+        void* iv = LocalVehicle();
+        void* rb = RigidBodyOf(iv);
+        if (!rb) return false;
+        const float* p = RB_GetVec(rb, RB_GetPosition);
+        const float* q = RB_GetVec(rb, RB_GetOrientation);
+        const float* v = RB_GetVec(rb, RB_GetLinearVelocity);
+        const float* w = RB_GetVec(rb, RB_GetAngularVelocity);
+        memcpy(out.pos, p, 12);
+        memcpy(out.rot, q, 16);
+        memcpy(out.linVel, v, 12);
+        memcpy(out.angVel, w, 12);
+        out.speedMps = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        Mem::Read(0x9885D8, out.simTime);                 // when (in simulation time) this state is from
+        // race progress of my racer (GRacerInfo: +0x18 pct race, +0x21 finished, +0x24 pct lap,
+        // +0x28 laps, +0x2C checkpoints this lap), looked up with GRaceStatus::GetRacerInfo(ISimable*)
+        out.inRace = 0;
+        void* rs = nullptr;
+        int mode = 0;
+        if (Mem::Read(0x91E000, rs) && rs && Mem::Read((uintptr_t)rs + 0x1960, mode) && mode == 1) {
+            void* sim = VCall<void* (__thiscall*)(void*)>(iv, IV_GetSimable)(iv);
+            void* ri = sim ? ((void*(__thiscall*)(void*, void*))0x5E8B20)(rs, sim) : nullptr;
+            if (ri) {
+                int laps = 0, cps = 0; uint8_t fin = 0;
+                Mem::Read((uintptr_t)ri + 0x18, out.racePct);
+                Mem::Read((uintptr_t)ri + 0x24, out.lapPct);
+                Mem::Read((uintptr_t)ri + 0x28, laps);
+                Mem::Read((uintptr_t)ri + 0x2C, cps);
+                Mem::Read((uintptr_t)ri + 0x21, fin);
+                out.laps = (int16_t)laps; out.checkpoints = (int16_t)cps; out.finished = fin;
+                // our own name in the standings: the co-op player name (both games may share one
+                // save profile, so the profile name would be the same on both)
+                static char myName[32];
+                if (!g_cfg.playerName.empty()) {
+                    strncpy_s(myName, 16, g_cfg.playerName.c_str(), _TRUNCATE);   // HUD slots are 16 bytes
+                    const char* nm = myName; Mem::Write((uintptr_t)ri + 0x08, nm);
+                }
+                out.inRace = 1;
+            }
+        }
+        out.pursuitHeat = Game::LocalPursuitHeat();
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        LOG("ReadLocalCar: exception");
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Spawning our own vehicles
+// ---------------------------------------------------------------------------
+namespace {
+    struct SimParam { uint32_t mType, mName; void* mData; uint32_t pad; };
+    struct VehicleParams {
+        SimParam base;
+        int32_t  carClass;
+        uint32_t carType;
+        const float* initialVec;
+        const float* initialPos;
+        void*    customization;
+        void*    vehicleCache;
+        void*    matched;
+        uint32_t flags;
+    };
+    static_assert(sizeof(VehicleParams) == 0x30, "VehicleParams layout");
+
+    // ---- our IVehicleCache ----
+    // PVehicle::Construct runs a car-memory budget check (0x687710). A new car model needs room in the
+    // CarLoader pool; when over budget, the game asks the IVehicleCache passed in VehicleParams+0x24 to
+    // agree to evicting other cars (traffic/cops). With no cache it simply fails. Interface (UCOM::IUnknown
+    // layout: vtable, mCOMObject): [1] GetCacheName, [2] OnQueryVehicleCache(IVehicle*, IVehicleCache*)
+    // -> 0 VCR_WANT / 1 VCR_DONTCARE, [3] OnRemovedVehicleCache(IVehicle*).
+    void* g_keepCars[8] = {};                 // cars we want kept (our spawned remote-player cars)
+    void (*g_onCarRemoved)(void*) = nullptr;
+
+    bool IsKeptCar(void* iv) { for (void* k : g_keepCars) if (k && k == iv) return true; return false; }
+    void KeepCar(void* iv) { for (void*& k : g_keepCars) if (!k) { k = iv; return; } }
+    void ForgetCar(void* iv) { for (void*& k : g_keepCars) if (k == iv) k = nullptr; }
+
+    // __fastcall(ecx = this, edx = unused, stack args...) matches MSVC __thiscall with callee cleanup.
+    void        __fastcall Cache_Dtor(void*, void*, int) {}
+    const char* __fastcall Cache_GetName(void*, void*) { return "CoopModRemotePlayers"; }
+    int         __fastcall Cache_OnQuery(void*, void*, void* iv, void* /*asking*/) { return IsKeptCar(iv) ? 0 : 1; }
+    void        __fastcall Cache_OnRemoved(void*, void*, void* iv) {
+        if (IsKeptCar(iv)) {
+            LOG("Vehicle cache: game removed our car %p", iv);
+            ForgetCar(iv);
+            if (g_onCarRemoved) g_onCarRemoved(iv);
+        }
+    }
+    void* g_cacheVtbl[4] = { (void*)&Cache_Dtor, (void*)&Cache_GetName, (void*)&Cache_OnQuery, (void*)&Cache_OnRemoved };
+    struct { void** vt; void* com; } g_cache = { g_cacheVtbl, nullptr };
+
+    uint32_t VehicleKey(void* iv) {
+        using Fn = uint32_t(__thiscall*)(void*);
+        return VCall<Fn>(iv, IV_GetVehicleKey)(iv);
+    }
+    const void* Customizations(void* iv) {
+        using Fn = const void* (__thiscall*)(void*);
+        return VCall<Fn>(iv, IV_GetCustomizations)(iv);
+    }
+
+    void* SpawnVehicle(uint32_t carKey, const void* custom, const float pos[3], const float dir[3], int driverClass) {
+        uint32_t typeHash = 0;
+        ((uint32_t* (__cdecl*)(uint32_t*))Addr::VehicleParamsType)(&typeHash);
+        static uint8_t customCopy[0x198];           // the game copies it during construction
+        if (custom) memcpy(customCopy, custom, sizeof(customCopy));
+        VehicleParams vp{};
+        vp.base.mType = typeHash;
+        vp.base.mName = Addr::ParamNameBase;
+        vp.base.mData = &vp;
+        vp.carClass = driverClass;
+        vp.carType = carKey;
+        vp.initialVec = dir;
+        vp.initialPos = pos;
+        vp.customization = custom ? customCopy : nullptr;
+        vp.vehicleCache = &g_cache;   // lets the budget check evict traffic/cops to make room for this model
+        using Fn = void* (__cdecl*)(SimParam);
+        void* simable = ((Fn)Addr::PVehicleConstruct)(vp.base);
+        if (!simable) return nullptr;
+        // find its IVehicle interface
+        void* iv = nullptr;
+        void* object = nullptr;
+        if (Mem::Read((uintptr_t)simable + 4, object) && object) {
+            using FindFn = void* (__thiscall*)(void*, uint32_t);
+            iv = ((FindFn)Addr::UCOM_Find)(object, 0x4040E0 /*IVehicle*/);
+        }
+        LOG("SpawnVehicle key %08X class %d -> simable %p ivehicle %p", carKey, driverClass, simable, iv);
+        if (iv) KeepCar(iv);
+        return IsVehicle(iv) ? iv : nullptr;
+    }
+
+    void KillVehicle(void* iv) {
+        ForgetCar(iv);
+        if (!IsVehicle(iv)) return;
+        using GetSim = void* (__thiscall*)(void*);
+        void* sim = VCall<GetSim>(iv, IV_GetSimable)(iv);
+        if (!sim || VTable(sim) != Addr::VT_PVehicle_ISimable) { LOG("KillVehicle: unexpected ISimable %p", sim); return; }
+        using KillFn = void(__thiscall*)(void*);
+        VCall<KillFn>(sim, 2)(sim);
+        LOG("KillVehicle %p", iv);
+    }
+
+    void* g_clone = nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// Races: the game builds every car through the "PVehicle" factory pointer (0x92C534). While a race
+// loads, build the first AI racer as the peer's car (model + tuning) so they race in their own car
+// and count in positions / results. (Same technique as MostWantedTimeTrialGhosts.)
+// ---------------------------------------------------------------------------
+static void* __cdecl hk_VehicleConstruct(SimParam p) {
+    using Fn = void* (__cdecl*)(SimParam);
+    VehicleParams* vp = (VehicleParams*)p.mData;
+    bool replaced = false;
+    if (vp && vp->carClass == DRV_RACER && !g_racerReplacedThisLoad && g_cfg.ghostEnabled) {
+        if (const CarInfo* pc = Net::PeerCar()) {
+            g_origRacer[0] = vp->carType; g_origRacerCustom = vp->customization; g_origRacerMatched = vp->matched;
+            vp->carType = pc->carKey;
+            if (pc->hasCustom) { memcpy(g_peerCustomForRace, pc->custom, sizeof(g_peerCustomForRace)); vp->customization = g_peerCustomForRace; }
+            else vp->customization = nullptr;
+            vp->matched = nullptr;
+            replaced = true;
+            g_racerReplacedThisLoad = true;
+        }
+    }
+
+    // the other AI racers: build the same opponents as the game that started the event
+    bool fromRoster = false;
+    uint32_t rKey = 0; void* rCustom = nullptr; void* rMatched = nullptr;
+    if (vp && vp->carClass == DRV_RACER && !replaced && g_usePeerRoster && g_peerRosterNext < g_peerRosterN) {
+        RosterEntry& r = g_peerRoster[g_peerRosterNext++];
+        rKey = vp->carType; rCustom = vp->customization; rMatched = vp->matched;
+        vp->carType = r.key;
+        vp->customization = r.hasCustom ? (void*)r.custom : nullptr;
+        vp->matched = nullptr;
+        fromRoster = true;
+    }
+
+    void* simable = ((Fn)Addr::PVehicleConstruct)(p);
+    if (fromRoster) {
+        if (simable) LOG("Race: opponent %d built as the peer's opponent (key %08X)", g_peerRosterNext, vp->carType);
+        else {
+            LOG("Race: peer's opponent model %08X not loaded - keeping our own", vp->carType);
+            vp->carType = rKey; vp->customization = rCustom; vp->matched = rMatched;
+            simable = ((Fn)Addr::PVehicleConstruct)(p);
+        }
+    }
+    // remember what we built, to send it when this game starts the event
+    if (simable && vp && vp->carClass == DRV_RACER && !replaced && g_localRosterN < 8) {
+        RosterEntry& r = g_localRoster[g_localRosterN++];
+        r.key = vp->carType;
+        r.hasCustom = vp->customization != nullptr;
+        if (r.hasCustom) Mem::SafeRead(vp->customization, r.custom, sizeof(r.custom));
+        r.name[0] = 0;
+    }
+    if (replaced && !simable) {
+        LOG("Race: peer car model %08X not loaded - keeping the original AI car", vp->carType);
+        replaced = false;
+        g_racerReplacedThisLoad = false;     // let the next racer try (its model may be loaded)
+        vp->carType = g_origRacer[0];
+        vp->customization = g_origRacerCustom;
+        vp->matched = g_origRacerMatched;
+        simable = ((Fn)Addr::PVehicleConstruct)(p);
+    }
+    if (replaced && simable) {
+        void* object = nullptr;
+        if (Mem::Read((uintptr_t)simable + 4, object) && object) {
+            using FindFn = void* (__thiscall*)(void*, uint32_t);
+            g_replacedRacer = ((FindFn)Addr::UCOM_Find)(object, 0x4040E0);
+        }
+        LOG("Race: AI racer built as peer car (key %08X) -> %p", vp->carType, g_replacedRacer);
+    }
+    return simable;
+}
+
+bool Game::InstallVehicleFactoryHook() {
+    g_onCarRemoved = [](void* iv) {
+        if (iv == g_ghost) { g_ghost = nullptr; g_ghostKind = GK_NONE; g_spawnedKey = g_spawnedHash = 0; }
+    };
+    uintptr_t cur = 0;
+    if (!Mem::Read(0x92C534, cur) || cur != Addr::PVehicleConstruct) {
+        LOG("Vehicle factory slot holds %08X, expected %08X - race car replacement disabled", (unsigned)cur, (unsigned)Addr::PVehicleConstruct);
+        return false;
+    }
+    Mem::PatchPointer((void*)0x92C534, (void*)&hk_VehicleConstruct);
+    InstallTrafficHooks();
+    InstallEventSync();
+    InstallRestartSync();
+    InstallStreamHook();
+    InstallMinimapHook();
+    InstallWorldMapHook();
+    LOG("Hooked vehicle factory (races: AI racer -> peer car)");
+    return true;
+}
+
+void Game::OnFlow(int flow) {
+    static int last = -1;
+    if (flow != last) {
+        if (flow == 4) { g_racerReplacedThisLoad = false; g_replacedRacer = nullptr; g_spawnFails = 0; } // new world loading
+        last = flow;
+    }
+}
+
+bool Game::ReadLocalCarInfo(CarInfo& out) {
+    if (!g_ok || GameFlowState() != 6) return false;
+    __try {
+        void* iv = LocalVehicle();
+        if (!iv) return false;
+        memset(&out, 0, sizeof(out));
+        // Send the MODEL key (hash of the car's model name, e.g. "eclipsegt"), not GetVehicleKey():
+        // career cars can carry a per-save key (seen: 401337DE for a career eclipsegt) that doesn't
+        // exist in the other player's game, so Construct fails there.
+        out.carKey = VehicleKey(iv);
+        const char* nm = VehName(iv);
+        if (nm && nm[0] && nm[0] != '?') {
+            using HashFn = uint32_t(__cdecl*)(const char*);
+            uint32_t modelKey = ((HashFn)0x4519D0)(nm);   // Attrib::StringHash32
+            if (modelKey) out.carKey = modelKey;
+        }
+        static uint32_t lastLoggedKey = 0;
+        if (out.carKey != lastLoggedKey) {
+            lastLoggedKey = out.carKey;
+            LOG("Local car name: %s (key %08X, driver class %d)", VehName(iv), out.carKey, DriverClass(iv));
+        }
+        if (const void* c = Customizations(iv)) {
+            memcpy(out.custom, c, CUSTOM_RECORD_SIZE);
+            out.hasCustom = 1;
+        }
+        uint32_t h = 2166136261u; // FNV-1a
+        for (int i = 0; i < CUSTOM_RECORD_SIZE; ++i) { h ^= out.custom[i]; h *= 16777619u; }
+        out.customHash = h ^ out.carKey;
+        return out.carKey != 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+#include "traffic.inl"
+#include "event.inl"
+#include "minimap.inl"
+#include "worldmap.inl"
+#include "pursuit.inl"
+#include "stream.inl"
+#include "boot.inl"
+
+void Game::ReleaseGhost() {
+    g_streamPeer = false;
+    if (g_ghost) {
+        __try {
+            // Only touch the car if the game still owns it (it may have been destroyed after a race).
+            if (GameFlowState() == 6 && ListContains(g_ghostList, g_ghost)) {
+                if (g_ghostKind == GK_SPAWNED) KillVehicle(g_ghost); // our own car: remove it
+                else SetCollisions(g_ghost, true);                 // borrowed car: give it back
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        g_ghostKind = GK_NONE;
+        g_spawnedKey = g_spawnedHash = 0;
+        LOG("Ghost released");
+        g_ghost = nullptr;
+        g_ghostName[0] = 0;
+    }
+    PatchRacerAI(false);
+    g_ghostCollide = false;
+    g_separated = false;
+}
+
+static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& prev, bool enabled, char* out, size_t outLen) {
+#define RET(msg) do { strncpy_s(out, outLen, msg, _TRUNCATE); return; } while (0)
+    LARGE_INTEGER now; QueryPerformanceCounter(&now);
+    float dt = (float)(now.QuadPart - g_lastQpc.QuadPart) / (float)g_qpf.QuadPart;
+    g_lastQpc = now;
+    if (dt > 0.1f) dt = 0.1f;
+
+    if (!enabled) { Game::ReleaseGhost(); RET("disabled (F9)"); }
+    if (Game::GameFlowState() != 6) { g_ghost = nullptr; Game::ReleaseGhost(); for (auto& o : g_aiOv) o.iv = nullptr; RET("waiting (not in game)"); }
+    if (!latest.valid || !latest.s.hasCar) { Game::ReleaseGhost(); RET("waiting (peer not driving)"); }
+
+    // Drop the ghost if the game removed that car.
+    if (g_ghost && !ListContains(g_ghostList, g_ghost)) {
+        LOG("Ghost car left its vehicle list (despawned)");
+        g_ghost = nullptr;
+        Game::ReleaseGhost();
+    }
+
+    // Using a borrowed traffic car but a spawn retry is due: give it back and try spawning the real car.
+    if (g_ghost && g_ghostKind == GK_TRAFFIC && Net::PeerCar() && GetTickCount() >= g_nextSpawnTry) Game::ReleaseGhost();
+
+    // An event started (from free roam): the race built a racer as the peer's car. Use that one and
+    // drop our free-roam copy, or the race would have the peer twice (one of them AI-driven).
+    if (g_ghost && g_ghostKind != GK_RACER && g_replacedRacer == g_ghost && ListContains(VL_AIRACERS, g_ghost)) {
+        g_ghostKind = GK_RACER; g_ghostList = VL_AIRACERS; DisableAI(g_ghost);   // same object reused by the race
+        LOG("Race: the ghost is now the racer built as the peer's car");
+    }
+    if (g_ghost && g_ghostKind != GK_RACER && g_replacedRacer && g_replacedRacer != g_ghost &&
+        ListContains(VL_AIRACERS, g_replacedRacer) && RigidBodyOf(g_replacedRacer)) {
+        LOG("Race: switching the ghost to the racer built as the peer's car");
+        Game::ReleaseGhost();
+    }
+
+    // The peer switched cars: respawn ours as their new model / tuning.
+    const CarInfo* pc = Net::PeerCar();
+    if (g_ghost && g_ghostKind == GK_SPAWNED && pc && (pc->carKey != g_spawnedKey || pc->customHash != g_spawnedHash)) {
+        LOG("Peer changed car - respawning");
+        Game::ReleaseGhost();
+    }
+
+    if (!g_ghost) {
+        void* iv = nullptr;
+        // 1) in a race: the racer the factory hook built as the peer's car, else any racer
+        if (g_replacedRacer && ListContains(VL_AIRACERS, g_replacedRacer) && RigidBodyOf(g_replacedRacer)) iv = g_replacedRacer;
+        else if (void* r0 = ListGet(VL_AIRACERS, 0); r0 && RigidBodyOf(r0)) iv = r0;
+        if (iv) {
+            g_ghostList = VL_AIRACERS;
+            g_ghostKind = GK_RACER;
+        } else if (GetTickCount() < g_noSpawnUntil) {
+            RET("event starting...");
+        } else if (pc && GetTickCount() >= g_nextSpawnTry) {
+            // 2) free roam: spawn the peer's own car (their model + tuning) where they are
+            float dir[3] = { 1, 0, 0 };
+            float vlen = sqrtf(latest.s.linVel[0] * latest.s.linVel[0] + latest.s.linVel[2] * latest.s.linVel[2]);
+            if (vlen > 1.f) { dir[0] = latest.s.linVel[0] / vlen; dir[2] = latest.s.linVel[2] / vlen; }
+            // spawn protection: never create the car inside the local player (same spawn point / grid slot)
+            float spawnPos[3] = { latest.s.pos[0], latest.s.pos[1], latest.s.pos[2] };
+            if (void* lrb0 = RigidBodyOf(LocalVehicle())) {
+                if (Dist(RB_GetVec(lrb0, RB_GetPosition), spawnPos) < 4.f) { spawnPos[0] += -dir[2] * 5.f; spawnPos[2] += dir[0] * 5.f; spawnPos[1] += 0.5f; }
+            }
+            iv = SpawnVehicle(pc->carKey, pc->hasCustom ? pc->custom : nullptr, spawnPos, dir, DRV_REMOTE);
+            if (!iv && pc->hasCustom) {
+                // Diagnose: is it the customization record that Construct rejects, or the model itself?
+                iv = SpawnVehicle(pc->carKey, nullptr, spawnPos, dir, DRV_REMOTE);
+                LOG("Spawn of %08X with customization failed; stock retry %s", pc->carKey, iv ? "SUCCEEDED (custom record rejected)" : "failed too");
+            }
+            if (!iv) {
+                // Usually: that car model isn't loaded in this world. Retry later; borrow traffic meanwhile.
+                ++g_spawnFails;
+                g_ghostStarved = true;
+                g_nextSpawnTry = GetTickCount() + 1500;
+                LOG("Spawning peer car %08X failed (attempt %d) - freeing room, retry in 1.5 s", pc->carKey, g_spawnFails);
+                RET("peer car model not loaded yet - retrying");
+            }
+            g_ghostList = -1; // any list
+            g_ghostKind = GK_SPAWNED;
+            g_spawnedKey = pc->carKey;
+            g_spawnedHash = pc->customHash;
+        } else if (!pc) {
+            RET("waiting for peer car info");
+        } else {
+            // No borrowing of AI traffic cars any more: their AI keeps driving them away.
+            RET(g_spawnFails ? "peer car spawn failed - retrying" : "spawning peer car...");
+        }
+        g_ghost = iv;
+        if (g_ghostKind == GK_RACER) DisableAI(iv);
+        strncpy_s(g_ghostName, VehName(iv), _TRUNCATE);
+        SetCollisions(iv, false);
+        g_ghostCollide = false;
+        g_separated = false;
+        g_protectHoldReset = true;
+        LOG("Ghost acquired: %s %p (%s)", g_ghostKind == GK_RACER ? (iv == g_replacedRacer ? "racer built as peer car" : "AI racer")
+                                          : g_ghostKind == GK_SPAWNED ? "spawned peer car" : "traffic car", iv, g_ghostName);
+    }
+
+    void* rb = RigidBodyOf(g_ghost);
+    if (!rb) {
+        // A car we just spawned gets its physics body a moment later: wait instead of giving up.
+        if (g_ghostKind == GK_SPAWNED) {
+            static void* loggedFor = nullptr;
+            if (loggedFor != g_ghost) {
+                loggedFor = g_ghost;
+                void* r = Find(g_ghost, Addr::H_IRigidBody);
+                LOG("Spawned car %p: IRigidBody %p vtable %08X (accepted: %08X / %08X)", g_ghost, r,
+                    r ? (unsigned)VTable(r) : 0u, (unsigned)Addr::VT_RBVehicle_IRigid, (unsigned)Addr::VT_Simple_IRigid);
+            }
+            RET("peer car loading...");
+        }
+        Game::ReleaseGhost(); RET("ghost car invalid");
+    }
+
+    SetStreamPeer(rb);   // keep the world (and full physics) loaded around the other player too
+    if (NisActive()) { g_protectHoldReset = true; sprintf_s(out, outLen, "%s  (cutscene)", g_ghostName); return; }
+
+    // --- target state: snapshot interpolation ~InterpDelayMs in the past (smooth, no guessing) ---
+    CarState s = latest.s;
+    double extrapMs = 0;
+    if (!Net::SampleRemote((double)g_cfg.interpDelayMs, s, &extrapMs)) s = latest.s;
+
+    const float* cur = RB_GetVec(rb, RB_GetPosition);
+    float err = Dist(cur, s.pos);
+
+    // Spawn protection: when both games put their players on the same spot (shared safe-house spawn,
+    // shared grid slot at an event start), moving the remote car onto it overlaps the two cars and the
+    // physics flings them. Until the players have been SafeDistance apart once, keep the remote car
+    // where it is (nudged 5 m aside if it is inside the local car) instead of syncing it onto them.
+    void* lrbP = RigidBodyOf(LocalVehicle());
+    // Re-arm the protection whenever the peer teleports (event start, reset, respawn): its position
+    // jumping > 30 m between frames means it may land right on top of us.
+    // Either car may teleport first (the two games reach the grid ~0.4 s apart), so watch both and
+    // hold the protection for at least 3 s after any teleport before distance may switch it off.
+    {
+        static float lastTarget[3], lastLocal[3]; static bool haveLast = false;
+        static DWORD holdUntil = 0;
+        const float* lpos = lrbP ? RB_GetVec(lrbP, RB_GetPosition) : nullptr;
+        bool peerJump  = haveLast && Dist(lastTarget, s.pos) > 30.f;
+        bool localJump = haveLast && lpos && Dist(lastLocal, lpos) > 30.f;
+        if (peerJump || localJump || g_protectHoldReset) {
+            holdUntil = GetTickCount() + 3000;
+            g_protectHoldReset = false;
+            if (g_separated) LOG("Spawn protection re-armed: %s jumped", peerJump ? "peer" : localJump ? "local car" : "new ghost");
+            g_separated = false;
+        }
+        memcpy(lastTarget, s.pos, 12);
+        if (lpos) memcpy(lastLocal, lpos, 12);
+        haveLast = true;
+        g_protectHolding = GetTickCount() < holdUntil;
+    }
+    if (lrbP && !g_separated) {
+        const float* lp = RB_GetVec(lrbP, RB_GetPosition);
+        if (!g_protectHolding && Dist(lp, s.pos) > (float)g_cfg.safeDistance) {
+            g_separated = true;
+            LOG("Spawn protection off: players are %.0f m apart", Dist(lp, s.pos));
+        } else {
+            float zero[3] = { 0, 0, 0 };
+            // Blink + ghost only the OTHER player's car (the game's post-reset state), like after a reset:
+            // each player sees the other blink and pass through, never themselves. Skipped during
+            // cutscenes, because then the local car isn't human-driven and lrbP is null.
+            // (no blinking: the user doesn't want it; collisions are off for the ghost during protection)
+            if (Dist(lp, cur) < 4.f) {
+                float aside[3] = { lp[0] + 5.f, lp[1] + 0.5f, lp[2] };
+                RB_SetVec(rb, RB_SetPosition, aside);
+            }
+            RB_SetVec(rb, RB_SetLinearVelocity, zero);
+            RB_SetVec(rb, RB_SetAngularVelocity, zero);
+            sprintf_s(out, outLen, "%s  spawn protection (until %d m apart)", g_ghostName, g_cfg.safeDistance);
+            return;
+        }
+    }
+
+    // Hard-set the exact interpolated transform + velocities every frame. Because consecutive targets
+    // come from one smooth curve, the car moves smoothly; setting velocities makes the physics step
+    // between our frames carry it along the same path instead of fighting us.
+    RB_SetVec(rb, RB_SetOrientationQuat, s.rot);
+    RB_SetVec(rb, RB_SetPosition, s.pos);
+    RB_SetVec(rb, RB_SetLinearVelocity, s.linVel);
+    RB_SetVec(rb, RB_SetAngularVelocity, s.angVel);
+    float* newPos = s.pos;
+
+    // jitter meter: how far each frame's position is from a straight-line prediction made from the
+    // previous two frames, scaled by their frame times (so uneven frame rates don't count). RMS, mm.
+    {
+        static float p1[3], p2[3]; static double t1 = 0, t2 = 0; static int have = 0;
+        static double acc = 0; static int n = 0; static float rms = 0;
+        double t0 = Net::LocalClockMs();               // simulation time of this frame
+        if (have >= 2 && t1 > t2 && t0 > t1) {
+            double r = (t0 - t1) / (t1 - t2);
+            float d2 = 0;
+            for (int i = 0; i < 3; ++i) { float pred = p1[i] + (float)((p1[i] - p2[i]) * r); float e = newPos[i] - pred; d2 += e * e; }
+            if (d2 < 1.0f) { acc += d2; ++n; }   // ignore teleports
+        }
+        memcpy(p2, p1, 12); memcpy(p1, newPos, 12); t2 = t1; t1 = t0; if (have < 2) ++have;
+        if (n >= 60) { rms = (float)sqrt(acc / n) * 1000.f; acc = 0; n = 0; }
+        g_jitterMm = rms;
+        g_extrapMs = (float)extrapMs;
+    }
+
+    // --- collisions: off until both cars have been apart once (prevents spawn-overlap soft locks) ---
+    float sep = -1.f;
+    if (void* lrb = RigidBodyOf(LocalVehicle())) {
+        sep = Dist(RB_GetVec(lrb, RB_GetPosition), newPos);
+        if (sep > (float)g_cfg.safeDistance) g_separated = true;
+    }
+    bool wantCollide = g_cfg.ghostCollisions && g_separated;
+    if (wantCollide != g_ghostCollide) {
+        SetCollisions(g_ghost, wantCollide);
+        g_ghostCollide = wantCollide;
+        LOG("Ghost collisions %s", wantCollide ? "ON" : "OFF");
+    }
+
+    // Race standings: show the other player's nickname on their racer (GRacerInfo::mName, +0x08).
+    {   // any ghost kind: in a race the peer's car is a racer whatever way we got it
+        static char peerName[32];
+        const std::string& pn = Net::Stats().peerName;
+        if (!pn.empty()) {
+            strncpy_s(peerName, 16, pn.c_str(), _TRUNCATE);   // HUD slots are 16 bytes
+            void* rs = nullptr;
+            Mem::Read(0x91E000, rs);
+            void* sim = VCall<void* (__thiscall*)(void*)>(g_ghost, IV_GetSimable)(g_ghost);
+            if (rs && sim) {
+                void* ri = ((void*(__thiscall*)(void*, void*))0x5E8B20)(rs, sim);  // GRaceStatus::GetRacerInfo(ISimable*)
+                static void* loggedRi = nullptr;
+                if (ri != loggedRi) { loggedRi = ri; LOG("Race: peer racer info %p (ghost %p, kind %d) name %s", ri, g_ghost, (int)g_ghostKind, peerName); }
+                if (ri) {
+                    const char* nm = peerName; Mem::Write((uintptr_t)ri + 0x08, nm);
+                    // their real race progress, so the standings rank them by where they really are
+                    const CarState& ls = latest.s;
+                    if (ls.inRace) {
+                        int laps = ls.laps, cps = ls.checkpoints;
+                        Mem::Write((uintptr_t)ri + 0x18, ls.racePct);
+                        Mem::Write((uintptr_t)ri + 0x24, ls.lapPct);
+                        Mem::Write((uintptr_t)ri + 0x28, laps);
+                        Mem::Write((uintptr_t)ri + 0x2C, cps);
+                        // (+0x21 is not written: it isn't reliably "finished" and ranked a parked peer 1st)
+                        static DWORD nextLog = 0;
+                        if (GetTickCount() >= nextLog) {
+                            nextLog = GetTickCount() + 5000;
+                            int rank = 0; Mem::Read((uintptr_t)ri + 0x10, rank);
+                            void* mri = RacerInfoOfLocal();
+                            int myRank = 0; float myPct = 0;
+                            if (mri) { Mem::Read((uintptr_t)mri + 0x10, myRank); Mem::Read((uintptr_t)mri + 0x18, myPct); }
+                            LOG("Race: peer pct %.3f lap %.3f laps %d cps %d fin %d -> rank %d | me pct %.3f rank %d",
+                                ls.racePct, ls.lapPct, laps, cps, (int)ls.finished, rank, myPct, myRank);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    sprintf_s(out, outLen, "%s  jitter %.1fmm  extrap %.0fms  dist %.0fm  err %.1fm  coll %s%s", g_ghostName, g_jitterMm, g_extrapMs, sep, err,
+              g_ghostCollide ? "on" : "off",
+              (g_cfg.ghostCollisions && !g_separated) ? " (until apart)" : "");
+    (void)prev;
+#undef RET
+}
+
+static bool UpdateGhostSafe(const Net::Snapshot& latest, const Net::Snapshot& prev, bool enabled, char* out, size_t outLen) {
+    __try {
+        UpdateGhostImpl(latest, prev, enabled, out, outLen);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+std::string Game::UpdateGhost(const Net::Snapshot& latest, const Net::Snapshot& prev, bool enabled) {
+    if (!g_ok) return "game not recognised";
+    char buf[256] = "";
+    if (!UpdateGhostSafe(latest, prev, enabled, buf, sizeof(buf))) {
+        LOG("UpdateGhost: exception - releasing ghost");
+        g_ghost = nullptr;
+        PatchRacerAI(false);
+        return "error (see log)";
+    }
+    // Write the ghost line to the log every 2 s so tests don't depend on screenshots.
+    static DWORD lastStats = 0;
+    if (g_ghost && GetTickCount() - lastStats > 2000) {
+        lastStats = GetTickCount();
+        LOG("Ghost stats: %s | ping %d ms", buf, Net::Stats().pingMs);
+    }
+    return buf;
+}
+
+static bool DebugSpawnCloneImpl(char* out, size_t n) {
+    __try {
+        void* me = LocalVehicle();
+        void* rb = RigidBodyOf(me);
+        if (!rb) { strcpy_s(out, n, "no local car"); return false; }
+        const float* p = RB_GetVec(rb, RB_GetPosition);
+        const float* q = RB_GetVec(rb, RB_GetOrientation);
+        // forward = rotate (0,0,1)? MW world uses +X forward for car bodies in rigid body space;
+        // use linear velocity direction if moving, else a fixed offset along X.
+        float fwd[3] = { 1, 0, 0 };
+        (void)q;
+        float pos[3] = { p[0] + fwd[0] * 8.f, p[1] + fwd[1] * 8.f, p[2] + 1.0f };
+        // Prefer the peer's (remembered) car: usually a model that isn't loaded here, which exercises
+        // the vehicle-cache / budget path. Fall back to a clone of my own car.
+        uint32_t key = VehicleKey(me);
+        const void* cust = Customizations(me);
+        if (const CarInfo* pc = Net::PeerCar()) { key = pc->carKey; cust = pc->hasCustom ? pc->custom : nullptr; }
+        void* iv = SpawnVehicle(key, cust, pos, fwd, DRV_REMOTE);
+        if (!iv) { sprintf_s(out, n, "spawn failed (key %08X)", key); return false; }
+        g_clone = iv;
+        sprintf_s(out, n, "spawned %s (key %08X, custom %s)", VehName(iv), key, cust ? "yes" : "no");
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        strcpy_s(out, n, "exception while spawning");
+        return false;
+    }
+}
+
+std::string Game::DebugSpawnClone() {
+    if (!g_ok || GameFlowState() != 6) return "not in game";
+    char buf[160];
+    DebugSpawnCloneImpl(buf, sizeof(buf));
+    LOG("DebugSpawnClone: %s", buf);
+    return buf;
+}
+
+static void SafeKill(void* iv) {
+    __try { KillVehicle(iv); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("KillVehicle exception"); }
+}
+
+std::string Game::DebugKillClone() {
+    if (!g_clone) return "no clone";
+    SafeKill(g_clone);
+    g_clone = nullptr;
+    return "clone removed";
+}
+
+std::string Game::DebugInfo() {
+    if (!g_ok || GameFlowState() != 6) return "";
+    void** b;
+    char buf[160];
+    sprintf_s(buf, "Cars: players %d  racers %d  cops %d  traffic %d\n",
+              ListSize(VL_PLAYERS, &b), ListSize(VL_AIRACERS, &b), ListSize(VL_AICOPS, &b), ListSize(VL_AITRAFFIC, &b));
+    return buf;
+}

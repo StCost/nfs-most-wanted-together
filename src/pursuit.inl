@@ -1,0 +1,108 @@
+// Included from game.cpp (after traffic.inl).
+// ---------------------------------------------------------------------------
+// Pursuits
+//  Every player has their own heat and their own pursuit (the game runs it locally); the other
+//  player's pursuit cops are shown as mirrors (traffic.inl sends AICOPS both ways).
+//  When both players are in a pursuit and the other player's car is close, one cop of OUR pursuit
+//  switches its own target to the other player's car (AITarget::Aquire), so cops can go after
+//  either player. Heat, busting and evading still track the local player only.
+//
+//  IVehicle vt+0xAC GetAIVehiclePtr -> IVehicleAI;  IVehicleAI vt+0xA0 GetPursuit -> IPursuit (or null)
+//  IVehicleAI vt+0x64 GetTarget -> AITarget (+0x1C ISimable*, +0x2C valid)
+//  IPursuit vt+0x08 GetTarget -> AITarget;  cops: IVehicle** at +0x18, count at +0x20
+//  AITarget::Aquire(ISimable*) 0x423860 (thiscall). IPerpetrator handle 0x4037E0, vt+4 GetHeat
+// ---------------------------------------------------------------------------
+namespace {
+    constexpr uintptr_t AquireFn = 0x423860, IPerpetratorHandle = 0x4037E0;
+    constexpr float RETARGET_RANGE = 60.f, RELEASE_RANGE = 90.f;
+
+    void* AIOf(void* iv) { return IsVehicle(iv) ? VCall<void* (__thiscall*)(void*)>(iv, 0xAC / 4)(iv) : nullptr; }
+    void* PursuitOf(void* iv) {
+        void* ai = AIOf(iv);
+        return ai ? VCall<void* (__thiscall*)(void*)>(ai, 0xA0 / 4)(ai) : nullptr;
+    }
+    void* CopTarget(void* cop) {
+        void* ai = AIOf(cop);
+        return ai ? VCall<void* (__thiscall*)(void*)>(ai, 0x64 / 4)(ai) : nullptr;
+    }
+    void* SimOf(void* iv) { return iv ? VCall<void* (__thiscall*)(void*)>(iv, IV_GetSimable)(iv) : nullptr; }
+    void Aquire(void* target, void* sim) { ((void(__thiscall*)(void*, void*))AquireFn)(target, sim); }
+
+    void*  g_retargetCop = nullptr;    // the cop of our pursuit currently chasing the other player
+    double g_nextPursuitCheck = 0;
+
+    void ReleaseRetarget(void* pursuit) {
+        if (!g_retargetCop) return;
+        if (ListContains(-1, g_retargetCop) && pursuit) {
+            void* pt = VCall<void* (__thiscall*)(void*)>(pursuit, 2)(pursuit);
+            void* sim = nullptr;
+            if (pt && Mem::Read((uintptr_t)pt + 0x1C, sim) && sim)
+                if (void* t = CopTarget(g_retargetCop)) Aquire(t, sim);
+        }
+        LOG("Pursuit: cop %p back on the local player", g_retargetCop);
+        g_retargetCop = nullptr;
+    }
+}
+
+// Heat x10 of the local player's pursuit, 0 = not in a pursuit. Sent to the peer.
+int16_t Game::LocalPursuitHeat() {
+    if (!g_ok || Game::GameFlowState() != 6) return 0;
+    __try {
+        void* me = LocalVehicle();
+        if (!PursuitOf(me)) return 0;
+        float heat = 1.f;
+        void* perp = Find(me, IPerpetratorHandle);
+        if (perp) heat = VCall<float(__thiscall*)(void*)>(perp, 1)(perp);
+        int h = (int)(heat * 10.f + 0.5f);
+        return (int16_t)(h < 1 ? 1 : h);
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+
+static void PursuitTickImpl(bool connected, const Net::Snapshot& peer) {
+    double now = Net::LocalClockMs();
+    if (now < g_nextPursuitCheck) return;
+    g_nextPursuitCheck = now + 400;
+    void* me = LocalVehicle();
+    void* pursuit = (connected && Game::GameFlowState() == 6) ? PursuitOf(me) : nullptr;
+    void* other = g_ghost;
+    bool peerInPursuit = peer.valid && peer.s.hasCar && peer.s.pursuitHeat > 0;
+    void* otherRb = RigidBodyOf(other);
+    if (!pursuit || !peerInPursuit || !otherRb) { ReleaseRetarget(pursuit); return; }
+
+    const float* op = RB_GetVec(otherRb, RB_GetPosition);
+    void** cops = nullptr; int n = 0;
+    Mem::Read((uintptr_t)pursuit + 0x18, cops);
+    Mem::Read((uintptr_t)pursuit + 0x20, n);
+    if (!cops || n <= 1) { ReleaseRetarget(pursuit); return; }    // keep a lone cop on us
+
+    // keep the current one while it is in our pursuit and close enough
+    if (g_retargetCop) {
+        bool still = false;
+        for (int i = 0; i < n; ++i) if (cops[i] == g_retargetCop) still = true;
+        void* rb = still ? RigidBodyOf(g_retargetCop) : nullptr;
+        if (!rb || Dist(RB_GetVec(rb, RB_GetPosition), op) > RELEASE_RANGE) ReleaseRetarget(pursuit);
+    }
+    if (!g_retargetCop) {
+        float best = RETARGET_RANGE; void* pick = nullptr;
+        for (int i = 0; i < n; ++i) {
+            void* rb = RigidBodyOf(cops[i]);
+            if (!rb) continue;
+            float d = Dist(RB_GetVec(rb, RB_GetPosition), op);
+            if (d < best) { best = d; pick = cops[i]; }
+        }
+        if (!pick) return;
+        g_retargetCop = pick;
+        LOG("Pursuit: cop %p (%.0f m away) goes after the other player", pick, best);
+    }
+    // re-apply every check: the pursuit logic may put the cop back on us
+    void* t = CopTarget(g_retargetCop);
+    void* sim = SimOf(other);
+    void* cur = nullptr;
+    if (t && sim && Mem::Read((uintptr_t)t + 0x1C, cur) && cur != sim) Aquire(t, sim);
+}
+
+void Game::PursuitTick(bool connected, const Net::Snapshot& peer) {
+    if (!g_ok) return;
+    __try { PursuitTickImpl(connected, peer); }
+    __except (EXCEPTION_EXECUTE_HANDLER) { g_retargetCop = nullptr; LOG("Pursuit: exception"); }
+}

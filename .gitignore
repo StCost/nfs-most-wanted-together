@@ -1,0 +1,12 @@
+build/
+package/
+*.zip
+*.obj
+*.pdb
+*.exp
+*.lib
+*.ilk
+*.log
+*.peercar.bin
+tools/saves.ps1
+.vs/

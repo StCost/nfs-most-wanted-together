@@ -1,0 +1,257 @@
+// CoopMod for Need for Speed: Most Wanted (2005) v1.3
+// Step 1: plugin loads, shows overlay, networking between two game instances.
+// Step 2: "ghost car" - the other player's car is shown and moved in your world.
+
+#include <winsock2.h>
+#include <windows.h>
+#include <string>
+#include <cstdio>
+#include "log.h"
+#include "config.h"
+#include "net.h"
+#include "overlay.h"
+#include "game.h"
+#include "input.h"
+#include "mem.h"
+
+#ifndef COOPMOD_VERSION
+#define COOPMOD_VERSION "0.2.0-dev"
+#endif
+
+namespace {
+    char     g_dir[MAX_PATH];
+    bool     g_netOk = false;
+    bool     g_gameOk = false;
+    uint32_t g_lastSend = 0;
+    uint32_t g_lastOverlay = 0;
+    bool     g_keyWasDown = false;
+    bool     g_ghostKeyWasDown = false;
+    bool     g_ghostOn = true;
+    std::string g_spawnMsg;
+
+    const char* FlowName(int s) {
+        switch (s) {
+        case 6:  return "in game";
+        case 3:  return "front end";
+        case -1: return "unknown";
+        default: return "loading/other";
+        }
+    }
+
+    void OnFrame(IDirect3DDevice9*) {
+        static bool firstFrame = true;
+        if (firstFrame) {
+            firstFrame = false;
+            LOG("First frame rendered");
+            g_gameOk = Game::Init();
+            g_netOk = Net::Init();
+        }
+
+        static int lastFlow = -2;
+        int flowNow = Game::GameFlowState();
+        Input::Tick();
+        FEScreens::Tick();
+        if (g_gameOk) Game::BootTick();
+        // the key-pressing AutoStart is only needed when the direct start is off (or for other targets)
+        if (!(g_cfg.directFreeRoam && !_stricmp(g_cfg.autoStartTarget.c_str(), "freeroam"))) AutoStart::Tick(flowNow);
+        if (g_gameOk) Game::OnFlow(flowNow);
+
+        // Tell the peer which car (model + tuning) I'm driving; Net resends on change / every 2 s.
+        static uint32_t lastCarRead = 0;
+        if (g_netOk && g_gameOk && GetTickCount() - lastCarRead > 1000) {
+            lastCarRead = GetTickCount();
+            CarInfo ci;
+            if (Game::ReadLocalCarInfo(ci)) Net::SetLocalCar(ci);
+        }
+        if (flowNow != lastFlow) {
+            LOG("Game flow state %d -> %d (%s)", lastFlow, flowNow, FlowName(flowNow));
+            lastFlow = flowNow;
+        }
+
+        // Hotkeys: F8 overlay, F9 ghost on/off (only while game window focused)
+        bool down = (GetAsyncKeyState(g_cfg.toggleKey) & 0x8000) != 0;
+        if (down && !g_keyWasDown) {
+            Overlay::SetVisible(!Overlay::IsVisible());
+            // remember it for the next launch
+            WritePrivateProfileStringA("Debug", "Overlay", Overlay::IsVisible() ? "1" : "0", (std::string(g_dir) + "CoopMod.ini").c_str());
+        }
+        g_keyWasDown = down;
+        bool gdown = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
+        if (gdown && !g_ghostKeyWasDown) {
+            g_ghostOn = !g_ghostOn;
+            if (!g_ghostOn) Game::ReleaseGhost();
+            LOG("Ghost %s", g_ghostOn ? "ON" : "OFF");
+        }
+        g_ghostKeyWasDown = gdown;
+
+        // Debug: F10 spawn a clone of my car, F11 remove it
+        static bool f10 = false, f11 = false;
+        bool d10 = (GetAsyncKeyState(VK_F10) & 0x8000) != 0, d11 = (GetAsyncKeyState(VK_F11) & 0x8000) != 0;
+        if (g_cfg.testKeys && d10 && !f10) g_spawnMsg = Game::DebugSpawnClone();
+        if (g_cfg.testKeys && d11 && !f11) g_spawnMsg = Game::DebugKillClone();
+        static bool f7 = false;
+        bool d7 = (GetAsyncKeyState(VK_F7) & 0x8000) != 0;
+        if (g_cfg.testKeys && d7 && !f7) g_spawnMsg = Game::DebugStartEvent(g_cfg.testEvent.c_str());
+        f7 = d7;
+        static bool f5 = false;
+        bool d5 = (GetAsyncKeyState(VK_F5) & 0x8000) != 0;
+        if (g_cfg.testKeys && d5 && !f5 && Overlay::GameWindow() == GetForegroundWindow()) g_spawnMsg = Game::ToggleAutopilot();
+        f5 = d5;
+        static bool f12 = false;
+        bool d12 = (GetAsyncKeyState(VK_F12) & 0x8000) != 0;
+        if (g_cfg.testKeys && d12 && !f12) g_spawnMsg = Game::DebugSpawnCop();
+        f12 = d12;
+        f10 = d10; f11 = d11;
+
+        // --- networking ---
+        CarState local{};
+        bool haveLocal = false;
+        if (g_netOk) {
+            Net::Poll();
+            Net::Tick();
+
+            local.gameFlowState = Game::GameFlowState();
+            haveLocal = g_gameOk && Game::ReadLocalCar(local);
+            local.hasCar = haveLocal ? 1 : 0;
+
+            static double nextSend = 0;
+            double nowMs = Net::NowMs();
+            if (nowMs >= nextSend) {
+                nextSend = (nowMs - nextSend > 100 ? nowMs : nextSend) + 1000.0 / g_cfg.sendRateHz;
+                Net::SendState(local);
+            }
+        }
+
+        // --- ghost ---
+        std::string ghostStatus = "off";
+        const NetStats& st = Net::Stats();
+        if (g_netOk && g_gameOk && st.connected) {
+            ghostStatus = Game::UpdateGhost(Net::Latest(), Net::Previous(), g_ghostOn && g_cfg.ghostEnabled);
+        } else if (g_gameOk) {
+            Game::ReleaseGhost();
+        }
+        if (g_netOk && g_gameOk) Game::TrafficTick(st.connected, Net::Latest());
+        if (g_netOk && g_gameOk) Game::PursuitTick(st.connected, Net::Latest());
+        if (g_netOk && g_gameOk) Game::EventTick(st.connected);
+        if (g_netOk && g_gameOk) Game::CoopRulesTick(st.connected);
+        if (g_netOk && g_gameOk) Game::PauseRuleTick(st.connected);
+        if (g_gameOk) Game::AutopilotTick();
+        Macro::Tick();
+
+        // --- overlay text (rebuild ~5x per second, texture upload is not free) ---
+        uint32_t now = GetTickCount();
+        if (Overlay::IsVisible() && now - g_lastOverlay > 200) {
+            g_lastOverlay = now;
+            char buf[1024];
+            std::string s;
+            sprintf_s(buf, "CoopMod %s  [%s]  F8: hide  F9: ghost %s\n", COOPMOD_VERSION,
+                      g_cfg.isHost ? "HOST" : "CLIENT", g_ghostOn ? "ON" : "OFF");
+            s += buf;
+
+            if (!g_netOk) {
+                sprintf_s(buf, "Network ERROR: %s\n", Net::LastError());
+            } else if (st.connected) {
+                sprintf_s(buf, "Connected: %s (%s)  ping %d ms  in/out %u/%u\n",
+                          st.peerName.empty() ? "?" : st.peerName.c_str(), st.peerAddr.c_str(),
+                          st.pingMs, st.packetsIn, st.packetsOut);
+            } else if (g_cfg.isHost) {
+                sprintf_s(buf, "Waiting for player on UDP port %d...\n", g_cfg.port);
+            } else {
+                sprintf_s(buf, "Connecting to %s:%d...\n", g_cfg.peerIp.c_str(), g_cfg.port);
+            }
+            s += buf;
+
+            int flow = Game::GameFlowState();
+            sprintf_s(buf, "Game: %s (%d)\n", FlowName(flow), flow);
+            s += buf;
+            if (haveLocal) {
+                sprintf_s(buf, "You:  pos %.1f %.1f %.1f  %.0f km/h\n", local.pos[0], local.pos[1], local.pos[2], local.speedMps * 3.6f);
+                s += buf;
+            }
+            const Net::Snapshot& r = Net::Latest();
+            if (st.connected && r.valid) {
+                if (r.s.hasCar)
+                    sprintf_s(buf, "Peer: pos %.1f %.1f %.1f  %.0f km/h\n", r.s.pos[0], r.s.pos[1], r.s.pos[2], r.s.speedMps * 3.6f);
+                else
+                    sprintf_s(buf, "Peer: not driving (%s)\n", FlowName(r.s.gameFlowState));
+                s += buf;
+            }
+            s += "Ghost: " + ghostStatus + "\n";
+            if (st.connected && flow == 6) {
+                char tb[96];
+                if (g_cfg.isHost) sprintf_s(tb, "Traffic: sending %d cars\n", Game::TrafficCount());
+                else sprintf_s(tb, "Traffic: %s, %d mirror cars\n", Game::TrafficSuppressed() ? "host's" : "own", Game::TrafficCount());
+                s += tb;
+            }
+            s += std::string("AutoStart: ") + AutoStart::Status() + "\n";
+            if (Game::EventStatus()[0]) s += std::string("Event: ") + Game::EventStatus() + "\n";
+            if (flow == 3 && FEScreens::Current()[0]) s += std::string("Screen: ") + FEScreens::Current() + "\n";
+            if (!g_spawnMsg.empty()) s += "Spawn test (F10/F11): " + g_spawnMsg + "\n";
+            s += Game::DebugInfo();
+            Overlay::SetText(s);
+        }
+    }
+}
+
+BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
+    if (reason == DLL_PROCESS_ATTACH) {
+        DisableThreadLibraryCalls(mod);
+
+        GetModuleFileNameA(mod, g_dir, MAX_PATH);
+        char* slash = strrchr(g_dir, '\\');
+        if (slash) slash[1] = 0;
+
+        std::string logPath = std::string(g_dir) + "CoopMod.log";
+        std::string iniPath = std::string(g_dir) + "CoopMod.ini";
+        Log::Init(logPath.c_str());
+        LOG("CoopMod %s loading (dir %s)", COOPMOD_VERSION, g_dir);
+
+        g_cfg.Load(iniPath.c_str());
+        Net::SetDataDir(g_dir);
+
+        // Front-end tweaks (code patches; applied before any menu exists, only if the bytes match v1.3).
+        Game::InstallBootPatches();
+        SetUnhandledExceptionFilter([](EXCEPTION_POINTERS* e) -> LONG {
+            LOG("CRASH: exception %08X at %p", (unsigned)e->ExceptionRecord->ExceptionCode, e->ExceptionRecord->ExceptionAddress);
+            return EXCEPTION_CONTINUE_SEARCH;
+        });
+        if (g_cfg.runInBackground) {
+            // message pump: always PeekMessage, never block in GetMessage while the window is inactive
+            const uint8_t orig[2] = { 0x74, 0x0E }, patch[2] = { 0x90, 0x90 };
+            LOG("Coop: keep running in background %s", Mem::PatchBytes(0x6C2245, orig, patch, 2) ? "enabled" : "NOT patched (bytes differ)");
+        }
+        if (g_cfg.uiIntroInput) {
+            // ExecuteResponse 0x5BBD51: ignore the "disable input" sent by each screen's INTRO (message
+            // 0x13FD3296); keep the locks after confirm/back so nothing can be activated twice.
+            static const uint8_t orig[23] = { 0x85,0xFF,0x0F,0x84,0x97,0x00,0x00,0x00,0x83,0x7E,0x04,0x01,0x0F,0x94,0xC0,0x88,0x47,0x28,0xE9,0x88,0x00,0x00,0x00 };
+            static const uint8_t patch[23] = { 0x85,0xFF,0x74,0xF7,0x81,0x7D,0x0C,0x96,0x32,0xFD,0x13,0x74,0xEE,0x83,0x7E,0x04,0x01,0x0F,0x94,0x47,0x28,0xEB,0xE4 };
+            LOG("UI: input during menu intros %s", Mem::PatchBytes(0x5BBD51, orig, patch, 23) ? "enabled" : "NOT patched (bytes differ)");
+        }
+        if (g_cfg.uiMenuSpeed == 2 || g_cfg.uiMenuSpeed == 3) {
+            // FE time step = real delta * 1200.0 (fmul [0x8970BC]) at 0x516A01 / 0x56440D: point both at an
+            // existing 2400.0 (0x8ABE70) or 3600.0 (0x8A8AE8) constant.
+            static const uint8_t orig[4] = { 0xBC,0x70,0x89,0x00 };
+            uint32_t target = g_cfg.uiMenuSpeed == 2 ? 0x8ABE70 : 0x8A8AE8;
+            bool a = Mem::PatchBytes(0x516A01, orig, &target, 4);
+            bool b = Mem::PatchBytes(0x56440D, orig, &target, 4);
+            LOG("UI: menu animations %dx %s", g_cfg.uiMenuSpeed, (a && b) ? "enabled" : "NOT fully patched");
+        }
+        g_ghostOn = g_cfg.ghostEnabled;
+        Overlay::SetVisible(g_cfg.showOverlay);
+        LOG("Config: mode=%s hostip=%s port=%d name=%s", g_cfg.isHost ? "host" : "client",
+            g_cfg.peerIp.c_str(), g_cfg.port, g_cfg.playerName.c_str());
+
+        // Sanity check: v1.3 speed.exe has its entry point at 0x7C4040.
+        // (Patching the IAT is just a memory write, safe inside DllMain.)
+        Overlay::SetText("CoopMod " COOPMOD_VERSION " loading...");
+        Overlay::SetFrameCallback(&OnFrame);
+        Overlay::SetCloseCallback([]() { if (g_netOk) Net::SendBye(); });
+        if (!Input::InstallHooks())
+            LOG("Failed to hook DirectInput - AutoStart disabled");
+        if (!Overlay::InstallHooks())
+            LOG("Failed to install D3D hooks - overlay and frame tick disabled");
+    } else if (reason == DLL_PROCESS_DETACH) {
+        if (g_netOk) Net::Shutdown();
+    }
+    return TRUE;
+}

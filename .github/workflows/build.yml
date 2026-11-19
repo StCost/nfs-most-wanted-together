@@ -1,0 +1,76 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 0.2.0). Leave empty to only build."
+        required: false
+        default: ""
+      prerelease:
+        description: "Mark the release as a pre-release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: MSVC (x86)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Version
+        id: ver
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build CoopMod.asi
+        shell: cmd
+        env:
+          COOPMOD_VERSION: ${{ steps.ver.outputs.version }}
+        run: build.bat
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $pkg = "package/CoopMod-${{ steps.ver.outputs.version }}"
+          New-Item -ItemType Directory -Force "$pkg/scripts" | Out-Null
+          Copy-Item build/CoopMod.asi "$pkg/scripts/"
+          Copy-Item CoopMod.ini "$pkg/scripts/"
+          Copy-Item README.md "$pkg/"
+          # Ultimate ASI Loader (MIT, ThirteenAG) loads the plugin: ship its 32-bit dinput8.dll
+          Invoke-WebRequest "https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/latest/download/Ultimate-ASI-Loader.zip" -OutFile asi.zip
+          Expand-Archive asi.zip -DestinationPath asi
+          Copy-Item asi/dinput8.dll "$pkg/"
+          Compress-Archive -Path "$pkg/*" -DestinationPath "CoopMod-${{ steps.ver.outputs.version }}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CoopMod-${{ steps.ver.outputs.version }}
+          path: CoopMod-${{ steps.ver.outputs.version }}.zip
+
+      - name: Release
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          v="${{ steps.ver.outputs.version }}"
+          flags=""
+          if [ "${{ github.event.inputs.prerelease }}" = "true" ]; then flags="--prerelease"; fi
+          gh release create "v$v" "CoopMod-$v.zip" --title "CoopMod $v" --generate-notes --target "${{ github.sha }}" $flags
