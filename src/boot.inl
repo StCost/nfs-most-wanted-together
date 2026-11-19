@@ -132,3 +132,19 @@ void Game::BootTick() {
         LOG("Start: direct free roam - %s", DirectFreeRoamNow());
     } __except (EXCEPTION_EXECUTE_HANDLER) { g_boot = Boot::Done; LOG("Start: exception in direct free roam"); }
 }
+
+// [UI] SkipPursuitResults: after a pursuit in free roam (escaped / busted) the game shows
+// PostRace_Pursuit.fng and waits for a key. Close it by itself (only this player's game).
+void Game::PursuitResultTick() {
+    if (!g_ok || !g_cfg.skipPursuitResults || GameFlowState() != 6) return;
+    static DWORD since = 0, lastTap = 0;
+    bool open = FEScreens::IsPushed("PostRace_Pursuit.fng");
+    int mode = 0; void* rs = nullptr;
+    if (Mem::Read(0x91E000, rs) && rs) Mem::Read((uintptr_t)rs + 0x1960, mode);
+    if (!open || mode == 1) { since = 0; return; }        // not open, or it belongs to a race
+    if (!since) since = GetTickCount();
+    if (GetTickCount() - since > 700 && GetTickCount() - lastTap > 1500) {
+        lastTap = GetTickCount();
+        if (Input::Tap(0x1C)) LOG("UI: closing the pursuit result screen");
+    }
+}

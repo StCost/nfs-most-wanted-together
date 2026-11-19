@@ -40,7 +40,8 @@ namespace Game {
     bool InstallRestartSync();
     bool InstallStreamHook();
     void InstallBootPatches();          // call from DllMain (before the front end starts)
-    void BootTick();                    // [Start] DirectFreeRoam
+    void BootTick();
+    void PursuitResultTick();           // [UI] SkipPursuitResults                    // [Start] DirectFreeRoam
     bool DirectStartActive();   // co-op rules (no speedbreaker)
     std::string DebugStartEvent(const char* eventId);   // F7 test
     void TrafficTick(bool connected, const Net::Snapshot& peer);

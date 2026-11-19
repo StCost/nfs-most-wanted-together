@@ -6,9 +6,8 @@
 car with its own tuning, sees the other player's car, traffic and cops, and they start events
 together. The host's game is the reference world, and the client mirrors it.
 
-> **Status: alpha, 2 players.** Free roam, shared events and races work and have been tested on two
-> PCs over LAN. Career progress sharing, cutscene sync and more than 2 players are still in progress;
-> see [ROADMAP.md](ROADMAP.md).
+> **Where it's at:** early alpha, two players. Free roam and races already play well together on a LAN.
+> The goal is the whole career, start to finish, in co-op. The checklist below shows how far along we are.
 
 ## Requirements
 - NFS Most Wanted (2005), PC, **v1.3** `speed.exe`. Other versions are detected and the mod
@@ -33,48 +32,74 @@ own copy of the game.
 4. Start the game on both PCs. The game skips the intro and loads career free roam by itself, and the
    two games connect automatically.
 
-## Features
+## Features and progress
 
-### Connection
-- Direct UDP peer-to-peer (host/client) on port 47555 with ping, a timeout, and a "bye" message on quit (Alt+F4 included).
-- Stays connected while a game is paused, minimized or alt-tabbed (keep-alive thread). The game keeps running in the background.
-- Status overlay (F8 toggles it; the choice is saved).
+Ticked means it's in the mod. A **(?)** means it's built but hasn't been properly tested in a real co-op session yet[^1].
+Unticked items are still to do.
 
-### Players
-- **Each player drives their own car, model and full tuning**, which the other game spawns.
-- Smooth movement: snapshot interpolation on the game's simulation clock, measured at about 1 to 10 mm jitter.
-- Collisions between players, with spawn protection so cars that spawn on the same spot don't fling each other.
-- Player blips on the minimap and the world map, which stay live while the map is open.
-- Player names in the race standings.
+### Connecting
+- [x] Direct connection between two PCs (one hosts, one joins), with ping shown in the overlay
+- [x] Clean "bye" when someone quits, Alt+F4 included, and a timeout if a game just disappears
+- [x] Stays connected when a game is paused, minimized or alt-tabbed
+- [x] Game keeps running in the background when alt-tabbed
+- [x] Status overlay on F8, and it remembers whether you hid it
+- [ ] Lobby / launcher with name, host-or-join and IP fields
+- [ ] Notifications in the game's own UI when someone joins or leaves
+- [ ] Joining while the other player is in a race (you wait in free roam and join the next event)
+- [ ] Safer internet play (only accept packets from your partner, resend important messages)
+- [ ] Up to 4 players
 
-### World
-- **Shared traffic:** near each other, the client's traffic is the host's traffic.
-- **Cops:** each player has their own heat and pursuit. Both players see each other's pursuit cops, and
-  a cop may switch to chasing the other player when both are in a pursuit.
-- **Full physics around both players:** the host also streams the world around the client, so AI
-  cars there keep collisions instead of the cheap "floating" simulation.
-- The pause menu and world map don't stop the world while connected.
-- No speedbreaker in co-op: slowing time can't work for two players.
+### Your cars
+- [x] Each player drives their own car, with their full tuning, in free roam and in races
+- [x] Smooth movement of the other player's car (about 1-10 mm of jitter)
+- [x] Spawn protection, so two cars appearing on the same spot don't launch each other
+- [x] Other player's blip on the minimap
+- [x] Other player on the world map, coloured like your own arrow and moving while the map is open (?)
+- [x] Car-to-car collisions between players (?)
+- [x] Your names in the race standings instead of the shared save name (?)
+
+### The world
+- [x] Shared traffic when you're near each other
+- [x] Cops of the other player show up for you, light bars included
+- [x] Each player keeps their own heat and pursuit (?)
+- [x] Cops may switch to chasing the other player when you're both being chased (?)
+- [x] Cars near the other player keep full physics instead of floating along the road (?)
+- [x] Hitting the other player's traffic or cops pushes them on their PC too (?)
+- [x] Pause menu and world map don't freeze the world while you're connected
+- [x] No speedbreaker in co-op (slow motion can't work for two people) (?)
 
 ### Events and races
-- **Shared event start:** start an event and the other player is teleported into the same event.
-- **Same opponents on both PCs:** the starting game sends its AI roster (models and tuning). The client's
-  AI racers follow the host's racers, so positions and names match.
-- The other player is a real racer in the standings, with their real race progress.
-- **Restarts sync:** restarting a race restarts it for both players.
-- Cutscenes are left to the game, with no network interference during race intros.
+- [x] Starting an event takes the other player into it too
+- [x] Both games build the same AI opponents (car models and tuning)
+- [x] Opponents on the client follow the host's opponents, so the race looks the same on both screens (?)
+- [x] Opponent names match on both PCs (?)
+- [x] Race positions use each player's real progress (?)
+- [x] Restarting a race restarts it for both of you (?)
+- [x] Race intro cutscenes play normally for both
+- [ ] Both players get credit for a win (cash, unlocks, bounty)
+- [ ] Blacklist rival races and their rewards (cars, markers)
+- [ ] Milestones, challenge series, speed traps
 
-### Quality of life (settings in `[Start]` / `[UI]`)
-- Skip the intro logos and movie, then load career free roam directly after the profile (`SkipIntro`, `DirectFreeRoam`).
-- No "leave the safe house?" question (`SkipLeaveSafeHouseDialog`).
-- Menus accept input during their intro animations, and menu animations run 2x faster (`IntroInput`, `MenuSpeed`).
+### Career
+- [ ] The host's save is the shared career
+- [ ] The client's progress is kept by the host and loaded when they connect
+- [ ] Story cutscenes and mission intros watched together, with skip voting
+- [ ] Busted / escape results handled for both players
+
+### Quality of life (settings in `[Start]` and `[UI]`)
+- [x] Skip the intro logos and movie and load straight into career free roam after the profile (`SkipIntro`, `DirectFreeRoam`)
+- [x] No "leave the safe house?" question (`SkipLeaveSafeHouseDialog`) (?)
+- [x] Menus react while their opening animation plays, and animate 2x faster (`IntroInput`, `MenuSpeed`) (?)
+- [x] Optional: close the pursuit result screen in free roam by itself, off by default (`SkipPursuitResults`) (?)
 
 ### Test tools (`[Debug] TestKeys=1`)
-- **F5:** autopilot. The game's AI drives your car: it cruises in free roam and follows the route in races.
-  `AutoPilot=1` switches it on automatically.
-- **F7:** start the test event (`TestEvent`) for both players.
-- **F10 / F11:** spawn or remove a test copy of the other player's car. **F12:** spawn a test cop.
+- [x] **F5** autopilot: the game's AI drives your car, cruising in free roam and following the route in races. `AutoPilot=1` turns it on by itself
+- [ ] Autopilot uses nitrous
+- [x] **F7** starts the test event (`TestEvent`) for both players
+- [x] **F10 / F11** spawn or remove a test copy of the other player's car, **F12** spawns a test cop
 
+[^1]: (?) means we wrote it and it ran without errors, but nobody has played through it properly on two PCs yet,
+    so it may still misbehave. If you try one of these, tell us how it went.
 ## Configuration
 Every option is in `scripts\MWTogether.ini`, which comments each one. Main sections:
 `[Network]`, `[Player]`, `[Ghost]`, `[Traffic]`, `[Coop]`, `[Start]`, `[AutoStart]`, `[UI]`, `[Window]`, `[Debug]`.

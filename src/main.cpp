@@ -52,6 +52,7 @@ namespace {
         Input::Tick();
         FEScreens::Tick();
         if (g_gameOk) Game::BootTick();
+        if (g_gameOk) Game::PursuitResultTick();
         // the key-pressing AutoStart is only needed when the direct start is off (or for other targets)
         if (!(g_cfg.directFreeRoam && !_stricmp(g_cfg.autoStartTarget.c_str(), "freeroam"))) AutoStart::Tick(flowNow);
         if (g_gameOk) Game::OnFlow(flowNow);
