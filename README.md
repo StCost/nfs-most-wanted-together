@@ -51,7 +51,7 @@ The launcher sets it to 0 when you press Play. To skip the intro, tick "Skip int
   autosave and hands it back if theirs is ever missing or older.
 - **Not yet:** 4 players, and prologue together.
 
-## Features and progress (91%)
+## Features and progress (92%)
 
 The percentage is a simple count of this list: a ticked line counts fully, a line with **(?)** counts half (it's built, but nobody has played through it on two PCs yet), an empty box counts nothing.
 
@@ -113,7 +113,8 @@ The percentage is a simple count of this list: a ticked line counts fully, a lin
 - [x] Each player keeps their own career; wins are shared, so both careers move forward together
 - [x] The host keeps a copy of the other player's career save, updated after every autosave. If that player's own save is missing or older when they connect, it's restored from the host (their old file is kept as a backup)
 - [x] Cutscene skip voting: a cutscene you both watch is skipped only when both press skip
-- [x] Story cutscenes outside events started for both players at the same time: when one of you gets a story movie (Blacklist rival movie, story FMV, also in the Safe House) or a story cutscene in the world, the other gets a notice and their game waits in free roam until it's over; a movie you both watch is skipped only when both press skip. With `SyncStoryScenes=2` the same story movie also plays on the other PC if their career has got that far (in-world cutscenes are never started on the other PC) (?)
+- [x] Story scenes outside events: when one of you gets a story movie (Blacklist rival movie, story FMV, also in the Safe House) or a story cutscene in the world, the other gets a notice and their game waits in free roam until it's over (`SyncStoryScenes`)
+- [x] With `SyncStoryScenes=2` the same story movie also plays on the other PC if their career has got that far, and a movie you both watch is skipped only when both press skip (in-world cutscenes are never started on the other PC) (?)
 - [x] Getting busted or escaping only affects the player being chased
 
 ### Quality of life (settings in `[Start]` and `[UI]`)
