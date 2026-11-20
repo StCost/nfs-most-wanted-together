@@ -33,14 +33,16 @@ TEST(net_client_does_not_echo_hello) {
 }
 
 TEST(net_hello_name_limits) {
-    {   // our own name: 23 characters fit the 24-byte field
+    {   // our own name: 15 characters (the HUD limit); the last 4 bytes of the field carry the instance id
         NetFixture f(false);
         g_cfg.playerName = "0123456789012345678901234567890123456789";
         Net::Tick();
         REQUIRE(SentOfType(PKT_HELLO) == 1);
         const HelloPacket* h = FirstSent<HelloPacket>(PKT_HELLO);
-        CHECK_EQ(h->name[23], 0);
-        CHECK_STR(std::string(h->name, strnlen(h->name, 24)), "01234567890123456789012");
+        CHECK_EQ(h->name[15], 0);
+        CHECK_STR(std::string(h->name, strnlen(h->name, 24)), "012345678901234");
+        uint32_t id = 0; memcpy(&id, h->name + 20, 4);
+        CHECK(id != 0);                                  // our instance id, so our own hello can be recognised
     }
     {   // a peer name that fills the field without a terminator must not be read past its end
         NetFixture f(false);

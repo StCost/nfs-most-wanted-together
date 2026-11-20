@@ -87,10 +87,21 @@ namespace {
         if (r == len) g_stats.packetsOut++;
     }
 
+    // A random id for this game instance travels in the last 4 bytes of the hello name field (names
+    // are at most 15 characters, so they are free). A hello that carries OUR id is our own packet
+    // coming back (HostIP points at this PC): such a "peer" is refused.
+    uint32_t InstanceId() {
+        static uint32_t id = 0;
+        if (!id) { LARGE_INTEGER q; QueryPerformanceCounter(&q); id = (uint32_t)q.LowPart ^ (GetCurrentProcessId() * 2654435761u) ^ GetTickCount(); if (!id) id = 1; }
+        return id;
+    }
+    bool g_selfBlocked = false; sockaddr_in g_selfAddr{};
+
     void SendHello() {
         HelloPacket p{};
         FillHeader(p.h, PKT_HELLO);
-        strncpy_s(p.name, g_cfg.playerName.c_str(), _TRUNCATE);
+        strncpy_s(p.name, 16, g_cfg.playerName.c_str(), _TRUNCATE);
+        uint32_t id = InstanceId(); memcpy(p.name + 20, &id, 4);
         SendRaw(&p, sizeof(p));
     }
 
@@ -117,6 +128,16 @@ namespace {
             else if (h->type != PKT_HELLO) return;
         }
 
+        if (g_selfBlocked && from.sin_addr.s_addr == g_selfAddr.sin_addr.s_addr && from.sin_port == g_selfAddr.sin_port) return;
+        if (h->type == PKT_HELLO && len >= (int)sizeof(HelloPacket)) {
+            uint32_t id = 0; memcpy(&id, ((const HelloPacket*)buf)->name + 20, 4);
+            if (id && id == InstanceId()) {
+                g_selfBlocked = true; g_selfAddr = from;
+                sprintf_s(g_err, "that address is this PC itself - set the other player's IP");
+                LOG("Net: %s (%s)", g_err, AddrToStr(from).c_str());
+                return;
+            }
+        }
         if (g_cfg.isHost) {
             // Host accepts the first peer, or the same peer again (port may change after NAT rebind).
             bool same = g_havePeer && g_peer.sin_addr.s_addr == from.sin_addr.s_addr && g_peer.sin_port == from.sin_port;

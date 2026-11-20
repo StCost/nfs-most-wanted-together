@@ -283,6 +283,11 @@ namespace {
             }
         }
         if (g_gameOk && Game::TakeCoopWinNotice()) Toast((st.peerName.empty() ? std::string("Your partner") : st.peerName) + " won - it counts as your win too");
+        {   // connection problems the player should know about (shown once per message)
+            static std::string lastErr;
+            std::string ne = (g_netOk && !st.connected) ? Net::LastError() : "";
+            if (ne != lastErr) { if (!ne.empty()) Toast("Can't connect: " + ne); lastErr = ne; }
+        }
         {   // waiting on the grid for the other player
             static std::string lastStart;
             std::string ss = g_gameOk ? Game::StartStatus() : "";
@@ -323,6 +328,8 @@ namespace {
                 sprintf_s(buf, "Connecting to %s:%d...\n", g_cfg.peerIp.c_str(), g_cfg.port);
             }
             s += buf;
+            // why we are not connected, when the network told us (other mod version, our own address)
+            if (g_netOk && !st.connected && Net::LastError()[0]) { s += "Problem: "; s += Net::LastError(); s += "\n"; }
 
             int flow = Game::GameFlowState();
             sprintf_s(buf, "Game: %s (%d)\n", FlowName(flow), flow);
