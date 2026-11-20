@@ -380,8 +380,45 @@ static const char* ToggleAutopilotSafe() {
         return on ? "autopilot off" : "autopilot ON (AI drives your car)";
     } __except (EXCEPTION_EXECUTE_HANDLER) { return "exception"; }
 }
+// Nitrous for the autopilot: the racer AI that drives the local car never presses NOS, so while it
+// drives we press it on straights. IInput (handle 0x403F90): slot 2 GetControls, slot 8
+// SetControlNOS(bool); the controls block starts at IInput+8 (steering +0x0C, gas +0x1C, brake +0x20,
+// handbrake +0x24, NOS byte +0x29 - all relative to the IInput pointer). The engine only lets the
+// press through while IEngine (handle 0x404020) slot 7 - nitrous left, 0..1 - is above 0.
+static void AutopilotNos(void* iv, void* hai) {
+    static bool pressing = false;
+    static DWORD holdUntil = 0, coolUntil = 0, lastLog = 0;
+    void* in = Find(iv, 0x403F90 /*IInput*/);
+    if (!in) return;
+    auto setNos = [&](bool on) { VCall<void(__thiscall*)(void*, bool)>(in, 8)(in, on); pressing = on; };
+    if (!g_cfg.autoPilotNos || !hai || !AutopilotIsOn(hai)) { if (pressing) setNos(false); return; }
+    const uint8_t* c = (const uint8_t*)in;
+    float steer = *(const float*)(c + 0x0C), gas = *(const float*)(c + 0x1C), brake = *(const float*)(c + 0x20);
+    float speed = 0;
+    if (void* rb = RigidBodyOf(iv)) { const float* v = RB_GetVec(rb, RB_GetLinearVelocity); speed = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); }
+    DWORD now = GetTickCount();
+    bool straight = fabsf(steer) < 0.15f && gas > 0.8f && brake < 0.05f && speed > 22.0f;   // ~80 km/h
+    if (pressing) {
+        if (!straight || now > holdUntil) { setNos(false); coolUntil = now + 1500; }
+        else setNos(true);                     // keep it pressed in case the AI cleared the controls
+    } else if (straight && now > coolUntil) {
+        setNos(true); holdUntil = now + 3000;
+        if (now - lastLog > 60000) {           // one line a minute at most
+            lastLog = now;
+            void* eng = Find(iv, 0x404020 /*IEngine*/);
+            LOG("Autopilot: nitrous at %.0f km/h (%.0f%% left)", speed * 3.6f, eng ? VCall<float(__thiscall*)(void*)>(eng, 7)(eng) * 100.0f : -1.0f);
+        }
+    }
+}
+
 // [Debug] AutoPilot=1: switch the autopilot on whenever we're driving in free roam or a race.
 void Game::AutopilotTick() {
+    if (g_ok && GameFlowState() == 6 && !NisActive()) {
+        __try {
+            void* iv = LocalVehicle();
+            if (IsVehicle(iv)) AutopilotNos(iv, Find(iv, 0x403770));
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
     if (!g_ok || !g_cfg.autoPilot) return;
     static int lastFlow = -1, lastMode = -1;
     int flow = GameFlowState(), mode = 0;

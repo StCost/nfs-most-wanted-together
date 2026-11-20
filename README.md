@@ -45,7 +45,7 @@ Unticked items are still to do.
 - [x] Status overlay on F8, and it remembers whether you hid it
 - [x] Launcher (`MWTogetherLauncher.exe` next to `speed.exe`) in the game's style: name, host or join, the host's IP, start options under Settings, then Play
 - [x] A short notice in the corner when the other player joins or leaves, even with the overlay hidden
-- [ ] Those notices in the game's own UI (text messages / chyron)
+- [x] Those notices in the game's own UI: the EA Trax banner (where songs are announced) shows "<name> joined / left"; the corner line stays as the fallback (`[UI] GameNotices`)
 - [x] Joining while the other player is in a race: you roam freely, get a notice, and go together into the next event (?)
 - [x] Each side only listens to its partner's address
 - [x] Event starts and restarts are repeated for a few seconds, so a lost packet can't leave you in different races (?)
@@ -96,15 +96,16 @@ Unticked items are still to do.
 - [x] The "load complete" screen after the title confirms itself (`SkipLoadComplete`, on by default)
 - [x] No "leave the safe house?" question (`SkipLeaveSafeHouseDialog`)
 - [x] Menus react while their opening animation plays, and animate 2x faster (`IntroInput`, `MenuSpeed`)
-- [x] Optional: close the pursuit result screen in free roam by itself, off by default (`SkipPursuitResults`) (?)
+- [x] Optional: close the pursuit result screens in free roam by itself ("Bounty achieved" and the pursuit summary), off by default (`SkipPursuitResults`). Getting busted still shows the fine screen
 
 ### Test tools (`[Debug] TestKeys=1`)
 - [x] **F5** autopilot: the game's AI drives your car, cruising in free roam and following the route in races. `AutoPilot=1` turns it on by itself
-- [ ] Autopilot uses nitrous (nice to have)
-- [x] `[Window] StartInBackground=1`: the game starts without taking the focus and stays muted until you click it; the title screen is passed in the background, but the profile load still waits until you click the game
+- [x] Autopilot uses nitrous on straights (`[Debug] AutoPilotNos`, default on)
+- [x] `[Window] StartInBackground=1`: the game starts without taking the focus, loads the profile and goes into free roam in the background, and stays muted until you click it
 - [x] Performance diagnostics: `[Debug] Perf=1` logs fps, 1% lows, worst frame and how many milliseconds each part of the mod takes, every 5 seconds (it's also shown in the F8 overlay)
 - [x] **F7** starts the test event (`TestEvent`) for both players
 - [x] **F10 / F11** spawn or remove a test copy of the other player's car, **F12** spawns a test cop
+- [x] Test commands in `scripts\MWTogether.cmd` also include `pursuit` (the cops start a pursuit on you) and `uncop` (remove every police car, so the pursuit ends in an escape)
 
 [^1]: (?) means we wrote it and it ran without errors, but nobody has played through it properly on two PCs yet,
     so it may still misbehave. If you try one of these, tell us how it went.

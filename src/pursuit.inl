@@ -107,3 +107,40 @@ void Game::PursuitTick(bool connected, const Net::Snapshot& peer) {
     __try { PursuitTickImpl(connected, peer); }
     __except (EXCEPTION_EXECUTE_HANDLER) { g_retargetCop = nullptr; LOG("Pursuit: exception"); }
 }
+
+// Test command 'uncop': remove every police car, so a pursuit can end in an escape (test of
+// [UI] SkipPursuitResults on one machine).
+static int DebugKillCopsImpl(bool* inPursuit) {
+    int killed = 0;
+    __try {
+        *inPursuit = PursuitOf(LocalVehicle()) != nullptr;
+        void** b = nullptr;
+        for (int i = ListSize(VL_AICOPS, &b) - 1; i >= 0; --i) {
+            void* c = ListGet(VL_AICOPS, i);
+            if (c && IsVehicle(c)) { KillVehicle(c); ++killed; }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    return killed;
+}
+std::string Game::DebugKillCops() {
+    if (!g_ok || GameFlowState() != 6) return "not in game";
+    bool inPursuit = false;
+    int n = DebugKillCopsImpl(&inPursuit);
+    char buf[80];
+    sprintf_s(buf, "removed %d police car(s), pursuit %s", n, inPursuit ? "active" : "none");
+    return buf;
+}
+// Test command 'pursuit': start a pursuit on the local player the way the game's scripts do
+// (ForcePursuitStart, 0x60AAC0 cdecl(int minHeatLevel); needs the cop manager *0x92C67C).
+static bool DebugForcePursuitImpl() {
+    __try {
+        void* mgr = nullptr;
+        if (!Mem::Read(0x92C67C, mgr) || !mgr) return false;
+        ((void(__cdecl*)(int))0x60AAC0)(1);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+std::string Game::DebugForcePursuit() {
+    if (!g_ok || GameFlowState() != 6) return "not in game";
+    return DebugForcePursuitImpl() ? "pursuit start requested" : "no cop manager";
+}

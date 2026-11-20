@@ -8,7 +8,7 @@ rem Use the compiler already on PATH (CI / Developer Command Prompt x86), else f
 where cl >nul 2>nul && goto :have_cl
 set VCVARS=G:\Programs\Visual Studio\Community\VC\Auxiliary\Build\vcvars32.bat
 if not exist "%VCVARS%" (
-  for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set VCVARS=%%i\VC\Auxiliary\Build\vcvars32.bat
+  for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set VCVARS=%%i\VC\Auxiliary\Build\vcvars32.bat
 )
 call "%VCVARS%" >nul || (echo vcvars32 not found & exit /b 1)
 :have_cl

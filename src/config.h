@@ -23,12 +23,15 @@ struct Config {
     bool        directFreeRoam = true;
     bool        skipLoadComplete = true; // [Start] SkipLoadComplete - confirm the "load complete" screen by itself   // [Start] DirectFreeRoam - load career free roam right after the profile
     bool        skipLeaveSafeHouseDialog = true; // [Start] SkipLeaveSafeHouseDialog
+    bool        gameNotices = true;       // [UI] GameNotices - notices in the game's own banner (EA Trax chyron)
     bool        skipPursuitResults = false; // [UI] SkipPursuitResults - close the pursuit result screen in free roam
     bool        startInBackground = false; // [Window] StartInBackground - give focus back on start, game muted until clicked
     bool        sharedWins = true;       // [Career] SharedWins - a win by either player counts for both
     bool        saveSync = true;         // [Career] SaveSync - the host keeps a copy of the client's save
+    bool        bootTrace = false;       // [Debug] BootTrace - log memory-card / controller state changes while booting
     bool        perf = false;            // [Debug] Perf - log fps / frame times / mod cost every 5 s
     bool        autoPilot = false;       // [Debug] AutoPilot - the AI drives the local car in free roam and races (F5 toggles)
+    bool        autoPilotNos = true;     // [Debug] AutoPilotNos - the autopilot uses nitrous on straights
     bool        runInBackground = true;  // [Coop] RunInBackground - keep running when the window loses focus
     bool        uiIntroInput = true;  // [UI] IntroInput - menus accept input while their intro animation plays
     int         uiMenuSpeed = 2;      // [UI] MenuSpeed - 1 = normal, 2 = 2x, 3 = 3x menu animations

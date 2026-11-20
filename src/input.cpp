@@ -180,6 +180,9 @@ namespace {
         "Pause_Main.fng",
         "PostRace_Results.fng",
         "PostRace_Pursuit.fng",
+        "PostRace_MilestoneRewards.fng",
+        "InGameBounty.fng",
+        "Infractions.fng",
         "HUD_SingleRace.fng",
         "InGameRaceSheet.fng"
     };

@@ -35,11 +35,14 @@ void Config::Load(const char* ini) {
     noPause = ReadInt(ini, "Coop", "NoPause", 1) != 0;
     runInBackground = ReadInt(ini, "Coop", "RunInBackground", 1) != 0;
     autoPilot = ReadInt(ini, "Debug", "AutoPilot", 0) != 0;
+    autoPilotNos = ReadInt(ini, "Debug", "AutoPilotNos", 1) != 0;
     perf = ReadInt(ini, "Debug", "Perf", 0) != 0;
+    bootTrace = ReadInt(ini, "Debug", "BootTrace", 0) != 0;
     saveSync = ReadInt(ini, "Career", "SaveSync", 1) != 0;
     sharedWins = ReadInt(ini, "Career", "SharedWins", 1) != 0;
     startInBackground = ReadInt(ini, "Window", "StartInBackground", 0) != 0;
     skipPursuitResults = ReadInt(ini, "UI", "SkipPursuitResults", 0) != 0;
+    gameNotices = ReadInt(ini, "UI", "GameNotices", 1) != 0;
     skipIntro = ReadInt(ini, "Start", "SkipIntro", 1) != 0;
     directFreeRoam = ReadInt(ini, "Start", "DirectFreeRoam", 1) != 0;
     skipLoadComplete = ReadInt(ini, "Start", "SkipLoadComplete", 1) != 0;
