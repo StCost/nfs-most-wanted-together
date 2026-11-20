@@ -18,7 +18,7 @@
 #include "mem.h"
 
 #ifndef MWT_VERSION
-#define MWT_VERSION "0.2.0-dev"
+#define MWT_VERSION "0.3.0-dev"
 #endif
 
 namespace {

@@ -66,7 +66,7 @@ Unticked items are still to do.
 - [x] Each player keeps their own heat and pursuit, and sees the cops chasing the other player
 - [x] Cops may switch to chasing the other player when you're both being chased (?)
 - [x] Cars near the other player keep full physics instead of floating along the road (?)
-- [x] Hitting the other player's traffic or cops pushes them on their PC too (?)
+- [x] Hitting the other player's traffic, cops or race opponents pushes the real car on their PC (?)
 - [x] Pause menu and world map don't freeze the world while you're connected
 - [x] No speedbreaker in co-op (slow motion can't work for two people)
 
@@ -83,8 +83,8 @@ Unticked items are still to do.
 - [x] The other player's finish is shown in your standings
 - [x] Blacklist rival races: you both race the rival in the same event (your partner's car drives alongside, outside the standings), and each of you gets the normal rival flow after winning
 - [ ] Rival rewards (markers, pink slips) picked in co-op: not played through yet
-- [ ] Milestones, speed traps and bounty count for each player's own career as in single player; not checked in co-op yet
-- [x] Challenge Series events are announced to the other player too. From the menu they get the event's preset car; from free roam they join in their own car (?)
+- [x] Bounty and pursuit milestones count for each player's own career (seen on escape); speed-trap and other milestones not checked in co-op yet (?)
+- [x] Challenge Series events: when you both start from the main menu, both load the event with its preset car. A player who is roaming in career isn't pulled in (?)
 
 ### Career
 - [x] Each player keeps their own career; wins are shared, so both careers move forward together
