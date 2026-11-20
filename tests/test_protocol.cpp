@@ -10,12 +10,12 @@ static_assert(offsetof(PacketHeader, magic) == 0 && offsetof(PacketHeader, versi
               offsetof(PacketHeader, timeMs) == 12, "PacketHeader layout changed");
 static_assert(sizeof(HelloPacket) == 40, "HelloPacket layout changed");
 static_assert(sizeof(PingPacket) == 20, "PingPacket layout changed");
-static_assert(sizeof(CarState) == 92, "CarState layout changed");
+static_assert(sizeof(CarState) == 96, "CarState layout changed");
 static_assert(offsetof(CarState, pos) == 8 && offsetof(CarState, rot) == 20 && offsetof(CarState, linVel) == 36 &&
               offsetof(CarState, angVel) == 48 && offsetof(CarState, speedMps) == 60 && offsetof(CarState, simTime) == 64 &&
               offsetof(CarState, inRace) == 68 && offsetof(CarState, laps) == 70 && offsetof(CarState, pursuitHeat) == 74 &&
-              offsetof(CarState, racePct) == 76 && offsetof(CarState, lapPct) == 80 && offsetof(CarState, nisHash) == 84 && offsetof(CarState, nisVote) == 88, "CarState layout changed");
-static_assert(sizeof(StatePacket) == 108, "StatePacket layout changed");
+              offsetof(CarState, racePct) == 76 && offsetof(CarState, lapPct) == 80 && offsetof(CarState, nisHash) == 84 && offsetof(CarState, nisVote) == 88 && offsetof(CarState, eventHash) == 92, "CarState layout changed");
+static_assert(sizeof(StatePacket) == 112, "StatePacket layout changed");
 static_assert(CUSTOM_RECORD_SIZE == 0x198, "FECustomizationRecord size changed");
 static_assert(sizeof(CarInfo) == 12 + CUSTOM_RECORD_SIZE, "CarInfo layout changed");
 static_assert(sizeof(CarPacket) == 16 + 12 + CUSTOM_RECORD_SIZE, "CarPacket layout changed");
@@ -53,14 +53,14 @@ TEST(protocol_struct_sizes) {
     CHECK_EQ(sizeof(PacketHeader), 16);
     CHECK_EQ(sizeof(HelloPacket), 40);
     CHECK_EQ(sizeof(PingPacket), 20);
-    CHECK_EQ(sizeof(StatePacket), 108);
+    CHECK_EQ(sizeof(StatePacket), 112);
     CHECK_EQ(sizeof(CarPacket), 436);
     CHECK_EQ(sizeof(TrafficEntry), 64);
     CHECK_EQ(sizeof(TrafficPacket), 1304);
     CHECK_EQ(sizeof(EventPacket), 60);
     CHECK_EQ(sizeof(RosterPacket), 456);
     CHECK_EQ(sizeof(RacerNamePacket), 48);
-    CHECK_EQ(sizeof(CarState), 92);
+    CHECK_EQ(sizeof(CarState), 96);
     CHECK_EQ(offsetof(CarState, nisHash), 84);
     CHECK_EQ(offsetof(CarState, nisVote), 88);
     CHECK_EQ(sizeof(FileChunkPacket), 1124);
@@ -76,7 +76,7 @@ TEST(protocol_magic_and_version) {
     PacketHeader h = th::Hdr(PKT_PING, 1);
     CHECK(memcmp(&h, "MWCO", 4) == 0);              // little-endian bytes on the wire
     // Pinned on purpose: if you changed a packet layout, bump COOP_VERSION and this number together.
-    CHECK_EQ(COOP_VERSION, 11);
+    CHECK_EQ(COOP_VERSION, 12);
 }
 
 TEST(protocol_packet_type_numbers) {

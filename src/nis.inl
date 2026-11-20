@@ -74,7 +74,7 @@ void Game::NisTick(bool connected) {
         if (!g_myVote || NisState(n) != 5) { g_peerGoneSince = 0; return; }   // a new vote starts its own wait
         // I voted earlier: skip once the other player votes too, or has already left the scene (skipped)
         const Net::Snapshot& p = Net::Latest();
-        bool peerGone = p.valid && p.s.nisHash != h && p.s.gameFlowState == 6;
+        bool peerGone = p.valid && p.s.nisHash != h && p.s.gameFlowState != 4 && p.s.gameFlowState != 5;
         if (!peerGone) g_peerGoneSince = 0; else if (!g_peerGoneSince) g_peerGoneSince = GetTickCount();
         if (PeerVoted(h) || (peerGone && GetTickCount() - g_peerGoneSince > 500)) {
             // (log only a skip that happened: a refused one is tried again every frame)

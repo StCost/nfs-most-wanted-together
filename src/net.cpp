@@ -251,7 +251,7 @@ namespace {
         case PKT_RESTART: {
             if (len < (int)sizeof(EventPacket)) return;
             const EventPacket* p = (const EventPacket*)buf;
-            if (Net::OnRestart) Net::OnRestart(p->eventHash);
+            if (Net::OnRestart) { uint32_t seq = 0; memcpy(&seq, p->eventId, 4); Net::OnRestart(p->eventHash, seq); }
             break;
         }
         case PKT_RACERNAME: {
@@ -477,7 +477,7 @@ double (*Net::LocalClockMs)() = &Net::NowMs;
 void (*Net::OnEvent)(uint32_t, const char*) = nullptr;
 void (*Net::OnRoster)(const RosterPacket&) = nullptr;
 void (*Net::OnRacerName)(uint16_t, const char*) = nullptr;
-void (*Net::OnRestart)(uint32_t) = nullptr;
+void (*Net::OnRestart)(uint32_t, uint32_t) = nullptr;
 void (*Net::OnNisSkip)(uint32_t) = nullptr;
 
 void Net::SendNisSkip(uint32_t sceneHash) {
@@ -488,11 +488,11 @@ void Net::SendNisSkip(uint32_t sceneHash) {
     for (int i = 0; i < 3; ++i) SendRaw(&p, sizeof(p));
 }
 
-void Net::SendRestart(uint32_t eventHash) {
+void Net::SendRestart(uint32_t eventHash, uint32_t seq) {
     if (!g_stats.connected) return;
     EventPacket p{};
     FillHeader(p.h, PKT_RESTART);
-    p.eventHash = eventHash;
+    p.eventHash = eventHash; memcpy(p.eventId, &seq, 4);   // sequence number in the (otherwise unused) id field
     for (int i = 0; i < 3; ++i) SendRaw(&p, sizeof(p));
 }
 

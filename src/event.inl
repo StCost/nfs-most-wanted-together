@@ -16,6 +16,8 @@
 // ---------------------------------------------------------------------------
 namespace {
     void*    g_lastParms = nullptr;          // race parameters we last saw on this machine
+    uint32_t g_handledHash = 0; DWORD g_handledAt = 0;   // invitation we already acted on (repeats are ignored)
+    uint32_t g_curEventHash = 0;             // event we are in (0 = none), sent with our state
     uint32_t g_joiningEvent = 0;             // event hash we're joining because the peer started it
     DWORD    g_joinStartedAt = 0;
     char     g_eventStatus[96] = "";
@@ -47,8 +49,7 @@ namespace {
     //                               db->0x5E39E0(c); 0x57ECA0()  (GameFlowManager::LoadTrack)
     void OnEventPacket(uint32_t eventHash, const char* eventId, bool fromPeer = true) {
         // the sender repeats an invitation for a few seconds (UDP may lose it): act on it once
-        static uint32_t handledHash = 0; static DWORD handledAt = 0;
-        if (fromPeer && handledHash == eventHash && GetTickCount() - handledAt < 30000) return;
+        if (fromPeer && g_handledHash == eventHash && GetTickCount() - g_handledAt < 30000) return;
         int flow = Game::GameFlowState();
         int mode = 0;
         void* cur = CurrentParms(&mode);
@@ -57,7 +58,6 @@ namespace {
             if (GetTickCount() - lastLog > 5000) { lastLog = GetTickCount(); LOG("Event: %s requested but we're already in an event - ignored", eventId); }
             return;
         }
-        if (fromPeer) { handledHash = eventHash; handledAt = GetTickCount(); }
         void* db = nullptr;
         Mem::Read(0x91E004, db);
         void* parms = db ? ((void*(__thiscall*)(void*, uint32_t))0x5FB710)(db, eventHash) : nullptr;
@@ -82,6 +82,7 @@ namespace {
             ((void(__thiscall*)(void*, uint32_t))0x5FDCB0)(gm, eventHash);
             sprintf_s(g_eventStatus, "starting %s (free roam)", eventId);
             LOG("Event: starting %s from free roam (GManager 0x5FDCB0)", eventId);
+            if (fromPeer) { g_handledHash = eventHash; g_handledAt = GetTickCount(); }   // only once it really started
         } else if (flow == 3) {
             void* c = ((void*(__thiscall*)(void*, void*))0x603440)(db, parms);
             if (!c) { LOG("Event: could not create the race for %s", eventId); return; }
@@ -90,6 +91,7 @@ namespace {
             ((void(__cdecl*)())0x57ECA0)();
             sprintf_s(g_eventStatus, "starting %s (menu)", eventId);
             LOG("Event: starting %s from the front end (LoadTrack)", eventId);
+            if (fromPeer) { g_handledHash = eventHash; g_handledAt = GetTickCount(); }
         } else {
             LOG("Event: %s requested while loading (flow %d) - ignored", eventId, flow);
             g_joiningEvent = 0;
@@ -112,6 +114,7 @@ namespace {
         Net::SendEvent(g_inviteHash, g_inviteId);
     }
     DWORD g_restartResendAt[2] = { 0, 0 }; uint32_t g_restartResendHash = 0;
+    uint32_t g_restartSeq = 0, g_peerRestartSeq = 0; DWORD g_ownRestartAt = 0;
 }
 
 static void EventTickImpl(bool connected) {
@@ -120,6 +123,9 @@ static void EventTickImpl(bool connected) {
     if (parms != g_lastParms) {
         g_lastParms = parms;
         const char* id = EventIdOf(parms);
+        g_curEventHash = (parms && id) ? EventHashOf(parms) : 0;
+        if (!parms) g_handledHash = 0;                         // event over: the same one may be started again
+        if (g_inviteHash && g_inviteHash != g_curEventHash) g_inviteHash = 0;   // we left it: stop inviting
         if (parms && id) {
             uint32_t h = EventHashOf(parms);
             LOG("Event: race parameters now %s (%08X), mode %d, context %d", id, h, mode, ctx);
@@ -259,7 +265,8 @@ static void RestartTickImpl(bool connected) {
         else if (connected) {
             int mode = 0;
             void* parms = CurrentParms(&mode);
-            Net::SendRestart(EventHashOf(parms));
+            ++g_restartSeq; g_ownRestartAt = GetTickCount();
+            Net::SendRestart(EventHashOf(parms), g_restartSeq);
             g_restartResendHash = EventHashOf(parms);            // twice more, in case it was lost
             g_restartResendAt[0] = GetTickCount() + 700; g_restartResendAt[1] = GetTickCount() + 1600;
             LOG("Race: restarted here - telling the peer");
@@ -267,7 +274,7 @@ static void RestartTickImpl(bool connected) {
     }
     g_lastRestartFlag = flag;
     for (DWORD& at : g_restartResendAt)
-        if (at && (int)(GetTickCount() - at) >= 0) { at = 0; if (connected) Net::SendRestart(g_restartResendHash); }
+        if (at && (int)(GetTickCount() - at) >= 0) { at = 0; if (connected) Net::SendRestart(g_restartResendHash, g_restartSeq); }
 }
 
 void Game::PauseRuleTick(bool connected) {
@@ -279,16 +286,17 @@ void Game::PauseRuleTick(bool connected) {
 }
 
 bool Game::InstallRestartSync() {
-    Net::OnRestart = [](uint32_t hash) {
+    Net::OnRestart = [](uint32_t hash, uint32_t seq) {
         __try {
             int mode = 0;
             void* parms = CurrentParms(&mode);
             uint8_t pending = 0;
             Mem::Read(0x91CF28, pending);
-            static DWORD handledAt = 0;
-            if (handledAt && GetTickCount() - handledAt < 8000) return;      // a repeat of the one we just did
+            if (seq == g_peerRestartSeq) return;                              // a repeat of one we already handled
+            if (hash && EventHashOf(parms) != hash) { LOG("Race: peer restarted a different event - ignored"); return; }
+            g_peerRestartSeq = seq;
+            if (g_ownRestartAt && GetTickCount() - g_ownRestartAt < 2500) return;   // we both restarted at once
             if (Game::GameFlowState() != 6 || mode != 1 || pending) { LOG("Race: peer restarted, but we're not racing - ignored"); return; }
-            handledAt = GetTickCount();
             if (hash && EventHashOf(parms) != hash) { LOG("Race: peer restarted a different event - ignored"); return; }
             g_restartFromPeer = true;
             if (!TriggerRestart()) { g_restartFromPeer = false; LOG("Race: restart failed"); return; }
@@ -309,3 +317,4 @@ std::string Game::DebugRestart() {
     if (!g_ok) return "game not recognised";
     return DebugRestartSafe();
 }
+uint32_t Game::CurrentEventHash() { return g_curEventHash; }

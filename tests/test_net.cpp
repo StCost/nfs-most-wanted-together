@@ -83,7 +83,7 @@ TEST(net_truncated_packets_are_dropped) {
     int events = 0;
     static int* s_events; s_events = &events;
     Net::OnEvent = [](uint32_t, const char*) { ++*s_events; };
-    Net::OnRestart = [](uint32_t) { ++*s_events; };
+    Net::OnRestart = [](uint32_t, uint32_t) { ++*s_events; };
     Net::OnRoster = [](const RosterPacket&) { ++*s_events; };
     Net::OnRacerName = [](uint16_t, const char*) { ++*s_events; };
     Net::OnTraffic = [](const TrafficEntry*, int, double) { ++*s_events; };
@@ -594,7 +594,7 @@ TEST(net_host_is_quiet_until_someone_connects) {
     CarState s{};
     Net::SendState(s);
     Net::SendEvent(1, "1.2.3");
-    Net::SendRestart(1);
+    Net::SendRestart(1, 1);
     Net::SendRacerName(1, "x");
     RosterPacket r{};
     Net::SendRoster(r);

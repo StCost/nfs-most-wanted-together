@@ -26,7 +26,7 @@ namespace {
             g_seen.traffic.assign(e, e + n);
         };
         Net::OnEvent = [](uint32_t h, const char* id) { ++g_seen.eventCalls; g_seen.eventHash = h; g_seen.eventId = id; };
-        Net::OnRestart = [](uint32_t h) { ++g_seen.restartCalls; g_seen.restartHash = h; };
+        Net::OnRestart = [](uint32_t h, uint32_t) { ++g_seen.restartCalls; g_seen.restartHash = h; };
         Net::OnRacerName = [](uint16_t id, const char* n) { ++g_seen.nameCalls; g_seen.nameId = id; g_seen.name = n; };
         Net::OnRoster = [](const RosterPacket& p) { ++g_seen.rosterCalls; g_seen.roster.push_back(p); };
     }
@@ -188,7 +188,7 @@ TEST(packets_event_id_limits) {
 }
 
 TEST(packets_restart_round_trip) {
-    Datagrams d = SerializeOnHost([] { Net::SendRestart(0x0BADCAFE); });
+    Datagrams d = SerializeOnHost([] { Net::SendRestart(0x0BADCAFE, 1); });
     CHECK_EQ(d.size(), 3);
     REQUIRE(!d.empty());
     CHECK_EQ(d[0].size(), sizeof(EventPacket));      // same layout as an event
@@ -285,7 +285,7 @@ TEST(packets_no_callbacks_installed_is_safe) {
         TrafficEntry e = MakeTrafficEntry(1, 0);
         Net::SendTraffic(&e, 1, 1.0f);
         Net::SendEvent(1, "1.1.1");
-        Net::SendRestart(1);
+        Net::SendRestart(1, 1);
         Net::SendRacerName(1, "x");
         RosterPacket r{};
         Net::SendRoster(r);

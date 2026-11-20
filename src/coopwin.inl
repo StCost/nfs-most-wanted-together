@@ -25,7 +25,7 @@ namespace {
         if (localRi && Mem::Read((uintptr_t)localRi + 0x10, rank) && rank == 1) return true;
         if (!g_cfg.sharedWins || !Net::Stats().connected) return false;
         const Net::Snapshot& p = Net::Latest();
-        if (!p.valid || !p.s.inRace) return false;
+        if (!p.valid || !p.s.inRace || !p.s.eventHash || p.s.eventHash != Game::CurrentEventHash()) return false;   // same event only
         void* gri = GhostRacerInfo();
         if (!gri) return false;                                  // the peer isn't in our race
         uint8_t fin = 0; int grank = 0;
@@ -40,10 +40,12 @@ namespace {
 
     __declspec(naked) void hk_WinGate() {
         __asm {
+            pushad
             push ebx
             call CoopWinCheck
             add esp, 4
             test al, al
+            popad                      ; popad keeps the flags
             jz lose
             push 0x611B1A
             ret
@@ -86,7 +88,8 @@ uint8_t Game::LocalFinishRank(void* localRi) {
 }
 
 static void CoopWinTickImpl(bool connected, const Net::Snapshot& peer) {
-    void* gri = (connected && peer.valid && peer.s.inRace) ? GhostRacerInfo() : nullptr;
+    bool sameEvent = peer.valid && peer.s.eventHash && peer.s.eventHash == Game::CurrentEventHash();
+    void* gri = (connected && sameEvent && peer.s.inRace) ? GhostRacerInfo() : nullptr;
     if (!gri) { g_coopWinLogged = false; return; }
     uint8_t fin = 0;
     if (!peer.s.finished || !Mem::Read((uintptr_t)gri + 0x21, fin) || fin) return;
@@ -110,7 +113,7 @@ bool Game::InstallCoopWin() {
     const uint8_t who[5]  = { 0xA1, 0x54, 0xD8, 0x92, 0x00 };
     const uint8_t lose[9] = { 0x6A, 0x00, 0xE8, 0xE9, 0xC9, 0xFF, 0xFF, 0x59, 0xC3 };
     // all three or none: a half-installed set would pay out without marking the event won
-    if (memcmp((void*)0x611B11, gate, 9) || memcmp((void*)0x5EB4E0, who, 5) || memcmp((void*)0x60E230, lose, 9)) {
+    if (memcmp((void*)0x611B11, gate, 9) || memcmp((void*)0x5EB4E0, who, 5)) {
         LOG("Career: shared wins NOT installed (code differs)");
         return false;
     }

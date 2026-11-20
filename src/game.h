@@ -37,6 +37,7 @@ namespace Game {
     void PauseRuleTick(bool connected);
     std::string ToggleAutopilot();
     bool ShowChyron(const char* title, const char* line2, const char* line3);   // the game's song-title banner with our text
+    uint32_t CurrentEventHash();        // event we are in, 0 = none
     std::string DebugRestart();
     std::string DebugNisSkip();         // test: press skip on the current cutscene
     std::string DebugStopOpponents();   // test: AI opponents stop driving (so a player wins)

@@ -62,6 +62,7 @@ struct CarState {
     float    lapPct;
     uint32_t nisHash;       // cutscene the sender is in (scene name hash), 0 = none
     uint32_t nisVote;       // cutscene the sender wants skipped, 0 = no vote
+    uint32_t eventHash;     // event the sender is in (race parameters set), 0 = free roam
 };
 
 struct StatePacket {
@@ -143,7 +144,7 @@ struct TrafficPacket {
 #pragma pack(pop)
 
 constexpr uint32_t COOP_MAGIC   = 0x4F43574D; // "MWCO"
-constexpr uint16_t COOP_VERSION = 11;
+constexpr uint16_t COOP_VERSION = 12;
 
 struct NetStats {
     bool        connected = false;
@@ -187,7 +188,7 @@ namespace Net {
     void SendRoster(const RosterPacket& p);                 // header is filled in here; sent 3x
     extern void (*OnRoster)(const RosterPacket& p);
     void SendRacerName(uint16_t id, const char* name);
-    void SendRestart(uint32_t eventHash);
+    void SendRestart(uint32_t eventHash, uint32_t seq);      // a repeat carries the same seq
     void SendNisSkip(uint32_t sceneHash);
     // Small reliable file transfer (resent until acknowledged, ~10 s). One outgoing file at a time.
     // The receiver checks sizes, chunk numbers and the hash; the names are passed on as received
@@ -202,7 +203,7 @@ namespace Net {
     extern void (*OnFileRequest)(const char* owner);
     extern void (*OnNoFile)();
     extern void (*OnNisSkip)(uint32_t sceneHash);
-    extern void (*OnRestart)(uint32_t eventHash);
+    extern void (*OnRestart)(uint32_t eventHash, uint32_t seq);
     extern void (*OnRacerName)(uint16_t id, const char* name);
 
     // Snapshot interpolation: state of the remote car as it was `delayMs` ago (in sender time),

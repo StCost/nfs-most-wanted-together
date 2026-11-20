@@ -359,6 +359,7 @@ static void* RacerInfoOfLocal() {
 
 // Test: hand the local car to the game's racer AI and back (IHumanAI::SetAiControl, the same call the
 // game uses after the finish line). In a race it drives the route, in free roam it cruises the roads.
+static bool g_apByUs = false;      // the autopilot was switched on by the mod (F5 / AutoPilot), not by the game
 static bool g_apUserOff = false;   // the player switched the automatic autopilot off (until the next world/race)
 static bool AutopilotIsOn(void* hai) { return VCall<bool(__thiscall*)(void*)>(hai, 3)(hai); }
 
@@ -376,7 +377,7 @@ static const char* ToggleAutopilotSafe() {
             VCall<void(__thiscall*)(void*, int, float)>(rb, 4)(rb, 3, 1.0f);       // 1 s invulnerability
         }
         LOG("Autopilot %s", on ? "OFF" : "ON");
-        g_apUserOff = on;
+        g_apUserOff = on; g_apByUs = !on;
         return on ? "autopilot off" : "autopilot ON (AI drives your car)";
     } __except (EXCEPTION_EXECUTE_HANDLER) { return "exception"; }
 }
@@ -391,7 +392,7 @@ static void AutopilotNos(void* iv, void* hai) {
     void* in = Find(iv, 0x403F90 /*IInput*/);
     if (!in) return;
     auto setNos = [&](bool on) { VCall<void(__thiscall*)(void*, bool)>(in, 8)(in, on); pressing = on; };
-    if (!g_cfg.autoPilotNos || !hai || !AutopilotIsOn(hai)) { if (pressing) setNos(false); return; }
+    if (!g_cfg.autoPilotNos || !g_apByUs || !hai || !AutopilotIsOn(hai)) { if (pressing) setNos(false); return; }   // never for the game's own AI control (after the finish line)
     const uint8_t* c = (const uint8_t*)in;
     float steer = *(const float*)(c + 0x0C), gas = *(const float*)(c + 0x1C), brake = *(const float*)(c + 0x20);
     float speed = 0;

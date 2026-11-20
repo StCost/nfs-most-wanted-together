@@ -69,7 +69,7 @@ namespace {
             if (strlen(id) > 40) ++g_c.bad;
             g_sink += h;
         };
-        Net::OnRestart = [](uint32_t h) { ++g_c.restart; g_sink += h; };
+        Net::OnRestart = [](uint32_t h, uint32_t) { ++g_c.restart; g_sink += h; };
         Net::OnRacerName = [](uint16_t id, const char* n) {
             ++g_c.name;
             if (strlen(n) > 30) ++g_c.bad;
@@ -364,7 +364,7 @@ TEST(fuzz_bit_flips_in_real_serializer_output) {
         for (int i = 0; i < 6; ++i) e[i] = MakeTrafficEntry((uint16_t)(i + 1), 10.0f * i);
         Net::SendTraffic(e, 6, 5.0f);
         Net::SendEvent(0x1234, "3.4.5");
-        Net::SendRestart(0x1234);
+        Net::SendRestart(0x1234, 1);
         Net::SendRacerName(3, "Sonny");
         RosterPacket rp{}; rp.count = 1; rp.carKey = 9;
         Net::SendRoster(rp);

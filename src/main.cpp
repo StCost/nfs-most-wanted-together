@@ -197,6 +197,7 @@ namespace {
             local.hasCar = haveLocal ? 1 : 0;
             local.nisHash = g_gameOk ? Game::NisSceneHash() : 0;   // also during scenes without a car
             local.nisVote = g_gameOk ? Game::NisVoteHash() : 0;
+            local.eventHash = g_gameOk ? Game::CurrentEventHash() : 0;
 
             static double nextSend = 0;
             double nowMs = Net::NowMs();
