@@ -2,7 +2,7 @@
 #   tools\release.ps1 -Version 0.2.0            build, package, publish a pre-release on GitHub
 #   tools\release.ps1 -Version 0.2.0 -Final     publish as a normal (latest) release
 #   tools\release.ps1 -Version 0.2.0 -DryRun    only build and package (dist\MWTogether-0.2.0.zip)
-# A starter career save (prologue done, at the car lot) in starter-save\ is attached as a second zip.
+# A starter career save (end of the prologue: the last race against Razor, then the car lot) in starter-save\ is attached as a second zip.
 # Needs: Visual Studio 2022 C++ (x86), and the GitHub CLI (gh) logged in for publishing.
 param(
     [Parameter(Mandatory = $true)][string]$Version,
