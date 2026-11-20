@@ -46,12 +46,18 @@ namespace {
     //  front end (flow 3):          db = *(0x91E004); c = db->0x603440(parms); db->0x600AB0(c, 2 /*career*/);
     //                               db->0x5E39E0(c); 0x57ECA0()  (GameFlowManager::LoadTrack)
     void OnEventPacket(uint32_t eventHash, const char* eventId, bool fromPeer = true) {
-        // the sender transmits each event 3 times (UDP): act on the first copy only
-        if (fromPeer && g_joiningEvent == eventHash && GetTickCount() - g_joinStartedAt < 10000) return;
+        // the sender repeats an invitation for a few seconds (UDP may lose it): act on it once
+        static uint32_t handledHash = 0; static DWORD handledAt = 0;
+        if (fromPeer && handledHash == eventHash && GetTickCount() - handledAt < 30000) return;
         int flow = Game::GameFlowState();
         int mode = 0;
         void* cur = CurrentParms(&mode);
-        if (cur && mode == 1) { LOG("Event: %s requested but we're already racing - ignored", eventId); return; }
+        if (cur && (mode == 1 || fromPeer)) {     // racing, or already loading into an event
+            static DWORD lastLog = 0;
+            if (GetTickCount() - lastLog > 5000) { lastLog = GetTickCount(); LOG("Event: %s requested but we're already in an event - ignored", eventId); }
+            return;
+        }
+        if (fromPeer) { handledHash = eventHash; handledAt = GetTickCount(); }
         void* db = nullptr;
         Mem::Read(0x91E004, db);
         void* parms = db ? ((void*(__thiscall*)(void*, uint32_t))0x5FB710)(db, eventHash) : nullptr;
@@ -91,6 +97,23 @@ namespace {
     }
 }
 
+namespace {
+    RosterEntry g_inviteRoster[8]; int g_inviteN = 0;
+    uint32_t g_inviteHash = 0; char g_inviteId[40] = ""; DWORD g_inviteUntil = 0, g_inviteNext = 0;
+    void SendInvite() {
+        for (int i = 0; i < g_inviteN; ++i) {
+            RosterPacket rp{};
+            rp.index = (uint8_t)i; rp.count = (uint8_t)g_inviteN;
+            rp.carKey = g_inviteRoster[i].key;
+            rp.hasCustom = g_inviteRoster[i].hasCustom ? 1 : 0;
+            memcpy(rp.custom, g_inviteRoster[i].custom, sizeof(rp.custom));
+            Net::SendRoster(rp);
+        }
+        Net::SendEvent(g_inviteHash, g_inviteId);
+    }
+    DWORD g_restartResendAt[2] = { 0, 0 }; uint32_t g_restartResendHash = 0;
+}
+
 static void EventTickImpl(bool connected) {
     int mode = 0, ctx = 0;
     void* parms = CurrentParms(&mode, &ctx);
@@ -104,23 +127,27 @@ static void EventTickImpl(bool connected) {
                 sprintf_s(g_eventStatus, "joined %s", id);
                 g_joiningEvent = 0;                          // we started it because the peer did: don't echo
             } else if (connected && ctx == 2 /*career*/) {
-                // our AI opponents first, so the peer builds the same ones
-                for (int i = 0; i < g_localRosterN; ++i) {
-                    RosterPacket rp{};
-                    rp.index = (uint8_t)i; rp.count = (uint8_t)g_localRosterN;
-                    rp.carKey = g_localRoster[i].key;
-                    rp.hasCustom = g_localRoster[i].hasCustom ? 1 : 0;
-                    memcpy(rp.custom, g_localRoster[i].custom, sizeof(rp.custom));
-                    Net::SendRoster(rp);
-                }
-                LOG("Event: sent %d opponent(s) to peer", g_localRosterN);
-                Net::SendEvent(h, id);
+                // our AI opponents first, so the peer builds the same ones. Kept and repeated for a
+                // few seconds (SendInvite) until the peer is in the race too.
+                g_inviteN = g_localRosterN;
+                for (int i = 0; i < g_inviteN; ++i) g_inviteRoster[i] = g_localRoster[i];
+                g_inviteHash = h; strncpy_s(g_inviteId, id, _TRUNCATE);
+                g_inviteUntil = GetTickCount() + 6000; g_inviteNext = GetTickCount() + 1500;
+                SendInvite();
+                LOG("Event: sent %d opponent(s) to peer", g_inviteN);
                 sprintf_s(g_eventStatus, "started %s - inviting peer", id);
                 LOG("Event: sent %s to peer", id);
             }
         }
         g_localRosterN = 0;        // the next event collects its own opponents
         g_usePeerRoster = false;
+    }
+    // repeat the invitation until the peer is in the race (or 6 s passed)
+    if (g_inviteHash) {
+        DWORD now = GetTickCount();
+        const Net::Snapshot& pr = Net::Latest();
+        if (!connected || (int)(now - g_inviteUntil) > 0 || (pr.valid && pr.s.inRace)) g_inviteHash = 0;
+        else if ((int)(now - g_inviteNext) >= 0) { g_inviteNext = now + 1500; SendInvite(); }
     }
     if (g_joiningEvent && GetTickCount() - g_joinStartedAt > 20000) {
         LOG("Event: joining timed out");
@@ -132,7 +159,8 @@ static void EventTickImpl(bool connected) {
 bool Game::InstallEventSync() {
     Net::OnRoster = [](const RosterPacket& p) {
         if (p.index >= 8 || p.count > 8) return;
-        if (p.index == 0 || GetTickCount() - g_peerRosterAt > 3000) g_peerRosterN = 0;   // a new roster
+        // a new roster only after a pause: repeats of the same invitation must not reset it mid-build
+        if (GetTickCount() - g_peerRosterAt > 3000 && !g_usePeerRoster) g_peerRosterN = 0;
         RosterEntry& r = g_peerRoster[p.index];
         r.key = p.carKey; r.hasCustom = p.hasCustom != 0;
         memcpy(r.custom, p.custom, sizeof(r.custom));
@@ -232,10 +260,14 @@ static void RestartTickImpl(bool connected) {
             int mode = 0;
             void* parms = CurrentParms(&mode);
             Net::SendRestart(EventHashOf(parms));
+            g_restartResendHash = EventHashOf(parms);            // twice more, in case it was lost
+            g_restartResendAt[0] = GetTickCount() + 700; g_restartResendAt[1] = GetTickCount() + 1600;
             LOG("Race: restarted here - telling the peer");
         }
     }
     g_lastRestartFlag = flag;
+    for (DWORD& at : g_restartResendAt)
+        if (at && (int)(GetTickCount() - at) >= 0) { at = 0; if (connected) Net::SendRestart(g_restartResendHash); }
 }
 
 void Game::PauseRuleTick(bool connected) {
@@ -253,7 +285,10 @@ bool Game::InstallRestartSync() {
             void* parms = CurrentParms(&mode);
             uint8_t pending = 0;
             Mem::Read(0x91CF28, pending);
+            static DWORD handledAt = 0;
+            if (handledAt && GetTickCount() - handledAt < 8000) return;      // a repeat of the one we just did
             if (Game::GameFlowState() != 6 || mode != 1 || pending) { LOG("Race: peer restarted, but we're not racing - ignored"); return; }
+            handledAt = GetTickCount();
             if (hash && EventHashOf(parms) != hash) { LOG("Race: peer restarted a different event - ignored"); return; }
             g_restartFromPeer = true;
             if (!TriggerRestart()) { g_restartFromPeer = false; LOG("Race: restart failed"); return; }

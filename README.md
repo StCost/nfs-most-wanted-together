@@ -48,7 +48,7 @@ Unticked items are still to do.
 - [ ] Those notices in the game's own UI (text messages / chyron)
 - [x] Joining while the other player is in a race: you roam freely, get a notice, and go together into the next event (?)
 - [x] Each side only listens to its partner's address
-- [ ] Important one-off messages (event start, restart) are re-sent until confirmed
+- [x] Event starts and restarts are repeated for a few seconds, so a lost packet can't leave you in different races (?)
 - [ ] Up to 4 players
 
 ### Your cars
