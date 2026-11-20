@@ -256,3 +256,33 @@ std::string Game::FEAccept(const char* pkg) {
     ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0x406415E3, pkg, 0xFF);
     return std::string("accept sent to ") + pkg;
 }
+
+// Notices in the game's own UI: the EA Trax chyron (the banner that shows the song title when a track
+// starts). The game summons it with 0x595ED0, cdecl(title, artist, album): it stores the three string
+// pointers (0x8F3C48 / 4C / 50; the screen reads them when it appears) and pushes "EA_Trax.fng" - or
+// replays it if it's already up. It does nothing while *0x8EE348 > 0 (chyrons suppressed, e.g. during
+// a cutscene). The strings must stay valid, so they live in static buffers. Lines 1 and 2 are shown.
+bool Game::ShowChyron(const char* title, const char* line2, const char* line3) {
+    if (!g_ok) return false;
+    int flow = GameFlowState();
+    if (flow != 6 && flow != 3) return false;                 // only where the game shows its own chyron
+    static char t[3][64];
+    __try {
+        int blocked = 0; void* fe = nullptr;
+        if (!Mem::Read(0x8EE348, blocked) || blocked > 0 || !Mem::Read(0x91CADC, fe) || !fe) return false;
+        if (NisActive()) return false;
+        strncpy_s(t[0], title ? title : "", _TRUNCATE);
+        strncpy_s(t[1], line2 ? line2 : "", _TRUNCATE);
+        strncpy_s(t[2], line3 ? line3 : "", _TRUNCATE);
+        ((void(__cdecl*)(const char*, const char*, const char*))0x595ED0)(t[0], t[1], t[2]);
+        // The banner appears 5 s after it is summoned (screen +0x2C = tick of the request, 4000 ticks/s,
+        // NotificationMessage 0x595E80 waits until 5 s have passed). Backdate it so ours shows at once.
+        void* reg = nullptr; DWORD now = 0;
+        if (Mem::Read(0x91D21C, reg) && reg && Mem::Read(0x925B14, now)) {
+            uint8_t* pkg = ((uint8_t*(__thiscall*)(void*, const char*))0x585820)(reg, "EA_Trax.fng");
+            uint8_t* scr = nullptr;
+            if (pkg && Mem::Read((uintptr_t)pkg + 0x1C, scr) && scr) { DWORD t0 = now - 20001; Mem::Write((uintptr_t)scr + 0x2C, t0); }
+        }
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Notice: exception in the game's chyron"); return false; }
+}

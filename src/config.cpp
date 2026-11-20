@@ -41,6 +41,7 @@ void Config::Load(const char* ini) {
     sharedWins = ReadInt(ini, "Career", "SharedWins", 1) != 0;
     startInBackground = ReadInt(ini, "Window", "StartInBackground", 0) != 0;
     skipPursuitResults = ReadInt(ini, "UI", "SkipPursuitResults", 0) != 0;
+    gameNotices = ReadInt(ini, "UI", "GameNotices", 1) != 0;
     skipIntro = ReadInt(ini, "Start", "SkipIntro", 1) != 0;
     directFreeRoam = ReadInt(ini, "Start", "DirectFreeRoam", 1) != 0;
     skipLoadComplete = ReadInt(ini, "Start", "SkipLoadComplete", 1) != 0;

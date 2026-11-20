@@ -23,6 +23,7 @@ struct Config {
     bool        directFreeRoam = true;
     bool        skipLoadComplete = true; // [Start] SkipLoadComplete - confirm the "load complete" screen by itself   // [Start] DirectFreeRoam - load career free roam right after the profile
     bool        skipLeaveSafeHouseDialog = true; // [Start] SkipLeaveSafeHouseDialog
+    bool        gameNotices = true;       // [UI] GameNotices - notices in the game's own banner (EA Trax chyron)
     bool        skipPursuitResults = false; // [UI] SkipPursuitResults - close the pursuit result screen in free roam
     bool        startInBackground = false; // [Window] StartInBackground - give focus back on start, game muted until clicked
     bool        sharedWins = true;       // [Career] SharedWins - a win by either player counts for both

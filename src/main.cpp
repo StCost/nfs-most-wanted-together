@@ -35,7 +35,13 @@ namespace {
     HWND        g_prevForeground = nullptr;   // the window that had focus when the game started
     std::string g_toast;                      // short notification (player joined / left)
     uint32_t    g_toastAt = 0;
-    void Toast(const std::string& s) { g_toast = s; g_toastAt = GetTickCount(); g_lastOverlay = 0; LOG("Notice: %s", s.c_str()); }
+    // A short notice for the player: in the game's own banner (the EA Trax chyron) when it can show one,
+    // otherwise as a line in the corner (drawn by the overlay, also when the overlay is hidden).
+    void Toast(const std::string& s) {
+        bool inGame = g_cfg.gameNotices && g_gameOk && Game::ShowChyron(s.c_str(), "NFS MW Together", "");
+        if (inGame) g_toast.clear(); else { g_toast = s; g_toastAt = GetTickCount(); g_lastOverlay = 0; }
+        LOG("Notice: %s%s", s.c_str(), inGame ? " (game banner)" : "");
+    }
 
     const char* FlowName(int s) {
         switch (s) {
@@ -143,7 +149,7 @@ namespace {
 
         // Test commands ([Debug] TestKeys=1): one command per line in scripts\MWTogether.cmd, the file is
         // deleted once read. Lets tests drive the game while it runs in the background.
-        //   event <id> | restart | autopilot | cop | clone | unclone
+        //   event <id> | restart | autopilot | cop | clone | unclone | notice <text> | shot <file> | accept <package>
         static DWORD lastCmdCheck = 0;
         if (g_cfg.testKeys && g_gameOk && GetTickCount() - lastCmdCheck >= 500) {
             lastCmdCheck = GetTickCount();
@@ -165,6 +171,7 @@ namespace {
                     else if (c == "unclone") r = Game::DebugKillClone();
                     else if (c.rfind("shot ", 0) == 0) { Overlay::Screenshot(c.substr(5)); r = "screenshot"; }
                     else if (c.rfind("accept ", 0) == 0) r = Game::FEAccept(c.substr(7).c_str());
+                    else if (c.rfind("notice ", 0) == 0) { Toast(c.substr(7)); r = "notice shown"; }
                     else r = "unknown command";
                     LOG("Command '%s': %s", c.c_str(), r.c_str());
                     g_spawnMsg = r;

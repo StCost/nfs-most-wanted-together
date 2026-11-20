@@ -45,7 +45,7 @@ Unticked items are still to do.
 - [x] Status overlay on F8, and it remembers whether you hid it
 - [x] Launcher (`MWTogetherLauncher.exe` next to `speed.exe`) in the game's style: name, host or join, the host's IP, start options under Settings, then Play
 - [x] A short notice in the corner when the other player joins or leaves, even with the overlay hidden
-- [ ] Those notices in the game's own UI (text messages / chyron)
+- [x] Those notices in the game's own UI: the EA Trax banner (where songs are announced) shows "<name> joined / left"; the corner line stays as the fallback (`[UI] GameNotices`)
 - [x] Joining while the other player is in a race: you roam freely, get a notice, and go together into the next event (?)
 - [x] Each side only listens to its partner's address
 - [x] Event starts and restarts are repeated for a few seconds, so a lost packet can't leave you in different races (?)
