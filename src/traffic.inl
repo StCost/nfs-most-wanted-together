@@ -52,6 +52,10 @@ namespace {
     };
     Mirror g_mirrors[48];
     bool   g_trafficNear = false;
+    // In a race the client keeps its own traffic and neither removes nor replaces it: race scripts own
+    // some of those cars (drag races), and removing one crashed the game (0x5FD94A). Cops and race
+    // opponents are still mirrored.
+    bool   g_clientRacing = false;
     int    g_mirrorCount = 0, g_killedOwn = 0;
 
     Mirror* FindMirror(uint16_t id) {
