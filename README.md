@@ -82,12 +82,12 @@ Unticked items are still to do.
 - [x] The other player's finish is shown in your standings
 - [ ] Blacklist rival races and their rewards (cars, markers): they start together and use shared wins, but nobody has played one in co-op yet
 - [ ] Milestones, speed traps and bounty count for each player's own career as in single player; not checked in co-op yet
-- [ ] Challenge series
+- [x] Challenge Series events are announced to the other player too. From the menu they get the event's preset car; from free roam they join in their own car (?)
 
 ### Career
 - [x] Each player keeps their own career; wins are shared, so both careers move forward together
 - [x] The host keeps a copy of the other player's career save, updated after every autosave. If that player's own save is missing or older when they connect, it's restored from the host (their old file is kept as a backup)
-- [x] Cutscene skip voting: a cutscene you both watch is skipped only when both press skip (?)
+- [x] Cutscene skip voting: a cutscene you both watch is skipped only when both press skip
 - [ ] Story cutscenes outside events started for both players at the same time
 - [ ] Getting busted or escaping only affects the player being chased; not checked in co-op yet
 

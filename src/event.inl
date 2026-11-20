@@ -39,6 +39,13 @@ namespace {
     }
     uint32_t HashName(const char* s) { return ((uint32_t(__cdecl*)(const char*))0x4519D0)(s); }
 
+    // Challenge Series events run with race context 0 like quick races, but only they have a preset
+    // player car (GRaceParameters::GetPlayerCarType 0x5FC5C0 returns a non-empty name).
+    bool IsChallengeEvent(void* parms) {
+        if (!parms) return false;
+        const char* car = ((const char*(__thiscall*)(void*))0x5FC5C0)(parms);
+        return car && Mem::IsReadable(car, 1) && *car;
+    }
     uint32_t EventHashOf(void* parms) {           // GRaceParameters::GetEventHash (0x5FAB40)
         return parms ? ((uint32_t(__thiscall*)(void*))0x5FAB40)(parms) : 0;
     }
@@ -86,7 +93,8 @@ namespace {
         } else if (flow == 3) {
             void* c = ((void*(__thiscall*)(void*, void*))0x603440)(db, parms);
             if (!c) { LOG("Event: could not create the race for %s", eventId); return; }
-            ((void(__thiscall*)(void*, void*, int))0x600AB0)(db, c, 2);
+            // challenge events use context 0 (the world load then builds the preset car), career 2
+            ((void(__thiscall*)(void*, void*, int))0x600AB0)(db, c, IsChallengeEvent(parms) ? 0 : 2);
             ((void(__thiscall*)(void*, void*))0x5E39E0)(db, c);
             ((void(__cdecl*)())0x57ECA0)();
             sprintf_s(g_eventStatus, "starting %s (menu)", eventId);
@@ -132,7 +140,7 @@ static void EventTickImpl(bool connected) {
             if (h == g_joiningEvent) {
                 sprintf_s(g_eventStatus, "joined %s", id);
                 g_joiningEvent = 0;                          // we started it because the peer did: don't echo
-            } else if (connected && ctx == 2 /*career*/) {
+            } else if (connected && (ctx == 2 /*career*/ || (ctx == 0 && IsChallengeEvent(parms)))) {
                 // our AI opponents first, so the peer builds the same ones. Kept and repeated for a
                 // few seconds (SendInvite) until the peer is in the race too.
                 g_inviteN = g_localRosterN;
