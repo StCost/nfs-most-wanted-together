@@ -64,6 +64,7 @@ namespace Game {
     const char* NisStatus();           // [UI] SkipPursuitResults                    // [Start] DirectFreeRoam
     bool DirectStartActive();   // co-op rules (no speedbreaker)
     std::string DebugStartEvent(const char* eventId);   // F7 test
+    std::string DebugListEvents();   // test command 'events': log every event ID with race type / boss / preset car
     void TrafficTick(bool connected, const Net::Snapshot& peer);
     void PursuitTick(bool connected, const Net::Snapshot& peer);   // cops may chase the other player
     int16_t LocalPursuitHeat();

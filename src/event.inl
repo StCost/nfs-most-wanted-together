@@ -208,6 +208,48 @@ static bool DebugStartEventSafe(const char* eventId) {
     }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
+// Test command 'events': list the career / challenge events of the race database (IDs "<bin>.<x>.<y>",
+// tried for bin 0..20, x 0..9, y 0..15 (0..99 in bin 19) through GRaceDatabase::GetRaceParameters 0x5FB710). Logged per
+// event: race type (GRaceParameters 0x5FAA20: 0 sprint, 1 circuit, 2 drag, 3 lap knockout, 4 tollbooth,
+// 5 speedtrap, ... 8 pursuit challenge), boss race (0x5FBD90) and the preset car of challenge events
+// (0x5FC5C0, attribute 0xC0EEB909 - empty for career events).
+static int ListEventsSafe(char* lastLine, size_t n) {
+    int found = 0;
+    void* db = nullptr;
+    __try {
+        if (!Mem::Read(0x91E004, db) || !db) return -1;
+        char id[16];
+        for (int b = 0; b <= 20; ++b) {
+            int inBin = 0;
+            const int ymax = b == 19 ? 99 : 15;      // bin 19 = Challenge Series, 19.8.1 ...
+            for (int x = 0; x <= 9; ++x) for (int y = 0; y <= ymax; ++y) {
+                sprintf_s(id, "%d.%d.%d", b, x, y);
+                void* p = ((void*(__thiscall*)(void*, uint32_t))0x5FB710)(db, HashName(id));
+                if (!p) continue;
+                int type = ((int(__thiscall*)(void*))0x5FAA20)(p);
+                bool boss = ((bool(__thiscall*)(void*))0x5FBD90)(p);
+                char car[40] = "";
+                __try {
+                    const uint8_t* a = ((const uint8_t*(__thiscall*)(void*))0x5FC5C0)(p);
+                    if (a && Mem::IsReadable(a, 24) && a[0] >= '0' && a[0] <= 'z') sprintf_s(car, " car %.24s", (const char*)a);   // the attribute holds the name inline
+                } __except (EXCEPTION_EXECUTE_HANDLER) { car[0] = 0; }
+                LOG("Events: %-8s type %d%s%s", id, type, boss ? " BOSS" : "", car);
+                ++found; ++inBin;
+            }
+            if (inBin) sprintf_s(lastLine, n, "bin %d: %d", b, inBin);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return -2; }
+    return found;
+}
+std::string Game::DebugListEvents() {
+    if (!g_ok) return "game not recognised";
+    char last[64] = "";
+    int n = ListEventsSafe(last, sizeof(last));
+    if (n == -1) return "no race database";
+    if (n == -2) return "exception (list may be partial)";
+    char buf[96]; sprintf_s(buf, "%d events logged (\"Events:\" lines)", n);
+    return buf;
+}
 std::string Game::DebugStartEvent(const char* eventId) {
     if (!g_ok) return "game not recognised";
     if (!DebugStartEventSafe(eventId)) return "exception";

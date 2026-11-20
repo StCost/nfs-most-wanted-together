@@ -149,7 +149,7 @@ namespace {
 
         // Test commands ([Debug] TestKeys=1): one command per line in scripts\MWTogether.cmd, the file is
         // deleted once read. Lets tests drive the game while it runs in the background.
-        //   event <id> | restart | autopilot | cop | uncop | pursuit | clone | unclone | notice <text> | shot <file> | accept <package>
+        //   event <id> | events | restart | autopilot | cop | uncop | pursuit | clone | unclone | notice <text> | shot <file> | accept <package>
         static DWORD lastCmdCheck = 0;
         if (g_cfg.testKeys && g_gameOk && GetTickCount() - lastCmdCheck >= 500) {
             lastCmdCheck = GetTickCount();
@@ -173,6 +173,7 @@ namespace {
                     std::string r;
                     if (c.rfind("event ", 0) == 0) r = Game::DebugStartEvent(c.substr(6).c_str());
                     else if (c == "event") r = Game::DebugStartEvent(g_cfg.testEvent.c_str());
+                    else if (c == "events") r = Game::DebugListEvents();
                     else if (c == "restart") r = Game::DebugRestart();
                     else if (c == "autopilot") r = Game::ToggleAutopilot();
                     else if (c == "cop") r = Game::DebugSpawnCop();
