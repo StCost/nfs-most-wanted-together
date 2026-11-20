@@ -22,12 +22,8 @@ namespace {
 
     void __cdecl hk_StreamUpdate(float dT) {
         ((void(__cdecl*)(float))StreamUpdateFn)(dT);
-<<<<<<< Updated upstream
-        if (!g_streamPeer || g_streamQuiet) return;
-=======
         bool hold = GetTickCount() < g_streamHoldUntil;
-        if (!g_streamPeer && !hold) return;
->>>>>>> Stashed changes
+        if ((!g_streamPeer && !hold) || g_streamQuiet) return;
         __try {
             char* gm = nullptr; char* rs = nullptr;
             Mem::Read(0x91E00C, gm); Mem::Read(0x91E000, rs);
