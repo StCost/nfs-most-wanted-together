@@ -158,7 +158,7 @@ namespace {
             lastCmdCheck = GetTickCount();
             std::string cmdPath = std::string(g_dir) + "MWTogether.cmd";
             if (FILE* cf = _fsopen(cmdPath.c_str(), "r", _SH_DENYNO)) {
-                char line[128];
+                char line[512];                 // long enough for a "shot <full path>"
                 std::vector<std::string> cmds;
                 while (fgets(line, sizeof(line), cf)) {
                     std::string s = line;
