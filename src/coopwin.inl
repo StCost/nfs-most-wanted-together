@@ -161,3 +161,30 @@ static void CashSafe(char* out, size_t n) {
 }
 std::string Game::DebugCash() { char b[96]; CashSafe(b, sizeof(b)); return b; }
 bool Game::TakeCoopWinNotice() { bool v = g_coopWinNotice; g_coopWinNotice = false; return v; }
+
+// Test: drive our car into the other player's car (placed 12 m away, moving at 90 km/h towards it),
+// and print our own position, to check that a hit pushes the car that was hit on its own PC.
+static void RamSafe(char* out, size_t n) {
+    __try {
+        void* me = RigidBodyOf(LocalVehicle()); void* him = RigidBodyOf(g_ghost);
+        if (!me || !him) { strcpy_s(out, n, "no car to ram"); return; }
+        const float* hp = RB_GetVec(him, RB_GetPosition);
+        const float* mp = RB_GetVec(me, RB_GetPosition);
+        float dx = hp[0] - mp[0], dz = hp[2] - mp[2], len = sqrtf(dx * dx + dz * dz);
+        if (len < 0.5f) { dx = 1; dz = 0; len = 1; }
+        dx /= len; dz /= len;
+        float pos[3] = { hp[0] - dx * 12.f, hp[1] + 0.3f, hp[2] - dz * 12.f }, vel[3] = { dx * 25.f, 0, dz * 25.f }, zero[3] = { 0, 0, 0 };
+        RB_SetVec(me, RB_SetPosition, pos); RB_SetVec(me, RB_SetLinearVelocity, vel); RB_SetVec(me, RB_SetAngularVelocity, zero);
+        sprintf_s(out, n, "ramming the other player from 12 m at 90 km/h");
+    } __except (EXCEPTION_EXECUTE_HANDLER) { strcpy_s(out, n, "exception"); }
+}
+std::string Game::DebugRam() { char b[96] = "not in game"; if (g_ok && GameFlowState() == 6) RamSafe(b, sizeof(b)); return b; }
+static void PosSafe(char* out, size_t n) {
+    __try {
+        void* me = RigidBodyOf(LocalVehicle());
+        if (!me) { strcpy_s(out, n, "no car"); return; }
+        const float* p = RB_GetVec(me, RB_GetPosition); const float* v = RB_GetVec(me, RB_GetLinearVelocity);
+        sprintf_s(out, n, "pos %.1f %.1f %.1f speed %.1f m/s", p[0], p[1], p[2], sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]));
+    } __except (EXCEPTION_EXECUTE_HANDLER) { strcpy_s(out, n, "exception"); }
+}
+std::string Game::DebugPos() { char b[96] = "not in game"; if (g_ok && GameFlowState() == 6) PosSafe(b, sizeof(b)); return b; }

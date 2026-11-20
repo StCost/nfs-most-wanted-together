@@ -39,6 +39,8 @@ namespace Game {
     bool ShowChyron(const char* title, const char* line2, const char* line3);   // the game's song-title banner with our text
     uint32_t CurrentEventHash();        // event we are in, 0 = none
     std::string DebugRestart();
+    std::string DebugRam();             // test: hit the other player's car
+    std::string DebugPos();             // test: our position and speed
     std::string DebugNisSkip();         // test: press skip on the current cutscene
     std::string DebugStopOpponents();   // test: AI opponents stop driving (so a player wins)
     std::string DebugCash();            // test: career cash and whether the current event is won

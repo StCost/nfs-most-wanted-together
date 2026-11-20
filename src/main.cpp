@@ -178,6 +178,8 @@ namespace {
                     else if (c == "autopilot") r = Game::ToggleAutopilot();
                     else if (c == "cop") r = Game::DebugSpawnCop();
                     else if (c == "uncop") r = Game::DebugKillCops();
+                    else if (c == "ram") r = Game::DebugRam();
+                    else if (c == "pos") r = Game::DebugPos();
                     else if (c == "skipnis") r = Game::DebugNisSkip();
                     else if (c == "slowai") r = Game::DebugStopOpponents();
                     else if (c == "cash") r = Game::DebugCash();
