@@ -101,3 +101,13 @@ bool Game::InstallNisHook() {
     LOG("Cutscene: skip voting %s", ok ? "hooked" : "NOT hooked (bytes differ)");
     return ok;
 }
+
+// Test command: press "skip" on the current cutscene, exactly as the game's skip button would.
+static const char* DebugNisSkipSafe() {
+    __try {
+        void* n = Nis();
+        if (!n || !NisScene(n)) return "no cutscene";
+        return hk_NisSkip(n, nullptr) ? "skipped" : "vote cast (or not skippable yet)";
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return "exception"; }
+}
+std::string Game::DebugNisSkip() { return g_ok ? DebugNisSkipSafe() : "game not recognised"; }
