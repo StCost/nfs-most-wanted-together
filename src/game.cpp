@@ -699,6 +699,18 @@ bool Game::InstallVehicleFactoryHook() {
     InstallStreamHook();
     InstallNisHook();
     InstallSaveSync();
+    Net::OnHit = [](const float* dv) {
+        __try {
+            void* lrb = RigidBodyOf(LocalVehicle());
+            if (!lrb || Game::GameFlowState() != 6 || !g_ghostCollide) return;
+            float mag = sqrtf(dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2]);
+            float k = 0.6f * (mag > 45.f ? 45.f / mag : 1.f);          // part of the impact, capped
+            const float* v = RB_GetVec(lrb, RB_GetLinearVelocity);
+            float nv[3] = { v[0] + dv[0] * k, v[1] + dv[1] * k * 0.3f, v[2] + dv[2] * k };
+            RB_SetVec(lrb, RB_SetLinearVelocity, nv);
+            LOG("Collision: hit by the other player, pushed by %.0f km/h", mag * k * 3.6f);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    };
     InstallCoopWin();
     InstallMinimapHook();
     InstallWorldMapHook();
@@ -991,6 +1003,18 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
     if (void* lrb = RigidBodyOf(LocalVehicle())) {
         sep = Dist(RB_GetVec(lrb, RB_GetPosition), newPos);
         if (sep > (float)g_cfg.safeDistance) g_separated = true;
+        // Momentum for the car we hit: their car is moved by the network here, so our impact only
+        // stops US. When our velocity changes abruptly right next to their car (far more than braking
+        // can do in one frame), send them what we lost; their game adds part of it to their own car.
+        static float prevV[3]; static DWORD prevT = 0, lastHitSent = 0;
+        const float* lv = RB_GetVec(lrb, RB_GetLinearVelocity);
+        DWORD tnow = GetTickCount();
+        if (g_ghostCollide && prevT && tnow - prevT < 100 && sep < 6.f && tnow - lastHitSent > 400) {
+            float dv[3] = { prevV[0] - lv[0], prevV[1] - lv[1], prevV[2] - lv[2] };
+            float mag = sqrtf(dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2]);
+            if (mag > 4.f) { lastHitSent = tnow; Net::SendHit(dv); LOG("Collision: hit the other player, lost %.0f km/h - sent to them", mag * 3.6f); }
+        }
+        memcpy(prevV, lv, 12); prevT = tnow;
     }
     bool wantCollide = g_cfg.ghostCollisions && g_separated;
     if (wantCollide != g_ghostCollide) {

@@ -243,6 +243,15 @@ namespace {
             HandleFilePacket(h->type, buf, len);
             break;
         }
+        case PKT_HIT: {
+            if (len < (int)sizeof(HitPacket)) return;
+            const HitPacket* p = (const HitPacket*)buf;
+            static uint32_t lastHit = 0;
+            if (p->hitSeq == lastHit) return;                    // a copy of one we already applied
+            lastHit = p->hitSeq;
+            if (std::isfinite(p->dv[0]) && std::isfinite(p->dv[1]) && std::isfinite(p->dv[2]) && Net::OnHit) Net::OnHit(p->dv);
+            break;
+        }
         case PKT_NISSKIP: {
             if (len < (int)sizeof(EventPacket)) return;
             if (Net::OnNisSkip) Net::OnNisSkip(((const EventPacket*)buf)->eventHash);
@@ -789,3 +798,12 @@ void Net::RequestFile(const char* owner) {
     for (int i = 0; i < 2; ++i) SendRaw(&p, sizeof(p));
 }
 void Net::SendNoFile() { PacketHeader p{}; FillHeader(p, PKT_NOFILE); for (int i = 0; i < 2; ++i) SendRaw(&p, sizeof(p)); }
+void (*Net::OnHit)(const float*) = nullptr;
+void Net::SendHit(const float* dv) {
+    if (!g_stats.connected) return;
+    static uint32_t seq = 0;
+    HitPacket p{};
+    FillHeader(p.h, PKT_HIT);
+    p.hitSeq = ++seq; memcpy(p.dv, dv, sizeof(p.dv));
+    for (int i = 0; i < 2; ++i) SendRaw(&p, sizeof(p));
+}

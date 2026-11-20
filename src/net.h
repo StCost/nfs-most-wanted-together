@@ -21,7 +21,8 @@ enum PacketType : uint16_t {
     PKT_FILE    = 13,   // one chunk of a small file (career save backup / restore)
     PKT_FILEACK = 14,   // "I have the whole file with this hash"
     PKT_FILEREQ = 15,   // client -> host: "send me the save you keep for me"
-    PKT_NOFILE  = 16,   // host -> client: "I keep no save for you"
+    PKT_NOFILE  = 16,
+    PKT_HIT     = 17,   // "my car just lost this much velocity hitting yours" (momentum for the car that was hit)   // host -> client: "I keep no save for you"
 };
 
 struct PacketHeader {
@@ -126,6 +127,11 @@ struct FileChunkPacket {
     char     profile[32];  // game profile (save) name
     uint8_t  data[FILE_CHUNK];
 };
+struct HitPacket {
+    PacketHeader h;
+    uint32_t hitSeq;       // the copies of one hit carry the same number
+    float    dv[3];        // velocity the sender's car lost in the impact (m/s, world axes)
+};
 struct FileAckPacket {
     PacketHeader h;
     uint32_t fileHash;
@@ -144,7 +150,7 @@ struct TrafficPacket {
 #pragma pack(pop)
 
 constexpr uint32_t COOP_MAGIC   = 0x4F43574D; // "MWCO"
-constexpr uint16_t COOP_VERSION = 12;
+constexpr uint16_t COOP_VERSION = 13;
 
 struct NetStats {
     bool        connected = false;
@@ -190,6 +196,8 @@ namespace Net {
     void SendRacerName(uint16_t id, const char* name);
     void SendRestart(uint32_t eventHash, uint32_t seq);      // a repeat carries the same seq
     void SendNisSkip(uint32_t sceneHash);
+    void SendHit(const float* dv);
+    extern void (*OnHit)(const float* dv);
     // Small reliable file transfer (resent until acknowledged, ~10 s). One outgoing file at a time.
     // The receiver checks sizes, chunk numbers and the hash; the names are passed on as received
     // (NUL-terminated, up to 32 characters) and are NOT safe as file names: see saveutil.h.
