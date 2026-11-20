@@ -31,6 +31,7 @@ namespace {
     bool     g_ghostKeyWasDown = false;
     bool     g_ghostOn = true;
     std::string g_spawnMsg;
+    bool        g_bgBoot = false;             // booting without focus
     HWND        g_prevForeground = nullptr;   // the window that had focus when the game started
     std::string g_toast;                      // short notification (player joined / left)
     uint32_t    g_toastAt = 0;
@@ -61,12 +62,22 @@ namespace {
             if (gw) {
                 bgFrames = -1;
                 if (g_prevForeground && g_prevForeground != gw && IsWindow(g_prevForeground)) SetForegroundWindow(g_prevForeground);
-                if (GetForegroundWindow() != gw) {
-                    PostMessageA(gw, WM_ACTIVATE, WA_INACTIVE, 0);
-                    PostMessageA(gw, WM_ACTIVATEAPP, FALSE, 0);
-                }
-                LOG("Window: started in the background (focus returned, game muted until clicked)");
+                g_bgBoot = true;
+                LOG("Window: started in the background (focus returned)");
             }
+        }
+        // While it boots in the background, keep the game's "application active" flag (0x982BEC) set:
+        // the profile load only runs while the game thinks it is active. Once in the world, tell it
+        // that it's inactive (it mutes itself, like after alt-tab).
+        if (g_bgBoot) {
+            HWND gw = Overlay::GameWindow();
+            if (GetForegroundWindow() == gw) g_bgBoot = false;            // the player clicked the game
+            else if (Game::GameFlowState() == 6) {
+                g_bgBoot = false;
+                PostMessageA(gw, WM_ACTIVATE, WA_INACTIVE, 0);
+                PostMessageA(gw, WM_ACTIVATEAPP, FALSE, 0);
+                LOG("Window: in the world - muted until clicked");
+            } else { int one = 1; Mem::Write(0x982BEC, one); }
         }
 
         Perf::FrameStart();
