@@ -78,7 +78,7 @@ Unticked items are still to do.
 - [x] Race positions use each player's real progress
 - [x] Restarting a race restarts it for both of you
 - [x] Race intro cutscenes play normally for both
-- [x] A win by either player counts for both: cash, unlocks and career progress in each player's own career (`SharedWins`) (?)
+- [x] A win by either player counts for both: cash, unlocks and career progress in each player's own career (`SharedWins`)
 - [x] The other player's finish is shown in your standings
 - [ ] Blacklist rival races and their rewards (cars, markers): they start together and use shared wins, but nobody has played one in co-op yet
 - [ ] Milestones, speed traps and bounty count for each player's own career as in single player; not checked in co-op yet

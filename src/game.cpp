@@ -397,20 +397,25 @@ static void AutopilotNos(void* iv, void* hai) {
     float speed = 0;
     if (void* rb = RigidBodyOf(iv)) { const float* v = RB_GetVec(rb, RB_GetLinearVelocity); speed = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); }
     DWORD now = GetTickCount();
-    bool straight = fabsf(steer) < 0.15f && gas > 0.8f && brake < 0.05f && speed > 22.0f;   // ~80 km/h
+    // Like a racer would: only in a race, on a real straight (steady for 1.5 s, i.e. out of the corner),
+    // with at least half a tank, and not when already near top speed. A burst runs while the straight
+    // lasts and stops at 10 % so there's always some left; then the tank refills for the next straight.
+    void* eng = Find(iv, 0x404020 /*IEngine*/);
+    float tank = eng ? VCall<float(__thiscall*)(void*)>(eng, 7)(eng) : 0.f;
+    int mode = 0; void* rs = nullptr;
+    if (Mem::Read(0x91E000, rs) && rs) Mem::Read((uintptr_t)rs + 0x1960, mode);
+    bool straight = fabsf(steer) < 0.12f && gas > 0.8f && brake < 0.05f && speed > 22.0f;   // ~80 km/h
+    static DWORD straightSince = 0;
+    if (!straight) straightSince = 0; else if (!straightSince) straightSince = now;
     if (pressing) {
-        if (!straight || now > holdUntil) { setNos(false); coolUntil = now + 1500; }
+        if (!straight || tank < 0.10f || mode != 1) { setNos(false); coolUntil = now + 2000; }
         else setNos(true);                     // keep it pressed in case the AI cleared the controls
-    } else if (straight && now > coolUntil) {
-        setNos(true); holdUntil = now + 3000;
-        if (now - lastLog > 60000) {           // one line a minute at most
-            lastLog = now;
-            void* eng = Find(iv, 0x404020 /*IEngine*/);
-            LOG("Autopilot: nitrous at %.0f km/h (%.0f%% left)", speed * 3.6f, eng ? VCall<float(__thiscall*)(void*)>(eng, 7)(eng) * 100.0f : -1.0f);
-        }
+    } else if (mode == 1 && straight && now - straightSince > 1500 && tank >= 0.5f && speed < 72.0f /*~260 km/h*/ && (int)(now - coolUntil) > 0) {
+        setNos(true);
+        if (now - lastLog > 30000) { lastLog = now; LOG("Autopilot: nitrous on a straight at %.0f km/h (%.0f%% in the tank)", speed * 3.6f, tank * 100.0f); }
     }
+    (void)holdUntil;
 }
-
 // [Debug] AutoPilot=1: switch the autopilot on whenever we're driving in free roam or a race.
 void Game::AutopilotTick() {
     if (g_ok && GameFlowState() == 6 && !NisActive()) {

@@ -257,7 +257,7 @@ namespace {
             if (meRacing || !haveLocal) meRacingAt = nowT;
             if (!st.connected) { shown = pending = -1; }
             else if (pr.valid && pr.s.hasCar && pr.s.gameFlowState == 6) {     // only clear samples count
-                int v = pr.s.inRace ? 1 : 0;
+                int v = (pr.s.inRace && !pr.s.finished) ? 1 : 0;   // finished = on the results screen, not racing
                 if (shown < 0) shown = v;
                 if (v != pending) { pending = v; pendingAt = nowT; }
                 if (pending != shown && nowT - pendingAt > 3000 && nowT - meRacingAt > 3000) {
