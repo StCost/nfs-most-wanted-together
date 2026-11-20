@@ -8,6 +8,9 @@
 #include <cmath>
 #include <cstdio>
 #include <initializer_list>
+#include <vector>
+#include <string>
+#include <share.h>
 
 // ---------------------------------------------------------------------------
 // speed.exe v1.3 addresses. Each one was checked against the exe's own code:
@@ -447,6 +450,7 @@ bool Game::ReadLocalCar(CarState& out) {
         }
         out.pursuitHeat = Game::LocalPursuitHeat();
         out.nisHash = Game::NisSceneHash();
+        out.nisVote = Game::NisVoteHash();
         return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         LOG("ReadLocalCar: exception");
@@ -637,6 +641,7 @@ bool Game::InstallVehicleFactoryHook() {
     InstallRestartSync();
     InstallStreamHook();
     InstallNisHook();
+    InstallSaveSync();
     InstallMinimapHook();
     InstallWorldMapHook();
     LOG("Hooked vehicle factory (races: AI racer -> peer car)");
@@ -692,8 +697,12 @@ bool Game::ReadLocalCarInfo(CarInfo& out) {
 #include "worldmap.inl"
 #include "pursuit.inl"
 #include "stream.inl"
+static bool SaveSyncHoldsBoot();
+static char g_dataDir[MAX_PATH] = "";
+void Game::SetDataDir(const char* dir) { strncpy_s(g_dataDir, dir, _TRUNCATE); }
 #include "boot.inl"
 #include "nis.inl"
+#include "save.inl"
 
 void Game::ReleaseGhost() {
     g_streamPeer = false;

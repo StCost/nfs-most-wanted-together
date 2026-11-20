@@ -118,6 +118,7 @@ void Game::BootTick() {
         // "Press START" (splash) and "load complete" (MC_Main) wait for a key: press it
         if (g_cfg.directFreeRoam && fe && bfm && ((bool(__thiscall*)(void*, const char*))0x516B50)(fe, "WS_MW_LS_Splash.fng")) {
             static DWORD since = 0, lastTap = 0;
+            if (SaveSyncHoldsBoot()) return;      // the host's copy of our save may still arrive
             if (!since) since = GetTickCount();
             if (GetTickCount() - since > 1500 && GetTickCount() - lastTap > 2500) {
                 lastTap = GetTickCount();

@@ -47,6 +47,11 @@ namespace Game {
     bool InstallNisHook();              // cutscene skip voting
     void NisTick(bool connected);
     uint32_t NisSceneHash();
+    uint32_t NisVoteHash();
+    void InstallSaveSync();             // career save kept by the host
+    void SaveTick(bool connected);
+    const char* SaveStatus();
+    void SetDataDir(const char* dir);   // scripts\ folder
     const char* NisStatus();           // [UI] SkipPursuitResults                    // [Start] DirectFreeRoam
     bool DirectStartActive();   // co-op rules (no speedbreaker)
     std::string DebugStartEvent(const char* eventId);   // F7 test

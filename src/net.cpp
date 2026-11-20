@@ -1,6 +1,8 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include "net.h"
+#include <vector>
+#include <algorithm>
 #include "netutil.h"
 #include "config.h"
 #include "log.h"
@@ -47,6 +49,8 @@ namespace {
 
     void FillHeader(PacketHeader& h, PacketType t);
     void SendRaw(const void* data, int len);
+    void HandleFilePacket(uint16_t type, const char* buf, int len);
+    void FileTick();
     void SendCar() {
         CarPacket p{};
         FillHeader(p.h, PKT_CAR);
@@ -225,6 +229,9 @@ namespace {
             if (Net::OnEvent) Net::OnEvent(p->eventHash, id);
             break;
         }
+        case PKT_FILE: case PKT_FILEACK: case PKT_FILEREQ: case PKT_NOFILE:
+            HandleFilePacket(h->type, buf, len);
+            break;
         case PKT_NISSKIP: {
             if (len < (int)sizeof(EventPacket)) return;
             if (Net::OnNisSkip) Net::OnNisSkip(((const EventPacket*)buf)->eventHash);
@@ -407,6 +414,7 @@ static DWORD WINAPI KeepAliveThread(void*) {
 }
 
 void Net::Tick() {
+    FileTick();
     if (!SockReady()) return;
     uint32_t now = Tick32();
     // we were stalled ourselves: the peer's packets are still queued, don't count that as silence
@@ -661,3 +669,97 @@ Net::TestState Net::Test_GetState() {
     return t;
 }
 #endif
+
+// ---------------------------------------------------------------------------
+// Small file transfer (career save backup / restore). The sender repeats all chunks, a few per
+// frame, until the receiver acknowledges the file's hash or ~10 s pass.
+// ---------------------------------------------------------------------------
+void (*Net::OnFile)(const char*, const char*, const uint8_t*, uint32_t, uint64_t) = nullptr;
+void (*Net::OnFileRequest)(const char*) = nullptr;
+void (*Net::OnNoFile)() = nullptr;
+
+namespace {
+    uint32_t Fnv(const uint8_t* p, uint32_t n) { uint32_t h = 2166136261u; for (uint32_t i = 0; i < n; ++i) { h ^= p[i]; h *= 16777619u; } return h; }
+
+    struct OutFile { std::vector<uint8_t> data; uint32_t hash = 0; uint64_t mtime = 0; char owner[32] = {}, profile[32] = {}; int next = 0, rounds = 0; bool active = false; DWORD roundAt = 0; } g_out;
+    struct InFile  { std::vector<uint8_t> data; std::vector<uint8_t> have; uint32_t hash = 0, size = 0; int got = 0; } g_in;
+    uint32_t g_lastDoneHash = 0;
+
+    void FileTick() {
+        if (!g_out.active) return;
+        if (!g_stats.connected) { g_out.active = false; return; }
+        int total = (int)((g_out.data.size() + FILE_CHUNK - 1) / FILE_CHUNK);
+        if (g_out.next >= total) {                       // a round is done: wait a little, then repeat
+            if (GetTickCount() - g_out.roundAt < 700) return;
+            if (++g_out.rounds >= 14) { LOG("File: no acknowledgement for %s - giving up", g_out.profile); g_out.active = false; return; }
+            g_out.next = 0;
+        }
+        for (int n = 0; n < 6 && g_out.next < total; ++n, ++g_out.next) {
+            FileChunkPacket p{};
+            FillHeader(p.h, PKT_FILE);
+            p.fileHash = g_out.hash; p.size = (uint32_t)g_out.data.size(); p.mtime = g_out.mtime;
+            p.index = (uint16_t)g_out.next; p.total = (uint16_t)total;
+            memcpy(p.owner, g_out.owner, 32); memcpy(p.profile, g_out.profile, 32);
+            uint32_t off = (uint32_t)g_out.next * FILE_CHUNK;
+            uint32_t len = (std::min)((uint32_t)FILE_CHUNK, p.size - off);
+            memcpy(p.data, g_out.data.data() + off, len);
+            SendRaw(&p, (int)(offsetof(FileChunkPacket, data) + len));
+        }
+        if (g_out.next >= total) g_out.roundAt = GetTickCount();
+    }
+
+    void HandleFilePacket(uint16_t type, const char* buf, int len) {
+        if (type == PKT_FILEACK) {
+            if (len < (int)sizeof(FileAckPacket)) return;
+            if (g_out.active && ((const FileAckPacket*)buf)->fileHash == g_out.hash) { g_out.active = false; LOG("File: %s delivered", g_out.profile); }
+            return;
+        }
+        if (type == PKT_FILEREQ) {
+            if (len < (int)sizeof(FileReqPacket)) return;
+            char owner[33]; memcpy(owner, ((const FileReqPacket*)buf)->owner, 32); owner[32] = 0;
+            if (Net::OnFileRequest) Net::OnFileRequest(owner);
+            return;
+        }
+        if (type == PKT_NOFILE) { if (Net::OnNoFile) Net::OnNoFile(); return; }
+        // PKT_FILE
+        if (len < (int)offsetof(FileChunkPacket, data)) return;
+        const FileChunkPacket* p = (const FileChunkPacket*)buf;
+        uint32_t total = (p->size + FILE_CHUNK - 1) / FILE_CHUNK;
+        if (p->size == 0 || p->size > FILE_MAX || p->total != total || p->index >= total) return;
+        uint32_t off = (uint32_t)p->index * FILE_CHUNK;
+        uint32_t clen = (std::min)((uint32_t)FILE_CHUNK, p->size - off);
+        if (len < (int)(offsetof(FileChunkPacket, data) + clen)) return;
+        auto ack = [&]() { FileAckPacket a{}; FillHeader(a.h, PKT_FILEACK); a.fileHash = p->fileHash; SendRaw(&a, sizeof(a)); };
+        if (p->fileHash == g_lastDoneHash) { ack(); return; }                    // our ack was lost
+        if (g_in.hash != p->fileHash || g_in.size != p->size) {                  // a new file
+            g_in.hash = p->fileHash; g_in.size = p->size; g_in.got = 0;
+            g_in.data.assign(p->size, 0); g_in.have.assign(total, 0);
+        }
+        if (g_in.have[p->index]) return;
+        memcpy(g_in.data.data() + off, p->data, clen);
+        g_in.have[p->index] = 1;
+        if (++g_in.got < (int)total) return;
+        if (Fnv(g_in.data.data(), g_in.size) != g_in.hash) { LOG("File: hash mismatch - dropped"); g_in.hash = 0; return; }
+        g_lastDoneHash = g_in.hash;
+        ack();
+        char owner[33], profile[33]; memcpy(owner, p->owner, 32); owner[32] = 0; memcpy(profile, p->profile, 32); profile[32] = 0;
+        if (Net::OnFile) Net::OnFile(owner, profile, g_in.data.data(), g_in.size, p->mtime);
+        g_in.hash = 0;
+    }
+}
+
+bool Net::SendFile(const char* owner, const char* profile, const void* data, uint32_t size, uint64_t mtime) {
+    if (!g_stats.connected || g_out.active || !size || size > FILE_MAX) return false;
+    g_out = OutFile{};
+    g_out.data.assign((const uint8_t*)data, (const uint8_t*)data + size);
+    g_out.hash = Fnv(g_out.data.data(), size); g_out.mtime = mtime;
+    strncpy_s(g_out.owner, owner, _TRUNCATE); strncpy_s(g_out.profile, profile, _TRUNCATE);
+    g_out.active = true;
+    return true;
+}
+bool Net::SendingFile() { return g_out.active; }
+void Net::RequestFile(const char* owner) {
+    FileReqPacket p{}; FillHeader(p.h, PKT_FILEREQ); strncpy_s(p.owner, owner, _TRUNCATE);
+    for (int i = 0; i < 2; ++i) SendRaw(&p, sizeof(p));
+}
+void Net::SendNoFile() { PacketHeader p{}; FillHeader(p, PKT_NOFILE); for (int i = 0; i < 2; ++i) SendRaw(&p, sizeof(p)); }

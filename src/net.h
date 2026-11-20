@@ -16,7 +16,11 @@ enum PacketType : uint16_t {
     PKT_ROSTER  = 9, // one AI opponent of the event the sender starts (sent before PKT_EVENT)
     PKT_RACERNAME = 10, // host -> client: display name of a race opponent (by traffic id)
     PKT_RESTART = 11,
-    PKT_NISSKIP = 12,   // "I want to skip this cutscene" (EventPacket layout, eventHash = scene hash)   // "I restarted the current race" (EventPacket layout)
+    PKT_NISSKIP = 12,
+    PKT_FILE    = 13,   // one chunk of a small file (career save backup / restore)
+    PKT_FILEACK = 14,   // "I have the whole file with this hash"
+    PKT_FILEREQ = 15,   // client -> host: "send me the save you keep for me"
+    PKT_NOFILE  = 16,   // host -> client: "I keep no save for you"   // "I want to skip this cutscene" (EventPacket layout, eventHash = scene hash)   // "I restarted the current race" (EventPacket layout)
 };
 
 struct PacketHeader {
@@ -55,7 +59,8 @@ struct CarState {
     int16_t  pursuitHeat;   // heat x10 of the sender's pursuit, 0 = not in a pursuit
     float    racePct;
     float    lapPct;
-    uint32_t nisHash;       // cutscene the sender is watching (scene name hash), 0 = none
+    uint32_t nisHash;       // cutscene the sender is in (scene name hash), 0 = none
+    uint32_t nisVote;       // cutscene the sender wants skipped, 0 = no vote
 };
 
 struct StatePacket {
@@ -107,6 +112,26 @@ struct RacerNamePacket {
     uint16_t id;           // TrafficEntry id of that racer
     char     name[30];
 };
+constexpr int FILE_CHUNK = 1024;
+constexpr uint32_t FILE_MAX = 256 * 1024;
+struct FileChunkPacket {
+    PacketHeader h;
+    uint32_t fileHash;     // FNV-1a of the whole file
+    uint32_t size;         // whole file size
+    uint64_t mtime;        // the owner's file time (FILETIME, UTC)
+    uint16_t index, total; // chunk number / number of chunks
+    char     owner[32];    // co-op player name the save belongs to
+    char     profile[32];  // game profile (save) name
+    uint8_t  data[FILE_CHUNK];
+};
+struct FileAckPacket {
+    PacketHeader h;
+    uint32_t fileHash;
+};
+struct FileReqPacket {
+    PacketHeader h;
+    char owner[32];
+};
 struct TrafficPacket {
     PacketHeader h;
     uint8_t  count;
@@ -117,7 +142,7 @@ struct TrafficPacket {
 #pragma pack(pop)
 
 constexpr uint32_t COOP_MAGIC   = 0x4F43574D; // "MWCO"
-constexpr uint16_t COOP_VERSION = 10;
+constexpr uint16_t COOP_VERSION = 11;
 
 struct NetStats {
     bool        connected = false;
@@ -163,6 +188,14 @@ namespace Net {
     void SendRacerName(uint16_t id, const char* name);
     void SendRestart(uint32_t eventHash);
     void SendNisSkip(uint32_t sceneHash);
+    // Small reliable file transfer (resent until acknowledged, ~10 s). One outgoing file at a time.
+    bool SendFile(const char* owner, const char* profile, const void* data, uint32_t size, uint64_t mtime);
+    bool SendingFile();
+    void RequestFile(const char* owner);           // client: ask the host for the save it keeps for us
+    void SendNoFile();
+    extern void (*OnFile)(const char* owner, const char* profile, const uint8_t* data, uint32_t size, uint64_t mtime);
+    extern void (*OnFileRequest)(const char* owner);
+    extern void (*OnNoFile)();
     extern void (*OnNisSkip)(uint32_t sceneHash);
     extern void (*OnRestart)(uint32_t eventHash);
     extern void (*OnRacerName)(uint16_t id, const char* name);

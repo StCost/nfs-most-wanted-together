@@ -173,6 +173,7 @@ namespace {
             haveLocal = g_gameOk && Game::ReadLocalCar(local);
             local.hasCar = haveLocal ? 1 : 0;
             local.nisHash = g_gameOk ? Game::NisSceneHash() : 0;   // also during scenes without a car
+            local.nisVote = g_gameOk ? Game::NisVoteHash() : 0;
 
             static double nextSend = 0;
             double nowMs = Net::NowMs();
@@ -201,6 +202,7 @@ namespace {
         if (g_netOk && g_gameOk) Game::PauseRuleTick(st.connected);
         if (g_gameOk) Game::AutopilotTick();
         if (g_netOk && g_gameOk) Game::NisTick(st.connected);
+        if (g_netOk && g_gameOk) Game::SaveTick(st.connected);
         Macro::Tick();
         }
 
@@ -221,16 +223,26 @@ namespace {
             }
         }
         // --- the other player is in an event while we roam (or back): say so ---
+        // Debounced: the new state must hold for 3 s while we have been roaming for 3 s, so the
+        // start and end of a shared event (both switch within moments) say nothing.
         {
-            static int lastPeerRacing = -1;
+            static int shown = -1, pending = -1;
+            static uint32_t pendingAt = 0, meRacingAt = 0;
             const Net::Snapshot& pr = Net::Latest();
-            int peerRacing = (st.connected && pr.valid && pr.s.hasCar && pr.s.inRace) ? 1 : 0;
+            uint32_t nowT = GetTickCount();
             bool meRacing = haveLocal && local.inRace;
-            if (lastPeerRacing >= 0 && peerRacing != lastPeerRacing && !meRacing && st.connected) {
-                std::string who = st.peerName.empty() ? std::string("The other player") : st.peerName;
-                Toast(peerRacing ? who + " is in a race - you'll go together in the next event" : who + " is back in free roam");
+            if (meRacing || !haveLocal) meRacingAt = nowT;
+            if (!st.connected) { shown = pending = -1; }
+            else if (pr.valid && pr.s.hasCar && pr.s.gameFlowState == 6) {     // only clear samples count
+                int v = pr.s.inRace ? 1 : 0;
+                if (shown < 0) shown = v;
+                if (v != pending) { pending = v; pendingAt = nowT; }
+                if (pending != shown && nowT - pendingAt > 3000 && nowT - meRacingAt > 3000) {
+                    shown = pending;
+                    std::string who = st.peerName.empty() ? std::string("The other player") : st.peerName;
+                    Toast(shown ? who + " is in a race - you'll go together in the next event" : who + " is back in free roam");
+                }
             }
-            lastPeerRacing = peerRacing;
         }
         {   // cutscene skip votes
             static std::string lastNis;
@@ -292,6 +304,7 @@ namespace {
             }
             s += std::string("AutoStart: ") + AutoStart::Status() + "\n";
             if (Game::NisStatus()[0]) s += std::string("Cutscene: ") + Game::NisStatus() + "\n";
+            if (Game::SaveStatus()[0]) s += std::string("Career: ") + Game::SaveStatus() + "\n";
             if (Game::EventStatus()[0]) s += std::string("Event: ") + Game::EventStatus() + "\n";
             if (flow == 3 && FEScreens::Current()[0]) s += std::string("Screen: ") + FEScreens::Current() + "\n";
             if (!g_spawnMsg.empty()) s += "Spawn test (F10/F11): " + g_spawnMsg + "\n";
@@ -320,6 +333,7 @@ BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
 
         g_cfg.Load(iniPath.c_str());
         Net::SetDataDir(g_dir);
+        Game::SetDataDir(g_dir);
 
         // Front-end tweaks (code patches; applied before any menu exists, only if the bytes match v1.3).
         Perf::Enable(g_cfg.perf);

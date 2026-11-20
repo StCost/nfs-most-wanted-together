@@ -1,50 +1,66 @@
 // Included from game.cpp (after boot.inl).
 // ---------------------------------------------------------------------------
 // Cutscenes (NIS) watched together: skip voting
-//  INIS::mInstance 0x9885C8; +0x2AC state (5 = playing), +0x34C scene name hash, +0x2B4 type.
-//  The skip button reaches SkipOverNIS (INIS vtable +0x2C, 0x6EA960) only from 0x6EF611:
+//  INIS::mInstance 0x9885C8; +0x2AC state (3 loaded, 4/6 pre/post movie, 5 playing, 7 skipped),
+//  +0x34C scene name hash. The skip button reaches SkipOverNIS (INIS vtable +0x2C, 0x6EA960, thiscall,
+//  no stack arguments, only skips in state 5) from one place, 0x6EF611:
 //    8B 11        mov edx,[ecx]
 //    FF 52 2C     call [edx+0x2C]
-//  We put a 5-byte CALL to our stub there (ecx = INIS*, result in al like the original).
-//  Pressing skip casts a vote; the scene is skipped on both PCs once both voted. If the other player
-//  isn't watching the same scene (or isn't connected), skipping works at once, like the game.
+//  We put a 5-byte CALL to our stub there (ecx = INIS*).
+//  Votes travel as state (CarState::nisHash = scene I'm in, nisVote = scene I want skipped), so a lost
+//  packet can't lose a vote and a vote ends with its scene. A scene both players are in (or that the
+//  other one is still loading into) is skipped when both voted; alone, skip works like in the game.
 // ---------------------------------------------------------------------------
 namespace {
     constexpr uintptr_t NisSkipSite = 0x6EF611, SkipOverNISFn = 0x6EA960;
-    uint32_t g_myVote = 0, g_peerVote = 0;   // scene hash we / the peer voted to skip (0 = none)
-    DWORD    g_myVoteAt = 0, g_peerVoteAt = 0;
+    uint32_t g_myVote = 0;        // scene I voted to skip
+    uint32_t g_voteHold = 0;      // keep advertising the vote briefly after skipping, so the peer sees it
+    DWORD    g_voteHoldUntil = 0;
     bool     g_nisConnected = false;
 
     void* Nis() { void* n = nullptr; Mem::Read(0x9885C8, n); return n; }
     int NisState(void* n) { int s = 0; if (n) Mem::Read((uintptr_t)n + 0x2AC, s); return s; }
-    uint32_t NisHash(void* n) { uint32_t h = 0; if (n) Mem::Read((uintptr_t)n + 0x34C, h); return h; }
-    bool SkipNow(void* n) { return ((bool(__thiscall*)(void*))SkipOverNISFn)(n); }
+    // the scene we're in (loaded .. post movie), 0 = none
+    uint32_t NisScene(void* n) {
+        int s = NisState(n);
+        uint32_t h = 0;
+        if (n && s >= 3 && s <= 6) Mem::Read((uintptr_t)n + 0x34C, h);
+        return h;
+    }
+    uint32_t SkipNow(void* n) { return ((bool(__thiscall*)(void*))SkipOverNISFn)(n) ? 1u : 0u; }
+    void Skipped(uint32_t h) { g_voteHold = h; g_voteHoldUntil = GetTickCount() + 2000; g_myVote = 0; }
 
-    bool PeerWatching(uint32_t hash) {
+    // is the other player in this scene too (or still loading, about to be)?
+    bool PeerInScene(uint32_t h) {
         const Net::Snapshot& p = Net::Latest();
-        return g_nisConnected && p.valid && p.s.nisHash == hash && hash != 0;
+        if (!g_nisConnected || !p.valid || !h) return false;
+        return p.s.nisHash == h || p.s.gameFlowState == 4 || p.s.gameFlowState == 5;
+    }
+    bool PeerVoted(uint32_t h) {
+        const Net::Snapshot& p = Net::Latest();
+        return g_nisConnected && p.valid && h && p.s.nisVote == h;
     }
 
-    bool __fastcall hk_NisSkip(void* nis, void*) {
+    // full eax result: the caller may test more than al
+    uint32_t __fastcall hk_NisSkip(void* nis, void*) {
         __try {
-            uint32_t h = NisHash(nis);
-            if (!PeerWatching(h)) return SkipNow(nis);          // alone: skip right away
-            if (g_myVote != h) {
-                g_myVote = h; g_myVoteAt = GetTickCount();
-                Net::SendNisSkip(h);
-                LOG("Cutscene: voted to skip %08X%s", h, g_peerVote == h ? "" : " - waiting for the other player");
-            }
-            if (g_peerVote == h) { g_myVote = g_peerVote = 0; return SkipNow(nis); }
-            return false;
-        } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+            uint32_t h = NisScene(nis);
+            if (!h || NisState(nis) != 5 || !PeerInScene(h)) return SkipNow(nis);     // alone: like the game
+            if (PeerVoted(h)) { uint32_t r = SkipNow(nis); if (r) { Skipped(h); LOG("Cutscene: both voted - skipping"); } return r; }
+            if (g_myVote != h) { g_myVote = h; LOG("Cutscene: voted to skip %08X - waiting for the other player", h); }
+            return 0;
+        } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
     }
 }
 
-// Our scene (hash) while one plays, for the state packet; 0 otherwise.
+// For the state packet: the scene we're in, and the scene we want skipped.
 uint32_t Game::NisSceneHash() {
     if (!g_ok) return 0;
-    __try { void* n = Nis(); return (n && NisState(n) == 5) ? NisHash(n) : 0; }
-    __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+    __try { return NisScene(Nis()); } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+}
+uint32_t Game::NisVoteHash() {
+    if (g_myVote) return g_myVote;
+    return (g_voteHold && (int)(g_voteHoldUntil - GetTickCount()) > 0) ? g_voteHold : 0;
 }
 
 void Game::NisTick(bool connected) {
@@ -52,25 +68,32 @@ void Game::NisTick(bool connected) {
     g_nisConnected = connected;
     __try {
         void* n = Nis();
-        uint32_t h = (n && NisState(n) == 5) ? NisHash(n) : 0;
-        if (g_myVote && g_myVote != h) g_myVote = 0;            // scene over
-        if (g_peerVote && GetTickCount() - g_peerVoteAt > 60000) g_peerVote = 0;
-        if (h && g_myVote == h && g_peerVote == h) {            // both voted (the peer's vote came last)
-            g_myVote = g_peerVote = 0;
-            LOG("Cutscene: both voted - skipping");
-            SkipNow(n);
+        uint32_t h = NisScene(n);
+        if (g_myVote && (g_myVote != h || !connected)) g_myVote = 0;       // scene over / alone again
+        if (!g_myVote || NisState(n) != 5) return;
+        // I voted earlier: skip once the other player votes too, or has already left the scene (skipped)
+        const Net::Snapshot& p = Net::Latest();
+        bool peerGone = p.valid && p.s.nisHash != h && p.s.gameFlowState == 6;
+        static DWORD goneSince = 0;
+        if (!peerGone) goneSince = 0; else if (!goneSince) goneSince = GetTickCount();
+        if (PeerVoted(h) || (peerGone && GetTickCount() - goneSince > 500)) {
+            LOG("Cutscene: %s - skipping", PeerVoted(h) ? "both voted" : "the other player is past it");
+            if (SkipNow(n)) Skipped(h);
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
 const char* Game::NisStatus() {
-    if (g_myVote && !g_peerVote) return "skip voted - waiting for the other player";
-    if (g_peerVote && !g_myVote) return "the other player wants to skip (press skip)";
+    __try {
+        uint32_t h = NisScene(Nis());
+        if (!h || !g_nisConnected) return "";
+        if (g_myVote == h) return "skip voted - waiting for the other player";
+        if (PeerVoted(h)) return "the other player wants to skip (press skip)";
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
     return "";
 }
 
 bool Game::InstallNisHook() {
-    Net::OnNisSkip = [](uint32_t h) { g_peerVote = h; g_peerVoteAt = GetTickCount(); LOG("Cutscene: the other player voted to skip %08X", h); };
     uint8_t expect[5] = { 0x8B, 0x11, 0xFF, 0x52, 0x2C };
     uint8_t patch[5] = { 0xE8, 0, 0, 0, 0 };
     *(int32_t*)(patch + 1) = (int32_t)((uintptr_t)&hk_NisSkip - (NisSkipSite + 5));

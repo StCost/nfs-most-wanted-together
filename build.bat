@@ -21,7 +21,7 @@ cl /nologo /O2 /MT /EHsc /std:c++17 /W3 /DWIN32_LEAN_AND_MEAN /DNOMINMAX /D_CRT_
    /Fo"build\\" /Fd"build\\" ^
    src\main.cpp src\log.cpp src\config.cpp src\net.cpp src\overlay.cpp src\mem.cpp src\game.cpp src\input.cpp ^
    /LD /Fe"build\MWTogether.asi" ^
-   /link /SAFESEH:NO /DYNAMICBASE:NO ws2_32.lib user32.lib gdi32.lib dxguid.lib || exit /b 1
+   /link /SAFESEH:NO /DYNAMICBASE:NO ws2_32.lib user32.lib gdi32.lib dxguid.lib shell32.lib || exit /b 1
 
 if not exist "..\speed.exe" (echo Built build\MWTogether.asi & exit /b 0)
 rem renamed from CoopMod: remove the old plugin (both would load) and keep its settings
