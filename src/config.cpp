@@ -56,4 +56,8 @@ void Config::Load(const char* ini) {
     safeDistance = ReadInt(ini, "Ghost", "SafeDistance", 10);
     if (sendRateHz < 1) sendRateHz = 1;
     if (sendRateHz > 120) sendRateHz = 120;
+    if (port < 1 || port > 65535) port = 47555;        // would wrap when cast to a 16-bit port
+    if (interpDelayMs < 0) interpDelayMs = 0;          // negative = showing the future (all extrapolation)
+    if (interpDelayMs > 1000) interpDelayMs = 1000;
+    if (safeDistance < 0) safeDistance = 0;
 }

@@ -173,4 +173,15 @@ namespace Net {
     // Returns false if there is no data. *extrapolatedMs = how far past the newest packet we are.
     bool SampleRemote(double delayMs, CarState& out, double* extrapolatedMs = nullptr);
     const char* LastError();
+
+#ifdef MWT_TESTS
+    // Test hooks (tests\, built with /DMWT_TESTS; not part of the plugin).
+    void Test_Reset();                      // every global back to its start-up value, socket closed
+    void Test_HandlePacket(const void* buf, int len, uint32_t fromIp, uint16_t fromPort); // as if received (host byte order)
+    void Test_SetTick(bool on, uint32_t ms = 0);          // replace GetTickCount() inside net.cpp
+    void Test_SetCapture(void (*fn)(const void* data, int len)); // receive what would be sent (no socket needed)
+    void Test_SetPeer(uint32_t ip, uint16_t port);        // what Init does for a client (host byte order)
+    struct TestState { bool havePeer; uint32_t peerIp; uint16_t peerPort; uint32_t lastStateSeq; int ringCount; bool leaving; bool socketOpen; };
+    TestState Test_GetState();
+#endif
 }

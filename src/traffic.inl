@@ -63,7 +63,7 @@ namespace {
         return false;
     }
 
-    constexpr uint16_t CLIENT_ID_BIT = 0x8000;   // ids of cars owned by the client (its pursuit cops)
+    using NetUtil::CLIENT_ID_BIT;   // ids of cars owned by the client (its pursuit cops), see netutil.h
 
     double g_lastTrafficPkt = 0;   // local ms of the owner's last traffic packet
 
@@ -72,7 +72,7 @@ namespace {
         g_lastTrafficPkt = now;
         for (int i = 0; i < count; ++i) {
             // the host accepts only the client's own cops; the client accepts the host's cars
-            if (g_cfg.isHost != ((e[i].id & CLIENT_ID_BIT) != 0)) continue;
+            if (!NetUtil::TrafficIdAccepted(e[i].id, g_cfg.isHost)) continue;
             bool racer = (e[i].flags & 2) != 0;
             if (!g_cfg.isHost && !racer && !g_trafficNear) continue;   // far from the host: own traffic
             Mirror* m = FindMirror(e[i].id);
@@ -99,7 +99,7 @@ namespace {
         return sim ? ((void*(__thiscall*)(void*, void*))0x5E8B20)(rs, sim) : nullptr;
     }
     void OnRacerName(uint16_t id, const char* name) {
-        if (Mirror* m = FindMirror(id)) strncpy_s(m->name, 16, name, _TRUNCATE);   // HUD slots are 16 bytes
+        if (Mirror* m = FindMirror(id)) NetUtil::CopyHudName(m->name, name);        // HUD slots are 16 bytes
     }
 
     void RemoveMirror(Mirror& m) {
@@ -150,12 +150,12 @@ namespace {
     HostId   g_hostIds[64];
     uint16_t g_nextHostId = 1;
     uint16_t HostIdFor(void* iv) {
-        for (auto& h : g_hostIds) if (h.iv == iv) return g_cfg.isHost ? h.id : (uint16_t)(h.id | CLIENT_ID_BIT);
+        for (auto& h : g_hostIds) if (h.iv == iv) return NetUtil::TrafficWireId(h.id, g_cfg.isHost);
         for (auto& h : g_hostIds) {
             if (!h.iv || !ListContains(-1, h.iv)) {
-                h.iv = iv; h.id = g_nextHostId++;
-                if (g_nextHostId >= CLIENT_ID_BIT) g_nextHostId = 1;
-                return g_cfg.isHost ? h.id : (uint16_t)(h.id | CLIENT_ID_BIT);
+                h.iv = iv; h.id = g_nextHostId;
+                g_nextHostId = NetUtil::NextTrafficLocalId(g_nextHostId);
+                return NetUtil::TrafficWireId(h.id, g_cfg.isHost);
             }
         }
         return 0;

@@ -1,4 +1,5 @@
 #include "game.h"
+#include "netutil.h"
 #include "mem.h"
 #include "log.h"
 #include "config.h"
@@ -438,7 +439,7 @@ bool Game::ReadLocalCar(CarState& out) {
                 // save profile, so the profile name would be the same on both)
                 static char myName[32];
                 if (!g_cfg.playerName.empty()) {
-                    strncpy_s(myName, 16, g_cfg.playerName.c_str(), _TRUNCATE);   // HUD slots are 16 bytes
+                    NetUtil::CopyHudName(myName, g_cfg.playerName.c_str());       // HUD slots are 16 bytes
                     const char* nm = myName; Mem::Write((uintptr_t)ri + 0x08, nm);
                 }
                 out.inRace = 1;
@@ -934,7 +935,7 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
         static char peerName[32];
         const std::string& pn = Net::Stats().peerName;
         if (!pn.empty()) {
-            strncpy_s(peerName, 16, pn.c_str(), _TRUNCATE);   // HUD slots are 16 bytes
+            NetUtil::CopyHudName(peerName, pn.c_str());       // HUD slots are 16 bytes
             void* rs = nullptr;
             Mem::Read(0x91E000, rs);
             void* sim = VCall<void* (__thiscall*)(void*)>(g_ghost, IV_GetSimable)(g_ghost);

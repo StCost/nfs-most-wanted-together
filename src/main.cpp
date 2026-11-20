@@ -33,8 +33,8 @@ namespace {
     std::string g_spawnMsg;
     HWND        g_prevForeground = nullptr;   // the window that had focus when the game started
     std::string g_toast;                      // short notification (player joined / left)
-    uint32_t    g_toastUntil = 0;
-    void Toast(const std::string& s) { g_toast = s; g_toastUntil = GetTickCount() + 6000; g_lastOverlay = 0; LOG("Notice: %s", s.c_str()); }
+    uint32_t    g_toastAt = 0;
+    void Toast(const std::string& s) { g_toast = s; g_toastAt = GetTickCount(); g_lastOverlay = 0; LOG("Notice: %s", s.c_str()); }
 
     const char* FlowName(int s) {
         switch (s) {
@@ -133,9 +133,9 @@ namespace {
         // Test commands ([Debug] TestKeys=1): one command per line in scripts\MWTogether.cmd, the file is
         // deleted once read. Lets tests drive the game while it runs in the background.
         //   event <id> | restart | autopilot | cop | clone | unclone
-        static DWORD nextCmdCheck = 0;
-        if (g_cfg.testKeys && g_gameOk && GetTickCount() >= nextCmdCheck) {
-            nextCmdCheck = GetTickCount() + 500;
+        static DWORD lastCmdCheck = 0;
+        if (g_cfg.testKeys && g_gameOk && GetTickCount() - lastCmdCheck >= 500) {
+            lastCmdCheck = GetTickCount();
             std::string cmdPath = std::string(g_dir) + "MWTogether.cmd";
             if (FILE* cf = _fsopen(cmdPath.c_str(), "r", _SH_DENYNO)) {
                 char line[128];
@@ -207,13 +207,16 @@ namespace {
         // --- join / leave notices ---
         {
             static bool wasConnected = false;
+            static bool namePending = false;   // "Player joined" is up, waiting for the real name
             static std::string lastPeer;
             if (st.connected && !st.peerName.empty()) lastPeer = st.peerName;
             if (st.connected != wasConnected) {
                 if (st.connected) Toast((st.peerName.empty() ? std::string("Player") : st.peerName) + " joined");
                 else Toast((lastPeer.empty() ? std::string("The other player") : lastPeer) + (Net::PeerSaidBye() ? " left" : " lost connection"));
+                namePending = st.connected && st.peerName.empty();
                 wasConnected = st.connected;
-            } else if (st.connected && !st.peerName.empty() && g_toast == "Player joined") {
+            } else if (st.connected && namePending && !st.peerName.empty()) {
+                namePending = false;
                 Toast(st.peerName + " joined");   // the name arrives right after the connection
             }
         }
@@ -228,12 +231,13 @@ namespace {
                 Toast(peerRacing ? who + " is in a race - you'll go together in the next event" : who + " is back in free roam");
             }
             lastPeerRacing = peerRacing;
-        }        {   // cutscene skip votes
+        }
+        {   // cutscene skip votes
             static std::string lastNis;
             std::string ns = g_gameOk ? Game::NisStatus() : "";
             if (ns != lastNis) { if (!ns.empty()) Toast("Cutscene: " + ns); lastNis = ns; }
         }
-        bool toastOn = !g_toast.empty() && GetTickCount() < g_toastUntil;
+        bool toastOn = !g_toast.empty() && GetTickCount() - g_toastAt < 6000;
         Overlay::SetForceShow(toastOn);
 
         // --- overlay text (rebuild ~5x per second, texture upload is not free) ---

@@ -86,7 +86,12 @@ namespace {
         bi.bmiHeader.biPlanes = 1;
         bi.bmiHeader.biBitCount = 32;
         void* bits = nullptr;
-        HBITMAP bmp = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+        HBITMAP bmp = dc ? CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0) : nullptr;
+        if (!bmp || !bits) {   // out of GDI handles / memory: skip this update instead of writing to null
+            if (bmp) DeleteObject(bmp);
+            if (dc) DeleteDC(dc);
+            return false;
+        }
         HGDIOBJ oldBmp = SelectObject(dc, bmp);
         HFONT font = CreateFontA(18, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                                  CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, FIXED_PITCH | FF_MODERN, "Consolas");
@@ -394,7 +399,7 @@ bool Overlay::InstallHooks() {
     if (!Mem::IsReadable(slot, 4)) { LOG("IAT slot not readable - wrong exe version?"); return false; }
     o_Direct3DCreate9 = (Direct3DCreate9_t)Mem::PatchPointer(slot, (void*)&hk_Direct3DCreate9);
     LOG("Hooked Direct3DCreate9 IAT (orig %p)", o_Direct3DCreate9);
-    CloseHandle(CreateThread(nullptr, 0, Watchdog, nullptr, 0, nullptr));
+    if (HANDLE th = CreateThread(nullptr, 0, Watchdog, nullptr, 0, nullptr)) CloseHandle(th);
     return o_Direct3DCreate9 != nullptr;
 }
 

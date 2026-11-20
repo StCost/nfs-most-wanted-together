@@ -1,6 +1,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include "net.h"
+#include "netutil.h"
 #include "config.h"
 #include "log.h"
 #include <cstring>
@@ -29,6 +30,21 @@ namespace {
     bool        g_haveLocalCar = false, g_havePeerCar = false;
     uint32_t    g_lastCarSend = 0;
 
+#ifdef MWT_TESTS
+    // test build: a settable millisecond clock and a tap on everything SendRaw would send
+    bool     g_testTickOn = false;
+    uint32_t g_testTick = 0;
+    void   (*g_testCapture)(const void*, int) = nullptr;
+    uint32_t Tick32() { return g_testTickOn ? g_testTick : GetTickCount(); }
+    bool     SockReady() { return g_sock != INVALID_SOCKET || g_testCapture; }
+#else
+    inline uint32_t Tick32() { return GetTickCount(); }
+    inline bool     SockReady() { return g_sock != INVALID_SOCKET; }
+#endif
+    // QueryPerformanceCounter milliseconds, wrapped to 32 bits. (A plain double -> uint32_t cast is
+    // undefined once the PC has been up for more than 49.7 days.)
+    uint32_t NowMs32() { return (uint32_t)(uint64_t)Net::NowMs(); }
+
     void FillHeader(PacketHeader& h, PacketType t);
     void SendRaw(const void* data, int len);
     void SendCar() {
@@ -36,7 +52,7 @@ namespace {
         FillHeader(p.h, PKT_CAR);
         p.c = g_localCar;
         SendRaw(&p, sizeof(p));
-        g_lastCarSend = GetTickCount();
+        g_lastCarSend = Tick32();
     }
 
     // Loading screens stall the render loop (no packets) for several seconds, so be generous.
@@ -47,15 +63,21 @@ namespace {
         h.version = COOP_VERSION;
         h.type = (uint16_t)t;
         h.seq = ++g_seq;
-        h.timeMs = (uint32_t)Net::NowMs();
+        h.timeMs = NowMs32();
     }
 
     bool  g_peerSaidBye = false;
     bool  g_leaving = false;   // we said bye: send nothing more (the peer would see us reconnect)
-    DWORD g_byeAt = 0;         // the peer said bye: ignore its leftover packets for a moment
+    bool  g_byeSent = false;
+    bool  g_byeRecent = false; // the peer said bye: ignore its leftover packets for a moment
+    uint32_t g_byeAt = 0;
+    constexpr uint32_t BYE_IGNORE_MS = 2000;
 
     void SendRaw(const void* data, int len) {
-        if (g_sock == INVALID_SOCKET || !g_havePeer || g_leaving) return;
+        if (!SockReady() || !g_havePeer || g_leaving) return;
+#ifdef MWT_TESTS
+        if (g_testCapture) { g_testCapture(data, len); g_stats.packetsOut++; return; }
+#endif
         int r = sendto(g_sock, (const char*)data, len, 0, (sockaddr*)&g_peer, sizeof(g_peer));
         if (r == len) g_stats.packetsOut++;
     }
@@ -85,12 +107,15 @@ namespace {
         }
         // after a bye, the leaving game may still send a few packets (and the bye's copies): don't
         // reconnect to it - only a fresh HELLO (the game started again) counts
-        if (g_byeAt && GetTickCount() - g_byeAt < 2000 && h->type != PKT_HELLO) return;
+        if (g_byeRecent) {
+            if (Tick32() - g_byeAt >= BYE_IGNORE_MS) g_byeRecent = false;
+            else if (h->type != PKT_HELLO) return;
+        }
 
         if (g_cfg.isHost) {
             // Host accepts the first peer, or the same peer again (port may change after NAT rebind).
             bool same = g_havePeer && g_peer.sin_addr.s_addr == from.sin_addr.s_addr && g_peer.sin_port == from.sin_port;
-            bool stale = g_havePeer && (GetTickCount() - g_stats.lastRecvTick > TIMEOUT_MS);
+            bool stale = g_havePeer && (Tick32() - g_stats.lastRecvTick > TIMEOUT_MS);
             if (!g_havePeer || stale || (!same && h->type == PKT_HELLO && !g_stats.connected)) {
                 g_peer = from;
                 g_havePeer = true;
@@ -101,7 +126,7 @@ namespace {
         }
 
         g_stats.packetsIn++;
-        g_stats.lastRecvTick = GetTickCount();
+        g_stats.lastRecvTick = Tick32();
         if (!g_stats.connected) {
             g_stats.connected = true;
             g_peerSaidBye = false;
@@ -135,13 +160,15 @@ namespace {
         case PKT_PONG: {
             if (len < (int)sizeof(PingPacket)) return;
             const PingPacket* p = (const PingPacket*)buf;
-            int rtt = (int)((uint32_t)Net::NowMs() - p->echoTimeMs);
+            int rtt = (int)(NowMs32() - p->echoTimeMs);
+            if (rtt < 0 || rtt > 60000) break;   // not an echo of one of our pings
             g_stats.pingMs = (g_stats.pingMs < 0) ? rtt : (g_stats.pingMs * 3 + rtt) / 4;
             break;
         }
         case PKT_STATE: {
             if (len < (int)sizeof(StatePacket)) return;
             const StatePacket* p = (const StatePacket*)buf;
+            if (!NetUtil::ValidCarState(p->s)) return;   // NaN / absurd numbers must not reach the game
             // Drop late / duplicate packets, but a big jump backwards means the peer restarted.
             if (h->seq <= g_lastStateSeq && g_lastStateSeq - h->seq < 300) return;
             g_lastStateSeq = h->seq;
@@ -161,7 +188,7 @@ namespace {
             }
             g_prev = g_latest;
             g_latest.valid = true;
-            g_latest.recvTick = GetTickCount();
+            g_latest.recvTick = Tick32();
             g_latest.seq = h->seq;
             g_latest.s = p->s;
             break;
@@ -185,6 +212,8 @@ namespace {
             const TrafficPacket* p = (const TrafficPacket*)buf;
             int n = p->count;
             if (n > MAX_TRAFFIC_PER_PACKET || len < (int)(offsetof(TrafficPacket, e) + n * sizeof(TrafficEntry))) return;
+            if (!NetUtil::FiniteWithin(&p->simTime, 1, NetUtil::MAX_SIMTIME_S)) return;
+            for (int i = 0; i < n; ++i) if (!NetUtil::ValidTrafficEntry(p->e[i])) return;
             if (Net::OnTraffic) Net::OnTraffic(p->e, n, (double)p->simTime * 1000.0);
             break;
         }
@@ -220,7 +249,8 @@ namespace {
             break;
         }
         case PKT_BYE:
-            g_byeAt = GetTickCount();
+            g_byeAt = Tick32();
+            g_byeRecent = true;
             g_peerSaidBye = true;
             LOG("Peer said bye");
             g_stats.connected = false;
@@ -282,7 +312,11 @@ bool Net::Init() {
     // firewall treat the other side's packets as replies, so no inbound rule is needed on a LAN.
     sockaddr_in local{};
     local.sin_family = AF_INET;
+#ifdef MWT_TESTS
+    local.sin_addr.s_addr = htonl(INADDR_LOOPBACK);   // tests talk to themselves: no firewall prompt
+#else
     local.sin_addr.s_addr = htonl(INADDR_ANY);
+#endif
     local.sin_port = htons((u_short)g_cfg.port);
     if (bind(g_sock, (sockaddr*)&local, sizeof(local)) != 0) {
         int e = WSAGetLastError();
@@ -324,9 +358,8 @@ bool Net::Init() {
 }
 
 void Net::SendBye() {
-    static bool sent = false;
-    if (sent || g_sock == INVALID_SOCKET) return;
-    sent = true;
+    if (g_byeSent || !SockReady()) return;
+    g_byeSent = true;
     PacketHeader bye{};
     FillHeader(bye, PKT_BYE);
     for (int i = 0; i < 3; ++i) SendRaw(&bye, sizeof(bye));
@@ -358,24 +391,24 @@ void Net::Poll() {
 
 // While the game is paused (alt-tab, world map, loading) its frame loop stops and so does Net::Tick.
 // This thread keeps pinging the peer meanwhile so neither side times out.
-namespace { volatile DWORD g_lastTickCall = 0; }
+namespace { volatile uint32_t g_lastTickCall = 0; }
 static DWORD WINAPI KeepAliveThread(void*) {
     for (;;) {
         Sleep(500);
         SOCKET s = g_sock;
         if (s == INVALID_SOCKET) return 0;
-        DWORD last = g_lastTickCall;
-        if (!last || !g_stats.connected || g_leaving || GetTickCount() - last < 1000) continue;
+        uint32_t last = g_lastTickCall;
+        if (!last || !g_stats.connected || g_leaving || Tick32() - last < 1000) continue;
         PingPacket p{};
         p.h.magic = COOP_MAGIC; p.h.version = COOP_VERSION; p.h.type = (uint16_t)PKT_PING;
-        p.h.seq = 0; p.h.timeMs = (uint32_t)Net::NowMs();
+        p.h.seq = 0; p.h.timeMs = NowMs32();
         sendto(s, (const char*)&p, sizeof(p), 0, (sockaddr*)&g_peer, sizeof(g_peer));
     }
 }
 
 void Net::Tick() {
-    if (g_sock == INVALID_SOCKET) return;
-    uint32_t now = GetTickCount();
+    if (!SockReady()) return;
+    uint32_t now = Tick32();
     // we were stalled ourselves: the peer's packets are still queued, don't count that as silence
     if (g_lastTickCall && now - g_lastTickCall > 2000) g_stats.lastRecvTick = now;
     g_lastTickCall = now;
@@ -449,7 +482,7 @@ void Net::SendRacerName(uint16_t id, const char* name) {
     RacerNamePacket p{};
     FillHeader(p.h, PKT_RACERNAME);
     p.id = id;
-    strncpy_s(p.name, 16, name, _TRUNCATE);   // the HUD standings copy names into 16-byte slots
+    NetUtil::CopyHudName(p.name, name);       // the HUD standings copy names into 16-byte slots
     SendRaw(&p, sizeof(p));
 }
 
@@ -465,7 +498,7 @@ void Net::SendEvent(uint32_t eventHash, const char* eventId) {
     EventPacket p{};
     FillHeader(p.h, PKT_EVENT);
     p.eventHash = eventHash;
-    strncpy_s(p.eventId, eventId, _TRUNCATE);
+    strncpy_s(p.eventId, eventId ? eventId : "", _TRUNCATE);
     for (int i = 0; i < 3; ++i) SendRaw(&p, sizeof(p));   // important + tiny: send 3 copies (UDP)
 }
 
@@ -501,6 +534,7 @@ void Net::SendTraffic(const TrafficEntry* e, int count, float simTime) {
     TrafficPacket p{};
     FillHeader(p.h, PKT_TRAFFIC);
     if (count > MAX_TRAFFIC_PER_PACKET) count = MAX_TRAFFIC_PER_PACKET;
+    if (count < 0 || !e) count = 0;
     p.count = (uint8_t)count;
     p.simTime = simTime;
     memcpy(p.e, e, count * sizeof(TrafficEntry));
@@ -514,16 +548,8 @@ double Net::NowMs() {
     return (double)c.QuadPart * 1000.0 / (double)f.QuadPart;
 }
 
-static void Lerp3(const float* a, const float* b, float t, float* o) { for (int i = 0; i < 3; ++i) o[i] = a[i] + (b[i] - a[i]) * t; }
-
-static void NlerpQ(const float* a, const float* b0, float t, float* o) {
-    float b[4] = { b0[0], b0[1], b0[2], b0[3] };
-    if (a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3] < 0) for (float& x : b) x = -x;
-    float len = 0;
-    for (int i = 0; i < 4; ++i) { o[i] = a[i] + (b[i] - a[i]) * t; len += o[i] * o[i]; }
-    len = sqrtf(len);
-    if (len > 1e-6f) for (int i = 0; i < 4; ++i) o[i] /= len;
-}
+using NetUtil::Lerp3;
+using NetUtil::NlerpQ;
 
 bool Net::SampleRemote(double delayMs, CarState& out, double* extrapolatedMs) {
     if (g_ringCount == 0) return false;
@@ -541,11 +567,9 @@ bool Net::SampleRemote(double delayMs, CarState& out, double* extrapolatedMs) {
         float u = (float)((target - older->sendMs) / span);
         float dt = (float)(span / 1000.0);
         // cubic Hermite on position with velocities as tangents
-        float u2 = u * u, u3 = u2 * u;
-        float h00 = 2 * u3 - 3 * u2 + 1, h10 = u3 - 2 * u2 + u, h01 = -2 * u3 + 3 * u2, h11 = u3 - u2;
         out = newer->s;
         for (int i = 0; i < 3; ++i)
-            out.pos[i] = h00 * older->s.pos[i] + h10 * dt * older->s.linVel[i] + h01 * newer->s.pos[i] + h11 * dt * newer->s.linVel[i];
+            out.pos[i] = NetUtil::Hermite(older->s.pos[i], older->s.linVel[i], newer->s.pos[i], newer->s.linVel[i], dt, u);
         Lerp3(older->s.linVel, newer->s.linVel, u, out.linVel);
         Lerp3(older->s.angVel, newer->s.angVel, u, out.angVel);
         NlerpQ(older->s.rot, newer->s.rot, u, out.rot);
@@ -574,3 +598,66 @@ const NetStats& Net::Stats() { return g_stats; }
 const char* Net::LastError() { return g_err; }
 
 bool Net::PeerSaidBye() { return g_peerSaidBye; }
+
+#ifdef MWT_TESTS
+// ---------------------------------------------------------------------------------------------
+// Test hooks (tests\, built with /DMWT_TESTS; not part of the plugin).
+// ---------------------------------------------------------------------------------------------
+void Net::Test_Reset() {
+    if (g_sock != INVALID_SOCKET) { closesocket(g_sock); g_sock = INVALID_SOCKET; }
+    g_peer = sockaddr_in{};
+    g_havePeer = false;
+    g_seq = 0;
+    g_lastHello = g_lastPing = 0;
+    g_lastStateSeq = 0;
+    g_stats = NetStats{};
+    g_latest = Net::Snapshot{}; g_prev = Net::Snapshot{};
+    g_err[0] = 0;
+    g_localCar = CarInfo{}; g_peerCar = CarInfo{};
+    g_ringHead = g_ringCount = 0;
+    g_peerCarFile[0] = 0;
+    g_haveLocalCar = g_havePeerCar = false;
+    g_lastCarSend = 0;
+    g_peerSaidBye = g_leaving = g_byeSent = g_byeRecent = false;
+    g_byeAt = 0;
+    g_lastTickCall = 0;
+    g_offsetEst = g_offsetAt = 0;
+    g_haveOffset = false;
+    g_testTickOn = false; g_testTick = 0;
+    g_testCapture = nullptr;
+    Net::OnTraffic = nullptr; Net::OnEvent = nullptr; Net::OnRoster = nullptr;
+    Net::OnRacerName = nullptr; Net::OnRestart = nullptr;
+    Net::LocalClockMs = &Net::NowMs;
+}
+
+void Net::Test_HandlePacket(const void* buf, int len, uint32_t fromIp, uint16_t fromPort) {
+    sockaddr_in from{};
+    from.sin_family = AF_INET;
+    from.sin_addr.s_addr = htonl(fromIp);
+    from.sin_port = htons(fromPort);
+    Handle((const char*)buf, len, from);
+}
+
+void Net::Test_SetTick(bool on, uint32_t ms) { g_testTickOn = on; g_testTick = ms; }
+void Net::Test_SetCapture(void (*fn)(const void*, int)) { g_testCapture = fn; }
+
+void Net::Test_SetPeer(uint32_t ip, uint16_t port) {
+    g_peer = sockaddr_in{};
+    g_peer.sin_family = AF_INET;
+    g_peer.sin_addr.s_addr = htonl(ip);
+    g_peer.sin_port = htons(port);
+    g_havePeer = true;
+}
+
+Net::TestState Net::Test_GetState() {
+    TestState t{};
+    t.havePeer = g_havePeer;
+    t.peerIp = ntohl(g_peer.sin_addr.s_addr);
+    t.peerPort = ntohs(g_peer.sin_port);
+    t.lastStateSeq = g_lastStateSeq;
+    t.ringCount = g_ringCount;
+    t.leaving = g_leaving;
+    t.socketOpen = g_sock != INVALID_SOCKET;
+    return t;
+}
+#endif
