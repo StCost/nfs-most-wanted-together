@@ -179,6 +179,7 @@ namespace {
         "FadeScreenNoLoadingBar.fng",
         "Pause_Main.fng",
         "PostRace_Results.fng",
+        "InGamePhotoMaster.fng",
         "PostRace_Pursuit.fng",
         "PostRace_MilestoneRewards.fng",
         "InGameBounty.fng",

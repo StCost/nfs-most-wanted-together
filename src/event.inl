@@ -60,7 +60,9 @@ namespace {
         int flow = Game::GameFlowState();
         int mode = 0;
         void* cur = CurrentParms(&mode);
-        if (cur && mode == 1 && fromPeer && EventHashOf(cur) != eventHash && FEScreens::IsPushed("PostRace_Results.fng")) {
+        const char* resultsScreen = FEScreens::IsPushed("PostRace_Results.fng") ? "PostRace_Results.fng"
+                                  : FEScreens::IsPushed("InGamePhotoMaster.fng") ? "InGamePhotoMaster.fng" : nullptr;   // winner's photo
+        if (cur && mode == 1 && fromPeer && EventHashOf(cur) != eventHash && resultsScreen) {
             void* db0 = nullptr; Mem::Read(0x91E004, db0);
             void* next = db0 ? ((void*(__thiscall*)(void*, uint32_t))0x5FB710)(db0, eventHash) : nullptr;
             if (!next || IsChallengeEvent(next)) return;   // one we'd refuse in free roam anyway: stay on the results
@@ -68,7 +70,7 @@ namespace {
             void* fe = nullptr;
             if (GetTickCount() - lastExit > 2500 && Mem::Read(0x91CADC, fe) && fe) {
                 lastExit = GetTickCount();
-                ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0x406415E3, "PostRace_Results.fng", 0xFF);
+                ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0x406415E3, resultsScreen, 0xFF);
                 LOG("Event: %s invited while we're on the results screen - leaving it to join", eventId);
             }
             return;                               // the invitation is repeated; the next copy finds us in free roam
