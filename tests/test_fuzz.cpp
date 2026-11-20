@@ -49,7 +49,7 @@ namespace {
     };
 
     // ---- callbacks that use everything they are given -----------------------------------------
-    struct Counters { long long traffic = 0, entries = 0, event = 0, restart = 0, name = 0, roster = 0, bad = 0; };
+    struct Counters { long long traffic = 0, entries = 0, event = 0, restart = 0, name = 0, roster = 0, file = 0, fileReq = 0, noFile = 0, nisSkip = 0, bad = 0; };
     Counters g_c;
     volatile uint32_t g_sink;
 
@@ -88,10 +88,25 @@ namespace {
             memcpy(r.name, p.name, sizeof(r.name)); r.name[23] = 0;
             g_sink += r.custom[CUSTOM_RECORD_SIZE - 1] + (uint32_t)strlen(r.name);
         };
+        Net::OnNisSkip = [](uint32_t h) { ++g_c.nisSkip; g_sink += h; };
+        Net::OnFile = [](const char* owner, const char* profile, const uint8_t* d, uint32_t n, uint64_t mtime) {
+            ++g_c.file;
+            if (strlen(owner) > 32 || strlen(profile) > 32 || n == 0 || n > FILE_MAX) { ++g_c.bad; return; }
+            uint32_t sum = (uint32_t)mtime;
+            for (uint32_t i = 0; i < n; ++i) sum += d[i];        // touch every byte we were given
+            g_sink += sum;
+        };
+        Net::OnFileRequest = [](const char* owner) {
+            ++g_c.fileReq;
+            if (strlen(owner) > 32) ++g_c.bad;
+            g_sink += (uint8_t)owner[0];
+        };
+        Net::OnNoFile = []() { ++g_c.noFile; };
     }
 
     constexpr uint16_t ALL_TYPES[] = { PKT_HELLO, PKT_STATE, PKT_PING, PKT_PONG, PKT_BYE, PKT_CAR, PKT_TRAFFIC,
-                                       PKT_EVENT, PKT_ROSTER, PKT_RACERNAME, PKT_RESTART, PKT_NISSKIP };
+                                       PKT_EVENT, PKT_ROSTER, PKT_RACERNAME, PKT_RESTART, PKT_NISSKIP,
+                                       PKT_FILE, PKT_FILEACK, PKT_FILEREQ, PKT_NOFILE };
     // any packet type; a bye only now and then, or the run would sit in the 2 s "ignore after bye"
     // window most of the time
     uint16_t PickType(Rng& r) {
@@ -110,6 +125,10 @@ namespace {
         case PKT_EVENT: case PKT_RESTART: case PKT_NISSKIP: return sizeof(EventPacket);
         case PKT_ROSTER: return sizeof(RosterPacket);
         case PKT_RACERNAME: return sizeof(RacerNamePacket);
+        case PKT_FILE: return sizeof(FileChunkPacket);
+        case PKT_FILEACK: return sizeof(FileAckPacket);
+        case PKT_FILEREQ: return sizeof(FileReqPacket);
+        case PKT_NOFILE: return sizeof(PacketHeader);
         }
         return sizeof(PacketHeader);
     }
@@ -145,6 +164,25 @@ namespace {
         case PKT_EVENT: case PKT_RESTART: case PKT_NISSKIP: { EventPacket* p = (EventPacket*)out; p->eventHash = r.Next(); sprintf_s(p->eventId, "%u.%u.%u", r.Below(16), r.Below(9), r.Below(9)); break; }
         case PKT_ROSTER: { RosterPacket* p = (RosterPacket*)out; p->index = (uint8_t)r.Below(8); p->count = 8; p->carKey = r.Next(); r.Fill(p->custom, sizeof(p->custom)); sprintf_s(p->name, "Racer%u", r.Below(99)); break; }
         case PKT_RACERNAME: { RacerNamePacket* p = (RacerNamePacket*)out; p->id = (uint16_t)r.Next(); sprintf_s(p->name, "Name%u", r.Below(99)); break; }
+        case PKT_FILE: {
+            // one chunk of a file of up to 4 chunks; a file of one chunk carries its real hash, so it
+            // completes and reaches the callback
+            FileChunkPacket* p = (FileChunkPacket*)out;
+            p->size = 1 + r.Below(r.Chance(50) ? FILE_CHUNK : 4 * FILE_CHUNK);
+            uint32_t total = (p->size + FILE_CHUNK - 1) / FILE_CHUNK;
+            p->total = (uint16_t)total; p->index = (uint16_t)r.Below(total);
+            p->mtime = ((uint64_t)r.Next() << 32) | r.Next();
+            sprintf_s(p->owner, "Player%u", r.Below(99)); sprintf_s(p->profile, "Save%u", r.Below(99));
+            uint32_t off = p->index * FILE_CHUNK, len = p->size - off;
+            if (len > FILE_CHUNK) len = FILE_CHUNK;
+            r.Fill(p->data, len);
+            uint32_t hash = 2166136261u;
+            for (uint32_t i = 0; i < len; ++i) { hash ^= p->data[i]; hash *= 16777619u; }
+            p->fileHash = total == 1 ? hash : r.Below(4);    // few hashes: chunks of "the same file" meet
+            return offsetof(FileChunkPacket, data) + len;
+        }
+        case PKT_FILEACK: ((FileAckPacket*)out)->fileHash = r.Below(4); break;
+        case PKT_FILEREQ: sprintf_s(((FileReqPacket*)out)->owner, "Player%u", r.Below(99)); break;
         }
         return FullSize(type);
     }
@@ -230,9 +268,11 @@ namespace {
         CHECK_EQ(g_c.bad, 0);
         // the run must have reached the interesting code, not just bounced off the header check
         CHECK(g_c.traffic > 0 && g_c.event > 0 && g_c.restart > 0 && g_c.name > 0 && g_c.roster > 0);
+        CHECK(g_c.file > 0 && g_c.fileReq > 0 && g_c.noFile > 0 && g_c.nisSkip > 0);
         CHECK(Net::Stats().packetsIn > (uint32_t)(iters / 20));
-        printf("    %s: %d datagrams, %u accepted; callbacks: traffic %lld (%lld cars), event %lld, restart %lld, name %lld, roster %lld\n",
-               host ? "host" : "client", iters, Net::Stats().packetsIn, g_c.traffic, g_c.entries, g_c.event, g_c.restart, g_c.name, g_c.roster);
+        printf("    %s: %d datagrams, %u accepted; callbacks: traffic %lld (%lld cars), event %lld, restart %lld, name %lld, roster %lld, file %lld, file request %lld, no file %lld\n",
+               host ? "host" : "client", iters, Net::Stats().packetsIn, g_c.traffic, g_c.entries, g_c.event, g_c.restart, g_c.name, g_c.roster,
+               g_c.file, g_c.fileReq, g_c.noFile);
     }
 }
 
@@ -279,7 +319,7 @@ TEST(fuzz_every_truncation_of_every_packet_type) {
             }
         }
         CHECK_EQ(g_c.bad, 0);
-        CHECK(g_c.event > 0 && g_c.roster > 0);
+        CHECK(g_c.event > 0 && g_c.roster > 0 && g_c.fileReq > 0 && g_c.noFile > 0);
     }
 }
 
@@ -328,11 +368,22 @@ TEST(fuzz_bit_flips_in_real_serializer_output) {
         Net::SendRacerName(3, "Sonny");
         RosterPacket rp{}; rp.count = 1; rp.carKey = 9;
         Net::SendRoster(rp);
-        host.Advance(1500); Net::Tick();             // ping (+ hello if due)
+        Net::SendNisSkip(0x4321);
+        uint8_t save[FILE_CHUNK + 300];
+        for (size_t i = 0; i < sizeof(save); ++i) save[i] = (uint8_t)(i * 7);
+        Net::SendFile("Client", "Career", save, sizeof(save), 0x01DB000000000000ull);
+        Net::RequestFile("Client");
+        Net::SendNoFile();
+        host.Advance(1500); Net::Tick();             // ping (+ hello if due), and the file's chunks
         Net::SendBye();
         d = g_sent;
     }
     REQUIRE(d.size() >= 10);
+    {
+        int chunks = 0;
+        for (auto& pkt : d) if (((const PacketHeader*)pkt.data())->type == PKT_FILE) ++chunks;
+        REQUIRE(chunks == 2);
+    }
 
     NetFixture f(false);
     Net::Test_SetCapture([](const void*, int) {});
