@@ -211,6 +211,8 @@ namespace {
 
     // ---- ghost state ----
     void*  g_ghost = nullptr;       // IVehicle* we are puppeting (an AI racer, or our spawned peer car)
+    float  g_push[3] = { 0, 0, 0 };   // velocity we got from being hit by the other player
+    DWORD  g_pushFrom = 0;
     bool   g_ghostStarved = false;
     DWORD  g_noSpawnUntil = 0;      // an event is starting: the race builds the peer's car, don't spawn one  // spawning the peer car failed: traffic mirrors give up budget
     int    g_ghostList = VL_AIRACERS; // which vehicle list g_ghost came from (VL_ALL for our spawned car)
@@ -705,9 +707,10 @@ bool Game::InstallVehicleFactoryHook() {
             if (!lrb || Game::GameFlowState() != 6 || !g_ghostCollide) return;
             float mag = sqrtf(dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2]);
             float k = 0.6f * (mag > 45.f ? 45.f / mag : 1.f);          // part of the impact, capped
-            const float* v = RB_GetVec(lrb, RB_GetLinearVelocity);
-            float nv[3] = { v[0] + dv[0] * k, v[1] + dv[1] * k * 0.3f, v[2] + dv[2] * k };
-            RB_SetVec(lrb, RB_SetLinearVelocity, nv);
+            // A standing player car brakes itself, so one velocity write is gone within a frame or two:
+            // remember the push and keep the car moving along it for 0.4 s (fading out), see ApplyPush.
+            g_push[0] = dv[0] * k; g_push[1] = 0; g_push[2] = dv[2] * k;
+            g_pushFrom = GetTickCount();
             LOG("Collision: hit by the other player, pushed by %.0f km/h", mag * k * 3.6f);
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
     };
@@ -1006,13 +1009,29 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
         // Momentum for the car we hit: their car is moved by the network here, so our impact only
         // stops US. When our velocity changes abruptly right next to their car (far more than braking
         // can do in one frame), send them what we lost; their game adds part of it to their own car.
-        static float prevV[3]; static DWORD prevT = 0, lastHitSent = 0;
+        if (g_pushFrom && GetTickCount() - g_pushFrom < 400) {        // being pushed: hold at least the fading push speed
+            float f = 1.f - (GetTickCount() - g_pushFrom) / 400.f;
+            float plen = sqrtf(g_push[0] * g_push[0] + g_push[2] * g_push[2]);
+            if (plen > 0.1f) {
+                const float* cv = RB_GetVec(lrb, RB_GetLinearVelocity);
+                float ux = g_push[0] / plen, uz = g_push[2] / plen;
+                float along = cv[0] * ux + cv[2] * uz, want = plen * f;
+                if (along < want) { float nv[3] = { cv[0] + ux * (want - along), cv[1], cv[2] + uz * (want - along) }; RB_SetVec(lrb, RB_SetLinearVelocity, nv); }
+            }
+        } else g_pushFrom = 0;
+        static float prevV[3], hitV0[3]; static DWORD prevT = 0, lastHitSent = 0, hitT0 = 0;
         const float* lv = RB_GetVec(lrb, RB_GetLinearVelocity);
         DWORD tnow = GetTickCount();
-        if (g_ghostCollide && prevT && tnow - prevT < 100 && sep < 6.f && tnow - lastHitSent > 400) {
-            float dv[3] = { prevV[0] - lv[0], prevV[1] - lv[1], prevV[2] - lv[2] };
+        // an impact takes several frames: note the velocity when it begins, send the total loss 250 ms later
+        if (!hitT0 && !g_pushFrom && g_ghostCollide && prevT && tnow - prevT < 100 && sep < 6.f && tnow - lastHitSent > 600) {
+            float d0[3] = { prevV[0] - lv[0], prevV[1] - lv[1], prevV[2] - lv[2] };
+            if (sqrtf(d0[0] * d0[0] + d0[1] * d0[1] + d0[2] * d0[2]) > 3.f) { hitT0 = tnow; memcpy(hitV0, prevV, 12); }
+        }
+        if (hitT0 && tnow - hitT0 >= 250) {
+            float dv[3] = { hitV0[0] - lv[0], hitV0[1] - lv[1], hitV0[2] - lv[2] };
             float mag = sqrtf(dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2]);
-            if (mag > 4.f) { lastHitSent = tnow; Net::SendHit(dv); LOG("Collision: hit the other player, lost %.0f km/h - sent to them", mag * 3.6f); }
+            hitT0 = 0; lastHitSent = tnow;
+            if (mag > 4.f) { Net::SendHit(dv); LOG("Collision: hit the other player, lost %.0f km/h - sent to them", mag * 3.6f); }
         }
         memcpy(prevV, lv, 12); prevT = tnow;
     }
