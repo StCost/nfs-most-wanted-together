@@ -468,17 +468,16 @@ static void ReadCarControls(void* iv, CarState& out) {
     }
     out.glare = *(const uint32_t*)((const uint8_t*)iv + 0x9C);
 }
-// Show the other player's controls on their car here: front-wheel angle, brake lights, tyre smoke and
-// nitrous flames come from these. Gas is applied too (engine sound, wheelspin); the motion itself is
-// still hard-set from the network every frame, so it can't drive the car away.
+// Show the other player's controls on their car here: front-wheel angle (steering), nitrous flames (NOS)
+// and the lights (brake / head / reverse / signals from the glare bits). The motion itself is still
+// hard-set from the network every frame.
 static void ApplyCarControls(void* iv, const CarState& s) {
     void* in = Find(iv, 0x403F90 /*IInput*/);
     if (in) {
+        // gas / brake / handbrake are not fed in: they act on the physics and fought the hard-set motion
+        // (50-80 mm jitter spikes on a car driving fast). The brake lights come from the glare bits.
         VCall<void(__thiscall*)(void*, float)>(in, 5)(in, s.steer);
-        VCall<void(__thiscall*)(void*, float)>(in, 6)(in, s.gas / 255.f);
-        VCall<void(__thiscall*)(void*, float)>(in, 7)(in, s.brake / 255.f);
         VCall<void(__thiscall*)(void*, bool)>(in, 8)(in, s.nos != 0);
-        VCall<void(__thiscall*)(void*, float)>(in, 9)(in, s.handbrake / 255.f);
     }
     *(uint32_t*)((uint8_t*)iv + 0x9C) = s.glare;
 }
