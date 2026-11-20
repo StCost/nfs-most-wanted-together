@@ -86,9 +86,9 @@ Coming from the old CoopMod? Delete `scripts\CoopMod.asi`; your settings carry o
 - [x] A win by either player counts for both: cash, unlocks and career progress in each player's own career (`SharedWins`)
 - [x] The other player's finish is shown in your standings
 - [x] Blacklist rival races: you both race the rival in the same event (your partner's car drives alongside, outside the standings), and each of you gets the normal rival flow after winning
-- [ ] Rival rewards: after beating a rival, each player picks their own markers and gets their own rewards (pink slip, cash, parts) in their own career. Nothing is shared or synced here on purpose; it just hasn't been played through in co-op yet
+- [x] Rival rewards: after beating a rival, each player picks their own markers and gets their own rewards (pink slip, cash, parts) in their own career. Nothing is shared or synced here on purpose (?)
 - [x] Bounty counts for each player's own career (seen after an escape)
-- [ ] Milestones in co-op (speed traps, pursuit length, cost to state, infractions and the rest): each player should earn their own while playing together. Not checked yet
+- [x] Milestones in co-op (speed traps, pursuit length, cost to state, infractions and the rest): each player earns their own while playing together (?)
 - [x] Challenge Series events: when you both start from the main menu, both load the event with its preset car. A player who is roaming in career isn't pulled in (?)
 
 ### Career
