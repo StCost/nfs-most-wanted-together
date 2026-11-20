@@ -289,7 +289,7 @@ namespace {
             static uint32_t pendingAt = 0, meRacingAt = 0;
             const Net::Snapshot& pr = Net::Latest();
             uint32_t nowT = GetTickCount();
-            bool meRacing = haveLocal && local.inRace;
+            bool meRacing = (haveLocal && local.inRace) || Game::CurrentEventHash() != 0;   // also while loading into an event
             if (meRacing || !haveLocal) meRacingAt = nowT;
             if (!st.connected) { shown = pending = -1; }
             else if (pr.valid && pr.s.hasCar && pr.s.gameFlowState == 6) {     // only clear samples count

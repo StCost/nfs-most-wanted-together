@@ -220,7 +220,7 @@ static int MaintainMirrors(double now) {
                     if (!r || r == g_ghost || IsMirrorCar(r) || !RigidBodyOf(r) || ModelKeyOf(r) != m.model) continue;
                     m.iv = r;
                     DisableAI(r);
-                    LOG("Race: our racer %p (%s) now follows the host's opponent %u", r, VehName(r), m.id);
+                    LOG("Race: our racer %p (%s) now follows the host's opponent (mirror id %u)", r, VehName(r), m.id);
                     break;
                 }
                 if (!m.iv && !m.fails) {   // log once why it found no partner
