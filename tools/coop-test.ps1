@@ -86,9 +86,9 @@ try {
                      Send-Cmd 'event 15.1.2'; Start-Sleep 60
                      Show-Log "$always|Event: |FE screens|Race: (we|the)" 16 }
         'kinds'    { foreach ($ev in '14.4.1', '13.5.1', '12.7.3', '15.3.1') {
-                         Start-Game; Start-Sleep 20; Send-Cmd "event $ev"; Start-Sleep 75
+                         Start-Game; Start-Sleep 20; Send-Cmd "event $ev"; Start-Sleep 40; Send-Cmd "shot $env:TEMP\mwt-kinds-$ev.bmp"; Start-Sleep 35
                          "== $ev (game still running: $([bool](Get-Process speed -ErrorAction SilentlyContinue)))"
-                         Show-Log "$always|Event: (race|starting)|Race: (AI racer|peer racer)|Traffic: in a race" 6 } }
+                         Show-Log "$always|Event: (race|starting)|Race: (AI racer|peer racer)|Traffic: " 8 } }
         'solo'     { if (-not $Event) { $Event = '15.1.1' }; $Solo = $true; Start-Game; Start-Sleep 10; Send-Cmd 'cash'; Send-Cmd "event $Event"
                      Start-Sleep 35; Send-Cmd 'slowai'; Wait-Log 'Race: we finished|FE screens: \[(PostRace|InGamePhoto)' 420 | Out-Null; Start-Sleep 15; Send-Cmd 'cash'
                      Show-Log "$always|Start: (on|go)|Collision|Race: the|FE screens: \[Post" }
