@@ -17,6 +17,7 @@ namespace {
     uint32_t g_voteHold = 0;      // keep advertising the vote briefly after skipping, so the peer sees it
     DWORD    g_voteHoldUntil = 0;
     bool     g_nisConnected = false;
+    DWORD    g_peerGoneSince = 0; // the other player has been past my voted scene since (0 = isn't)
 
     void* Nis() { void* n = nullptr; Mem::Read(0x9885C8, n); return n; }
     int NisState(void* n) { int s = 0; if (n) Mem::Read((uintptr_t)n + 0x2AC, s); return s; }
@@ -70,15 +71,14 @@ void Game::NisTick(bool connected) {
         void* n = Nis();
         uint32_t h = NisScene(n);
         if (g_myVote && (g_myVote != h || !connected)) g_myVote = 0;       // scene over / alone again
-        if (!g_myVote || NisState(n) != 5) return;
+        if (!g_myVote || NisState(n) != 5) { g_peerGoneSince = 0; return; }   // a new vote starts its own wait
         // I voted earlier: skip once the other player votes too, or has already left the scene (skipped)
         const Net::Snapshot& p = Net::Latest();
         bool peerGone = p.valid && p.s.nisHash != h && p.s.gameFlowState == 6;
-        static DWORD goneSince = 0;
-        if (!peerGone) goneSince = 0; else if (!goneSince) goneSince = GetTickCount();
-        if (PeerVoted(h) || (peerGone && GetTickCount() - goneSince > 500)) {
-            LOG("Cutscene: %s - skipping", PeerVoted(h) ? "both voted" : "the other player is past it");
-            if (SkipNow(n)) Skipped(h);
+        if (!peerGone) g_peerGoneSince = 0; else if (!g_peerGoneSince) g_peerGoneSince = GetTickCount();
+        if (PeerVoted(h) || (peerGone && GetTickCount() - g_peerGoneSince > 500)) {
+            // (log only a skip that happened: a refused one is tried again every frame)
+            if (SkipNow(n)) { Skipped(h); LOG("Cutscene: %s - skipping", PeerVoted(h) ? "both voted" : "the other player is past it"); }
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }

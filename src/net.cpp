@@ -51,6 +51,7 @@ namespace {
     void SendRaw(const void* data, int len);
     void HandleFilePacket(uint16_t type, const char* buf, int len);
     void FileTick();
+    void FileReset();
     void SendCar() {
         CarPacket p{};
         FillHeader(p.h, PKT_CAR);
@@ -229,9 +230,17 @@ namespace {
             if (Net::OnEvent) Net::OnEvent(p->eventHash, id);
             break;
         }
-        case PKT_FILE: case PKT_FILEACK: case PKT_FILEREQ: case PKT_NOFILE:
+        case PKT_FILE: case PKT_FILEACK: case PKT_FILEREQ: case PKT_NOFILE: {
+            // A client talks to one host, but its socket takes datagrams from anyone: a file (it can
+            // replace the career save) must come from the host's address.
+            if (!g_cfg.isHost && from.sin_addr.s_addr != g_peer.sin_addr.s_addr) {
+                static bool said = false;
+                if (!said) { said = true; LOG("File packet from %s, which is not the host - ignored", AddrToStr(from).c_str()); }
+                break;
+            }
             HandleFilePacket(h->type, buf, len);
             break;
+        }
         case PKT_NISSKIP: {
             if (len < (int)sizeof(EventPacket)) return;
             if (Net::OnNisSkip) Net::OnNisSkip(((const EventPacket*)buf)->eventHash);
@@ -634,7 +643,9 @@ void Net::Test_Reset() {
     g_testTickOn = false; g_testTick = 0;
     g_testCapture = nullptr;
     Net::OnTraffic = nullptr; Net::OnEvent = nullptr; Net::OnRoster = nullptr;
-    Net::OnRacerName = nullptr; Net::OnRestart = nullptr;
+    Net::OnRacerName = nullptr; Net::OnRestart = nullptr; Net::OnNisSkip = nullptr;
+    Net::OnFile = nullptr; Net::OnFileRequest = nullptr; Net::OnNoFile = nullptr;
+    FileReset();
     Net::LocalClockMs = &Net::NowMs;
 }
 
@@ -681,16 +692,23 @@ void (*Net::OnNoFile)() = nullptr;
 namespace {
     uint32_t Fnv(const uint8_t* p, uint32_t n) { uint32_t h = 2166136261u; for (uint32_t i = 0; i < n; ++i) { h ^= p[i]; h *= 16777619u; } return h; }
 
-    struct OutFile { std::vector<uint8_t> data; uint32_t hash = 0; uint64_t mtime = 0; char owner[32] = {}, profile[32] = {}; int next = 0, rounds = 0; bool active = false; DWORD roundAt = 0; } g_out;
-    struct InFile  { std::vector<uint8_t> data; std::vector<uint8_t> have; uint32_t hash = 0, size = 0; int got = 0; } g_in;
-    uint32_t g_lastDoneHash = 0;
+    struct OutFile {
+        std::vector<uint8_t> data; uint32_t hash = 0; uint64_t mtime = 0; char owner[32] = {}, profile[32] = {};
+        int next = 0, rounds = 0; bool active = false, delivered = false; uint32_t roundAt = 0;
+    } g_out;
+    struct InFile { std::vector<uint8_t> data; std::vector<uint8_t> have; uint32_t hash = 0, size = 0; int got = 0; bool active = false; } g_in;
+    // the last file we received completely: its chunks are only acknowledged again
+    bool     g_haveDone = false;
+    uint32_t g_doneHash = 0, g_doneSize = 0;
+
+    void FileReset() { g_out = OutFile{}; g_in = InFile{}; g_haveDone = false; g_doneHash = g_doneSize = 0; }
 
     void FileTick() {
         if (!g_out.active) return;
-        if (!g_stats.connected) { g_out.active = false; return; }
+        if (!g_stats.connected) { LOG("File: the peer is gone - %s not delivered", g_out.profile); g_out.active = false; return; }
         int total = (int)((g_out.data.size() + FILE_CHUNK - 1) / FILE_CHUNK);
         if (g_out.next >= total) {                       // a round is done: wait a little, then repeat
-            if (GetTickCount() - g_out.roundAt < 700) return;
+            if (Tick32() - g_out.roundAt < 700) return;
             if (++g_out.rounds >= 14) { LOG("File: no acknowledgement for %s - giving up", g_out.profile); g_out.active = false; return; }
             g_out.next = 0;
         }
@@ -705,13 +723,16 @@ namespace {
             memcpy(p.data, g_out.data.data() + off, len);
             SendRaw(&p, (int)(offsetof(FileChunkPacket, data) + len));
         }
-        if (g_out.next >= total) g_out.roundAt = GetTickCount();
+        if (g_out.next >= total) g_out.roundAt = Tick32();
     }
 
     void HandleFilePacket(uint16_t type, const char* buf, int len) {
         if (type == PKT_FILEACK) {
             if (len < (int)sizeof(FileAckPacket)) return;
-            if (g_out.active && ((const FileAckPacket*)buf)->fileHash == g_out.hash) { g_out.active = false; LOG("File: %s delivered", g_out.profile); }
+            if (g_out.active && ((const FileAckPacket*)buf)->fileHash == g_out.hash) {
+                g_out.active = false; g_out.delivered = true;
+                LOG("File: %s delivered", g_out.profile);
+            }
             return;
         }
         if (type == PKT_FILEREQ) {
@@ -724,14 +745,16 @@ namespace {
         // PKT_FILE
         if (len < (int)offsetof(FileChunkPacket, data)) return;
         const FileChunkPacket* p = (const FileChunkPacket*)buf;
+        if (p->size == 0 || p->size > FILE_MAX) return;
         uint32_t total = (p->size + FILE_CHUNK - 1) / FILE_CHUNK;
-        if (p->size == 0 || p->size > FILE_MAX || p->total != total || p->index >= total) return;
+        if (p->total != total || p->index >= total) return;
         uint32_t off = (uint32_t)p->index * FILE_CHUNK;
         uint32_t clen = (std::min)((uint32_t)FILE_CHUNK, p->size - off);
         if (len < (int)(offsetof(FileChunkPacket, data) + clen)) return;
         auto ack = [&]() { FileAckPacket a{}; FillHeader(a.h, PKT_FILEACK); a.fileHash = p->fileHash; SendRaw(&a, sizeof(a)); };
-        if (p->fileHash == g_lastDoneHash) { ack(); return; }                    // our ack was lost
-        if (g_in.hash != p->fileHash || g_in.size != p->size) {                  // a new file
+        if (g_haveDone && p->fileHash == g_doneHash && p->size == g_doneSize) { ack(); return; }   // our ack was lost
+        if (!g_in.active || g_in.hash != p->fileHash || g_in.size != p->size) {  // a new file
+            g_in.active = true;
             g_in.hash = p->fileHash; g_in.size = p->size; g_in.got = 0;
             g_in.data.assign(p->size, 0); g_in.have.assign(total, 0);
         }
@@ -739,17 +762,17 @@ namespace {
         memcpy(g_in.data.data() + off, p->data, clen);
         g_in.have[p->index] = 1;
         if (++g_in.got < (int)total) return;
-        if (Fnv(g_in.data.data(), g_in.size) != g_in.hash) { LOG("File: hash mismatch - dropped"); g_in.hash = 0; return; }
-        g_lastDoneHash = g_in.hash;
+        g_in.active = false;                             // whole: a later chunk of it starts over
+        if (Fnv(g_in.data.data(), g_in.size) != g_in.hash) { LOG("File: hash mismatch - dropped"); return; }
+        g_haveDone = true; g_doneHash = g_in.hash; g_doneSize = g_in.size;
         ack();
         char owner[33], profile[33]; memcpy(owner, p->owner, 32); owner[32] = 0; memcpy(profile, p->profile, 32); profile[32] = 0;
         if (Net::OnFile) Net::OnFile(owner, profile, g_in.data.data(), g_in.size, p->mtime);
-        g_in.hash = 0;
     }
 }
 
 bool Net::SendFile(const char* owner, const char* profile, const void* data, uint32_t size, uint64_t mtime) {
-    if (!g_stats.connected || g_out.active || !size || size > FILE_MAX) return false;
+    if (!g_stats.connected || g_out.active || !data || !owner || !profile || !size || size > FILE_MAX) return false;
     g_out = OutFile{};
     g_out.data.assign((const uint8_t*)data, (const uint8_t*)data + size);
     g_out.hash = Fnv(g_out.data.data(), size); g_out.mtime = mtime;
@@ -758,8 +781,9 @@ bool Net::SendFile(const char* owner, const char* profile, const void* data, uin
     return true;
 }
 bool Net::SendingFile() { return g_out.active; }
+bool Net::LastFileDelivered() { return !g_out.active && g_out.delivered; }
 void Net::RequestFile(const char* owner) {
-    FileReqPacket p{}; FillHeader(p.h, PKT_FILEREQ); strncpy_s(p.owner, owner, _TRUNCATE);
+    FileReqPacket p{}; FillHeader(p.h, PKT_FILEREQ); strncpy_s(p.owner, owner ? owner : "", _TRUNCATE);
     for (int i = 0; i < 2; ++i) SendRaw(&p, sizeof(p));
 }
 void Net::SendNoFile() { PacketHeader p{}; FillHeader(p, PKT_NOFILE); for (int i = 0; i < 2; ++i) SendRaw(&p, sizeof(p)); }
