@@ -51,14 +51,30 @@ namespace {
     // unfocused we send that one - but only once the screen has been up for 2 s (load finished).
     bool ConfirmLoadScreen(DWORD shownMs) {
         if (Overlay::GameWindow() == GetForegroundWindow()) return Input::Tap(0x1C);
-        return false;   // sending 0xDA5B8712 by hand crashed (0x460C79): unfocused confirm is not solved yet
-        if (shownMs < 2000) return false;
+        // Unfocused: do what the game's pad handler does for "accept" on a message box - queue the
+        // button message 0x0C407210 from the current button (must be the OK button, name hash
+        // 0xB8A7C6CD at +0x10) to the screen's game code (target -5) with FEngine::QueueMessage
+        // 0x5B7780. Only for harmless prompts (operation code 0 / autosave notices), once per prompt.
+        void* cfeng = nullptr;
+        if (shownMs < 500 || !Mem::Read(0x91CADC, cfeng) || !cfeng) return false;
+        uint8_t* pkg = ((uint8_t*(__thiscall*)(void*, const char*))0x516AF0)(cfeng, "MC_Main.fng");
+        uint8_t* btn = nullptr; uint32_t hash = 0, mc = 0;
+        if (!pkg || !Mem::Read((uintptr_t)pkg + 0x8C, btn) || !btn || !Mem::Read((uintptr_t)btn + 0x10, hash) || hash != 0xB8A7C6CD) return false;
+        Mem::Read(0x91CBAC, mc);
+        uint32_t op = mc & 0x0F000000;
+        if (op != 0 && op != 0x08000000 && op != 0x09000000) return false;     // never answer other questions
+        if ((mc & 0xF0) != 0x60) return false;      // the profile isn't loaded yet (unfocused, the load itself waits)
+        static uint8_t* lastBtn = nullptr; static uint32_t lastOp = 0xFFFFFFFF; static DWORD seenAt = 0, sentAt = 0;
+        if (btn != lastBtn || op != lastOp) { lastBtn = btn; lastOp = op; seenAt = GetTickCount(); sentAt = 0; return false; }
+        if (GetTickCount() - seenAt < 600) return false;                       // let the box finish appearing
+        if (sentAt && GetTickCount() - sentAt < 5000) return false;            // once; again only if it's still there after 5 s
         void* fe = nullptr;
-        if (!Mem::Read(0x91CADC, fe) || !fe) return false;
-        ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0xDA5B8712, "MC_Main.fng", 0xFF);
+        if (!Mem::Read((uintptr_t)cfeng, fe) || !fe) return false;
+        sentAt = GetTickCount();
+        LOG("Start: OK on the load screen prompt (op %08X, state %08X)", op, mc);
+        ((void(__thiscall*)(void*, uint32_t, void*, void*, int, uint32_t))0x5B7780)(fe, 0x0C407210, btn, pkg, -5, 1);
         return true;
     }
-
     enum class Boot { Waiting, Settling, Done } g_boot = Boot::Waiting;
     DWORD g_bootReadyAt = 0;
 
