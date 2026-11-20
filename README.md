@@ -47,7 +47,8 @@ Unticked items are still to do.
 - [x] A short notice in the corner when the other player joins or leaves, even with the overlay hidden
 - [ ] Those notices in the game's own UI (text messages / chyron)
 - [x] Joining while the other player is in a race: you roam freely, get a notice, and go together into the next event (?)
-- [ ] Safer internet play (only accept packets from your partner, resend important messages)
+- [x] Each side only listens to its partner's address
+- [ ] Important one-off messages (event start, restart) are re-sent until confirmed
 - [ ] Up to 4 players
 
 ### Your cars
@@ -75,19 +76,20 @@ Unticked items are still to do.
 - [x] Opponents on the client follow the host's opponents, so the race looks the same on both screens
 - [x] Opponent names match on both PCs
 - [x] Race positions use each player's real progress
-- [x] Restarting a race restarts it for both of you (?)
+- [x] Restarting a race restarts it for both of you
 - [x] Race intro cutscenes play normally for both
 - [x] A win by either player counts for both: cash, unlocks and career progress in each player's own career (`SharedWins`) (?)
 - [x] The other player's finish is shown in your standings
-- [ ] Blacklist rival races and their rewards (cars, markers)
-- [ ] Milestones, challenge series, speed traps
+- [ ] Blacklist rival races and their rewards (cars, markers): they start together and use shared wins, but nobody has played one in co-op yet
+- [ ] Milestones, speed traps and bounty count for each player's own career as in single player; not checked in co-op yet
+- [ ] Challenge series
 
 ### Career
-- [ ] The host's save is the shared career
+- [x] Each player keeps their own career; wins are shared, so both careers move forward together
 - [x] The host keeps a copy of the other player's career save, updated after every autosave. If that player's own save is missing or older when they connect, it's restored from the host (their old file is kept as a backup)
 - [x] Cutscene skip voting: a cutscene you both watch is skipped only when both press skip (?)
-- [ ] Story cutscenes started for both players at the same time
-- [ ] Busted / escape results handled for both players
+- [ ] Story cutscenes outside events started for both players at the same time
+- [ ] Getting busted or escaping only affects the player being chased; not checked in co-op yet
 
 ### Quality of life (settings in `[Start]` and `[UI]`)
 - [x] Skip the intro logos and movie and load straight into career free roam after the profile (`SkipIntro`, `DirectFreeRoam`)
@@ -98,8 +100,8 @@ Unticked items are still to do.
 
 ### Test tools (`[Debug] TestKeys=1`)
 - [x] **F5** autopilot: the game's AI drives your car, cruising in free roam and following the route in races. `AutoPilot=1` turns it on by itself
-- [ ] Autopilot uses nitrous
-- [x] `[Window] StartInBackground=1`: the game starts without taking the focus and stays muted until you click it; the fast start works in the background too (?)
+- [ ] Autopilot uses nitrous (nice to have)
+- [x] `[Window] StartInBackground=1`: the game starts without taking the focus and stays muted until you click it; the title screen is passed in the background, but the profile load still waits until you click the game
 - [x] Performance diagnostics: `[Debug] Perf=1` logs fps, 1% lows, worst frame and how many milliseconds each part of the mod takes, every 5 seconds (it's also shown in the F8 overlay)
 - [x] **F7** starts the test event (`TestEvent`) for both players
 - [x] **F10 / F11** spawn or remove a test copy of the other player's car, **F12** spawns a test cop
