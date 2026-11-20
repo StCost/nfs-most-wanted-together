@@ -213,6 +213,7 @@ namespace {
     void*  g_ghost = nullptr;       // IVehicle* we are puppeting (an AI racer, or our spawned peer car)
     float  g_push[3] = { 0, 0, 0 };   // velocity we got from being hit by the other player
     DWORD  g_pushFrom = 0;
+    DWORD  g_lastHitSent = 0, g_hitT0 = 0;   // our own impact being measured / last one sent
     bool   g_ghostStarved = false;
     DWORD  g_noSpawnUntil = 0;      // an event is starting: the race builds the peer's car, don't spawn one  // spawning the peer car failed: traffic mirrors give up budget
     int    g_ghostList = VL_AIRACERS; // which vehicle list g_ghost came from (VL_ALL for our spawned car)
@@ -711,6 +712,7 @@ bool Game::InstallVehicleFactoryHook() {
             // remember the push and keep the car moving along it for 0.4 s (fading out), see ApplyPush.
             g_push[0] = dv[0] * k; g_push[1] = 0; g_push[2] = dv[2] * k;
             g_pushFrom = GetTickCount();
+            g_hitT0 = 0; g_lastHitSent = g_pushFrom;      // this is THEIR impact: don't report the push back as ours
             LOG("Collision: hit by the other player, pushed by %.0f km/h", mag * k * 3.6f);
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
     };
@@ -1019,7 +1021,8 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
                 if (along < want) { float nv[3] = { cv[0] + ux * (want - along), cv[1], cv[2] + uz * (want - along) }; RB_SetVec(lrb, RB_SetLinearVelocity, nv); }
             }
         } else g_pushFrom = 0;
-        static float prevV[3], hitV0[3]; static DWORD prevT = 0, lastHitSent = 0, hitT0 = 0;
+        static float prevV[3], hitV0[3]; static DWORD prevT = 0;
+        DWORD& lastHitSent = g_lastHitSent; DWORD& hitT0 = g_hitT0;
         const float* lv = RB_GetVec(lrb, RB_GetLinearVelocity);
         DWORD tnow = GetTickCount();
         // an impact takes several frames: note the velocity when it begins, send the total loss 250 ms later

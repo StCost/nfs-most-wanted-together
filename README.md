@@ -57,7 +57,7 @@ Unticked items are still to do.
 - [x] Spawn protection, so two cars appearing on the same spot don't launch each other
 - [x] Other player's blip on the minimap
 - [x] Other player on the world map, coloured like your own arrow and moving while the map is open
-- [x] Car-to-car collisions between players
+- [x] Car-to-car collisions between players, with the impact passed on: ram your partner and their car is thrown on their screen too
 - [x] Your names in the race standings instead of the shared save name
 
 ### The world
