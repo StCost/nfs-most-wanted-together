@@ -119,3 +119,36 @@ bool Game::InstallCoopWin() {
     LOG("Career: shared wins %s/%s/%s", a ? "ok" : "FAIL", b ? "ok" : "FAIL", c ? "ok" : "FAIL");
     return a && b && c;
 }
+
+// ---- test commands ----
+static int StopOpponentsSafe() {
+    int n = 0;
+    __try {
+        void** b = nullptr;
+        int cnt = ListSize(VL_AIRACERS, &b);
+        for (int i = 0; i < cnt; ++i) {
+            void* r = ListGet(VL_AIRACERS, i);
+            if (r && r != g_ghost && !IsMirrorCar(r) && DisableAI(r)) ++n;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    return n;
+}
+std::string Game::DebugStopOpponents() {
+    if (!g_ok || GameFlowState() != 6) return "not in game";
+    char b[64]; sprintf_s(b, "%d opponent(s) stopped driving", StopOpponentsSafe());
+    return b;
+}
+static void CashSafe(char* out, size_t n) {
+    __try {
+        uint8_t* fedb = nullptr; uint8_t* up = nullptr; int cash = 0;
+        if (!Mem::Read(0x91CF90, fedb) || !fedb || !Mem::Read((uintptr_t)fedb + 0x10, up) || !up) { strcpy_s(out, n, "no profile"); return; }
+        Mem::Read((uintptr_t)up + 0xB4, cash);
+        int won = -1; void* rs = nullptr; void* parms = nullptr; void* db = nullptr;
+        if (Mem::Read(0x91E000, rs) && rs && Mem::Read((uintptr_t)rs + 0x1968, parms) && parms && Mem::Read(0x91E004, db) && db) {
+            uint32_t h = ((uint32_t(__thiscall*)(void*))0x5FAB40)(parms);
+            won = ((bool(__thiscall*)(void*, uint32_t, int))0x5DCA70)(db, h, 2) ? 1 : 0;
+        }
+        sprintf_s(out, n, "cash %d, current event won flag %d", cash, won);
+    } __except (EXCEPTION_EXECUTE_HANDLER) { strcpy_s(out, n, "exception"); }
+}
+std::string Game::DebugCash() { char b[96]; CashSafe(b, sizeof(b)); return b; }

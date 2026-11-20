@@ -38,6 +38,8 @@ namespace Game {
     std::string ToggleAutopilot();
     bool ShowChyron(const char* title, const char* line2, const char* line3);   // the game's song-title banner with our text
     std::string DebugRestart();
+    std::string DebugStopOpponents();   // test: AI opponents stop driving (so a player wins)
+    std::string DebugCash();            // test: career cash and whether the current event is won
     std::string FEAccept(const char* package);   // test: send PAD_ACCEPT to a front-end screen         // test: restart the current race
     void AutopilotTick();               // [Debug] AutoPilot: AI drives in free roam / races      // test key: the game's AI drives the local car   // no pause while connected + race restart sync
     bool InstallRestartSync();
