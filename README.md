@@ -35,8 +35,8 @@ yours first if you have one), start the game and pick the `MWT` profile.
 
 Already have an ASI loader? Keep your `dinput8.dll` and copy only the `scripts` folder and the launcher.
 Coming from the old CoopMod? Delete `scripts\CoopMod.asi`; your settings carry over.
-Using the Widescreen Fix? Its `SkipIntro = 1` switches off all of the game's movies (the game option SKIPMOVIES), story movies included.
-MW Together already skips the intro logos and movie by itself (`[Start] SkipIntro`), so set the Widescreen Fix's `SkipIntro = 0` to keep the story movies.
+Using the Widescreen Fix? Its own `SkipIntro = 1` switches off all of the game's movies, the career's story movies included.
+The launcher sets it to 0 when you press Play. To skip the intro, tick "Skip intros" in the launcher's settings (`[Start] SkipIntro`, off by default) instead.
 
 ## What to expect
 
@@ -117,7 +117,7 @@ The percentage is a simple count of this list: a ticked line counts fully, a lin
 - [x] Getting busted or escaping only affects the player being chased
 
 ### Quality of life (settings in `[Start]` and `[UI]`)
-- [x] Skip the intro logos and movie and load straight into career free roam after the profile (`SkipIntro`, `DirectFreeRoam`)
+- [x] Load straight into career free roam after the profile (`DirectFreeRoam`); optionally skip the intro logos and movie (`SkipIntro`, off by default)
 - [x] The "load complete" screen after the title confirms itself (`SkipLoadComplete`, on by default)
 - [x] No "leave the safe house?" question (`SkipLeaveSafeHouseDialog`)
 - [x] Menus react while their opening animation plays, and animate 2x faster (`IntroInput`, `MenuSpeed`) to improve UI responsivness

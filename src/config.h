@@ -19,7 +19,7 @@ struct Config {
     bool        noSpeedbreaker = true;   // [Coop] NoSpeedbreaker
     bool        noPause = true;          // [Coop] NoPause - the world keeps running while a pause menu / map is open (connected only)
     bool        streamAroundPeer = true; // [Coop] StreamAroundPeer - load the world around the other player (full physics there)
-    bool        skipIntro = true;        // [Start] SkipIntro - no logos / intro movie / Press START
+    bool        skipIntro = false;       // [Start] SkipIntro - no logos / intro movie (off by default)
     bool        directFreeRoam = true;
     bool        skipLoadComplete = true; // [Start] SkipLoadComplete - confirm the "load complete" screen by itself   // [Start] DirectFreeRoam - load career free roam right after the profile
     bool        skipLeaveSafeHouseDialog = true; // [Start] SkipLeaveSafeHouseDialog

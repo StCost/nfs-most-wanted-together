@@ -52,7 +52,7 @@ void Config::Load(const char* ini) {
     mapEvents = ReadInt(ini, "UI", "MapEvents", 0);
     if (mapEvents < 0 || mapEvents > 2) mapEvents = 0;
     gameNotices = ReadInt(ini, "UI", "GameNotices", 1) != 0;
-    skipIntro = ReadInt(ini, "Start", "SkipIntro", 1) != 0;
+    skipIntro = ReadInt(ini, "Start", "SkipIntro", 0) != 0;
     directFreeRoam = ReadInt(ini, "Start", "DirectFreeRoam", 1) != 0;
     skipLoadComplete = ReadInt(ini, "Start", "SkipLoadComplete", 1) != 0;
     skipLeaveSafeHouseDialog = ReadInt(ini, "Start", "SkipLeaveSafeHouseDialog", 1) != 0;

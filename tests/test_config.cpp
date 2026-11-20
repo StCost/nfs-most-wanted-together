@@ -41,7 +41,7 @@ TEST(config_defaults_when_file_is_missing) {
     CHECK_EQ(c.trafficMirrorClass, 4);
     CHECK(c.trafficSharedInRaces);
     CHECK(c.noSpeedbreaker); CHECK(c.noPause); CHECK(c.runInBackground); CHECK(c.streamAroundPeer);
-    CHECK(c.skipIntro); CHECK(c.directFreeRoam); CHECK(c.skipLeaveSafeHouseDialog);
+    CHECK(!c.skipIntro); CHECK(c.directFreeRoam); CHECK(c.skipLeaveSafeHouseDialog);
     CHECK(c.autoStart);
     CHECK_STR(c.autoStartTarget, "freeroam");
     CHECK(c.uiIntroInput);

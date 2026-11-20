@@ -215,7 +215,7 @@ class LauncherForm : Form {
             TextRenderer.DrawText(e.Graphics, e.ToolTipText, Theme.Body, new Rectangle(8, 6, e.Bounds.Width - 16, e.Bounds.Height - 10), Theme.Text, TextFormatFlags.WordBreak);
         };
         string[] hints = {
-            "Skips the EA logo, the warning screen and the intro movie when the game starts.",
+            "Skips the EA logo, the warning screen and the intro movie when the game starts. Off by default. If the Widescreen Fix is installed, its own SkipIntro is switched off: it would also skip every story movie in the career.",
             "After launch the game presses START for you, loads your profile and goes straight into career free roam. No menus to click through.",
             "\"Resume Free Roam\" in the safe house starts at once, without the \"are you sure you want to leave?\" question.",
             "After a pursuit in free roam, the result screens (bounty achieved, pursuit summary) close by themselves. Only on this PC. The busted screen is left alone.",
@@ -296,7 +296,7 @@ class LauncherForm : Form {
         name.Text = Ini.Get("Player", "Name", Environment.UserName);
         hostIp.Text = Ini.Get("Network", "HostIP", "");
         port.Text = Ini.Get("Network", "Port", "47555");
-        skipIntro.Checked = Ini.GetB("Start", "SkipIntro", true);
+        skipIntro.Checked = Ini.GetB("Start", "SkipIntro", false);
         direct.Checked = Ini.GetB("Start", "DirectFreeRoam", true);
         noSafeHouse.Checked = Ini.GetB("Start", "SkipLeaveSafeHouseDialog", true);
         pursuitRes.Checked = Ini.GetB("UI", "SkipPursuitResults", false);
@@ -319,6 +319,7 @@ class LauncherForm : Form {
         if (!isHost) Ini.Set("Network", "HostIP", hostIp.Text.Trim());
         Ini.Set("Network", "Port", p.ToString());
         Ini.SetB("Start", "SkipIntro", skipIntro.Checked);
+        WidescreenFixKeepMovies();
         Ini.SetB("Start", "DirectFreeRoam", direct.Checked);
         Ini.SetB("Start", "SkipLeaveSafeHouseDialog", noSafeHouse.Checked);
         Ini.SetB("UI", "SkipPursuitResults", pursuitRes.Checked);
@@ -327,6 +328,23 @@ class LauncherForm : Form {
         Ini.Set("UI", "MapEvents", mapEvents.ToString());
         Ini.SetB("Debug", "Overlay", overlay.Checked);
         return true;
+    }
+
+    // The Widescreen Fix's own SkipIntro = 1 skips every movie the game plays, the career's story movies
+    // too. MW Together's "Skip intros" does the intro part, so the fix's option is kept at 0 (the line's
+    // comment is kept). Nothing happens when the fix isn't installed.
+    void WidescreenFixKeepMovies() {
+        string f = Path.Combine(Path.GetDirectoryName(Ini.Path), "NFSMostWanted.WidescreenFix.ini");
+        try {
+            if (!File.Exists(f)) return;
+            var lines = File.ReadAllLines(f);
+            bool changed = false;
+            for (int i = 0; i < lines.Length; ++i) {
+                var m = System.Text.RegularExpressions.Regex.Match(lines[i], @"^(\s*SkipIntro\s*=\s*)([0-9]+)(.*)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (m.Success && m.Groups[2].Value != "0") { lines[i] = m.Groups[1].Value + "0" + m.Groups[3].Value; changed = true; }
+            }
+            if (changed) File.WriteAllLines(f, lines);
+        } catch { }
     }
 
     void Play() {
