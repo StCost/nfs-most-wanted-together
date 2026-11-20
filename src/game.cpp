@@ -215,6 +215,7 @@ namespace {
     DWORD  g_pushFrom = 0;
     DWORD  g_lastHitSent = 0, g_hitT0 = 0;   // our own impact being measured / last one sent
     DWORD  g_noHitUntil = 0;                 // teleport / restart / cutscene: a velocity jump is not an impact
+    DWORD  g_testJumpOkUntil = 0;            // the `ram` test command teleports on purpose: don't treat that jump as one
     // lost velocity must point at the car we supposedly hit (horizontal plane)
     bool HitPointsAt(const float* dv, const float* from, const float* to) {
         float dx = to[0] - from[0], dz = to[2] - from[2];

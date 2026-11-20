@@ -428,7 +428,8 @@ static void MirrorHitTick() {
         float sp = sqrtf(lv[0] * lv[0] + lv[1] * lv[1] + lv[2] * lv[2]);
         float dt = prevT ? (now - prevT) / 1000.f : 0.f;
         uint8_t restartPending = 0; Mem::Read(0x91CF28, restartPending);
-        if ((have && Dist(lastPos, lp) > sp * dt + 3.f) || restartPending || NisActive() || Game::RaceStage() == 1) g_noHitUntil = now + 1000;
+        bool jumped = have && Dist(lastPos, lp) > sp * dt + 3.f && (int)(g_testJumpOkUntil - now) <= 0;
+        if (jumped || restartPending || NisActive() || Game::RaceStage() == 1) g_noHitUntil = now + 1000;
         memcpy(lastPos, lp, 12); have = true;
     }
     if ((int)(g_noHitUntil - now) > 0) t0 = 0;

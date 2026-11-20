@@ -193,6 +193,7 @@ static void RamSafe(char* out, size_t n) {
             return;
         }
         float pos[3] = { hp[0] - dx * 12.f, hp[1] + 0.3f, hp[2] - dz * 12.f }, vel[3] = { dx * 25.f, 0, dz * 25.f };
+        g_testJumpOkUntil = GetTickCount() + 400;      // this short hop is the test itself, not a teleport to ignore
         RB_SetVec(me, RB_SetPosition, pos); RB_SetVec(me, RB_SetLinearVelocity, vel); RB_SetVec(me, RB_SetAngularVelocity, zero);
         sprintf_s(out, n, "ramming the other player from 12 m at 90 km/h");
     } __except (EXCEPTION_EXECUTE_HANDLER) { strcpy_s(out, n, "exception"); }
