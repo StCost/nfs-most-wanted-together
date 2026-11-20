@@ -430,7 +430,8 @@ void Game::PauseRuleTick(bool connected) {
     __try { if (g_holding && GetTickCount() - g_holdSince > 21000) ReleaseHold("safety limit"); } __except (EXCEPTION_EXECUTE_HANDLER) { g_holding = false; }
     __try {
         StartSyncTickImpl(connected);
-        SetNoPause(connected && g_cfg.noPause && !g_holding);    // while we wait on the grid the pause must bite
+        // while we wait on the grid, or a story scene holds / plays over the world, the pause must bite
+        SetNoPause(connected && g_cfg.noPause && !g_holding && !Game::StoryPauseWanted());
         RestartTickImpl(connected);
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }

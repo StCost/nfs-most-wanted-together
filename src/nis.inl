@@ -70,8 +70,10 @@ void Game::NisTick(bool connected) {
     __try {
         void* n = Nis();
         uint32_t h = NisScene(n);
-        if (g_myVote && (g_myVote != h || !connected)) g_myVote = 0;       // scene over / alone again
-        if (!g_myVote || NisState(n) != 5) { g_peerGoneSince = 0; return; }   // a new vote starts its own wait
+        uint32_t cur = Game::SceneHash();                                   // the NIS, or a story movie (story.inl)
+        if (g_myVote && (g_myVote != cur || !connected)) g_myVote = 0;     // scene over / alone again
+        // a vote on a story movie is handled in story.inl
+        if (!g_myVote || g_myVote != h || NisState(n) != 5) { g_peerGoneSince = 0; return; }   // a new vote starts its own wait
         // I voted earlier: skip once the other player votes too, or has already left the scene (skipped)
         const Net::Snapshot& p = Net::Latest();
         bool peerGone = p.valid && p.s.nisHash != h && p.s.gameFlowState != 4 && p.s.gameFlowState != 5;
@@ -85,7 +87,7 @@ void Game::NisTick(bool connected) {
 
 const char* Game::NisStatus() {
     __try {
-        uint32_t h = NisScene(Nis());
+        uint32_t h = Game::SceneHash();
         if (!h || !g_nisConnected) return "";
         if (g_myVote == h) return "skip voted - waiting for the other player";
         if (PeerVoted(h)) return "the other player wants to skip (press skip)";

@@ -37,6 +37,7 @@ second, deletes it and logs `Command '<text>': <result>`. This works with the ga
 | `cash` | log career cash and whether the current event counts as won |
 | `autopilot` | toggle the autopilot |
 | `skipnis` | press "skip" on the current cutscene |
+| `story` / `story <movie>` | log the story-scene state (movie, scene hash, the other player's scene, hold, rival number) / play a story movie over the world here as the career would, e.g. `story storyfmv_pin11`, `story blacklist_15` |
 | `pursuit` / `uncop` | start a pursuit on you / remove all police cars |
 | `ram` | first call: park 25 m from the other car. Second call (5 s later): hit it at 90 km/h |
 | `pos` | log own position, speed and damage |
@@ -97,6 +98,22 @@ tools\coop-test.ps1 -Scenario solo -Solo
 | Visual state | watch the partner's car | brake lights when it stops; `Ghost: damage zones now X` after it crashes |
 | Join / leave | start and quit one game | banner `<name> joined` / `left` on the other |
 | Shared race traffic | both PCs `AutoPilot=1`, start 14.4.1 / 12.7.3 / 15.3.1 with `event`, cars close together | C `our traffic car ... now follows the host's car N (same model ...)`; traffic around you is in the same places and models on both screens (a few extra cars on C are its spare own traffic, they keep their own AI); hitting a traffic car on C logs `Collision: hit the other player's car` and pushes it on H. After the finish C `race over`, `released N of our traffic cars`, and 8 s later its own traffic is replaced by mirrors as in free roam |
+
+## Story scenes (`SyncStoryScenes`)
+
+Both PCs in free roam, linked, `TestKeys=1`, `AutoPilot=0`. `story <movie>` stands in for the career
+playing a movie (getting a real one means reaching that point of the career).
+
+| Check | How | Pass |
+|---|---|---|
+| Wait | `SyncStoryScenes=1` on both. H: `story storyfmv_pin11` | H plays the movie. C: banner `<name> is watching a story scene - your game waits`, log `Story: the other player is watching a story scene (...) - holding the world`; C's car, traffic and cops stand still. When H's movie ends or is skipped: C `hold released (scene over, N s)`, banner `<name> finished the story scene`, C drives again. |
+| Hold limits | as above, but C is in a race / the Safe House / loading | no hold on C, only the notice (`is watching a story scene`) |
+| Watch along | `SyncStoryScenes=2` on C. H: `story blacklist_15` (C's career must have reached rival 15, i.e. any normal career) | C `playing blacklist_15 here too`, the movie runs on both. `story` on C shows `in-game 1`. |
+| Not reached yet | `SyncStoryScenes=2` on C, H: `story blacklist_01` while C is not at rival 1 | no movie on C (spoiler rule), C holds instead |
+| Skip vote | both watching the same movie (watch along). Press skip (Enter) on H only | H `Story: voted to skip ... waiting for the other player`, overlay `Cutscene: skip voted`, movie keeps playing on both. Then skip on C: `both voted - skipping` on both, both movies close. |
+| Second vote ends it | while both watch, C votes first, then H presses skip | H `both voted - skipping`; C closes its movie within about a second (`both voted` or `the other player is past it`) |
+| Real career | play until a Blacklist movie / story movie / Safe House rival movie comes up | as `Wait`; for a Safe House movie the other PC waits while it roams |
+| World pauses | H watches `story storyfmv_pin11` alone (C disconnected or `SyncStoryScenes=0`) | as in the unmodded game. Connected with `SyncStoryScenes=1`: H's world also stops under the movie (log `Coop: pause menu pauses again`) |
 
 ## Prologue and new profiles
 

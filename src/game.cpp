@@ -770,6 +770,7 @@ bool Game::InstallVehicleFactoryHook() {
     InstallRestartSync();
     InstallStreamHook();
     InstallNisHook();
+    InstallStoryHooks();
     InstallSaveSync();
     Net::OnHit = [](const float* dv) {
         if (!g_coopLinked) return;
@@ -851,6 +852,7 @@ static char g_dataDir[MAX_PATH] = "";
 void Game::SetDataDir(const char* dir) { strncpy_s(g_dataDir, dir, _TRUNCATE); }
 #include "boot.inl"
 #include "nis.inl"
+#include "story.inl"
 #include "save.inl"
 #include "coopwin.inl"
 #include "mapevents.inl"

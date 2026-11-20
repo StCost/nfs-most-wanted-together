@@ -152,6 +152,7 @@ namespace {
         // Test commands ([Debug] TestKeys=1): one command per line in scripts\MWTogether.cmd, the file is
         // deleted once read. Lets tests drive the game while it runs in the background.
         //   event <id> | events | restart | autopilot | cop | uncop | pursuit | clone | unclone | notice <text> | shot <file> | accept <package>
+        //   | skipnis | story | story <movie>
         static DWORD lastCmdCheck = 0;
         if (g_cfg.testKeys && g_gameOk && GetTickCount() - lastCmdCheck >= 500) {
             lastCmdCheck = GetTickCount();
@@ -186,6 +187,8 @@ namespace {
                     else if (c.rfind("mapevents ", 0) == 0) r = Game::DebugMapEvents(c.substr(10).c_str());
                     else if (c.rfind("goto ", 0) == 0) r = Game::DebugGotoEvent(c.substr(5).c_str());
                     else if (c == "skipnis") r = Game::DebugNisSkip();
+                    else if (c == "story") r = Game::DebugStory("");
+                    else if (c.rfind("story ", 0) == 0) r = Game::DebugStory(c.substr(6).c_str());
                     else if (c == "slowai") r = Game::DebugStopOpponents();
                     else if (c == "cash") r = Game::DebugCash();
                     else if (c == "pursuit") r = Game::DebugForcePursuit();
@@ -213,11 +216,12 @@ namespace {
             g_coopHere = !g_gameOk || Game::CoopAllowed();
             haveLocal = g_gameOk && Game::ReadLocalCar(local);
             local.hasCar = (haveLocal && g_coopHere) ? 1 : 0;   // in the prologue the other side shows nothing
-            local.nisHash = g_gameOk ? Game::NisSceneHash() : 0;   // also during scenes without a car
+            local.nisHash = g_gameOk ? Game::SceneHash() : 0;      // also during scenes without a car (cutscene or story movie)
             local.nisVote = g_gameOk ? Game::NisVoteHash() : 0;
             local.eventHash = g_gameOk ? Game::CurrentEventHash() : 0;
             local.pad[0] = g_gameOk ? Game::RaceStage() : 0;
             local.pad[1] = g_coopHere ? 1 : 0;                    // co-op allowed here (past the prologue)
+            local.pad[2] = g_gameOk ? Game::CareerBin() : 0;      // career rival number (story scenes the other game may show)
 
             static double nextSend = 0;
             double nowMs = Net::NowMs();
@@ -263,6 +267,7 @@ namespace {
         if (g_netOk && g_gameOk) Game::PauseRuleTick(linked);
         if (g_gameOk) Game::AutopilotTick();
         if (g_netOk && g_gameOk) Game::NisTick(linked);
+        if (g_netOk && g_gameOk) Game::StoryTick(linked);
         if (g_netOk && g_gameOk) Game::SaveTick(linked);
         if (g_netOk && g_gameOk) Game::CoopWinTick(linked, Net::Latest());
         if (g_gameOk) Game::MapEventsTick();
@@ -323,6 +328,11 @@ namespace {
             std::string ns = g_gameOk ? Game::NisStatus() : "";
             if (ns != lastNis) { if (!ns.empty()) Toast("Cutscene: " + ns); lastNis = ns; }
         }
+        {   // the other player's story scene (wait / watch along)
+            static std::string lastStory;
+            std::string ss = g_gameOk ? Game::StoryStatus() : "";
+            if (ss != lastStory) { if (!ss.empty()) Toast(ss); lastStory = ss; }
+        }
         bool toastOn = !g_toast.empty() && GetTickCount() - g_toastAt < 6000;
         Overlay::SetForceShow(toastOn);
 
@@ -380,6 +390,7 @@ namespace {
             }
             s += std::string("AutoStart: ") + AutoStart::Status() + "\n";
             if (Game::NisStatus()[0]) s += std::string("Cutscene: ") + Game::NisStatus() + "\n";
+            if (g_gameOk && Game::StoryStatus()[0]) s += std::string("Story: ") + Game::StoryStatus() + "\n";
             if (g_coopStatus[0]) s += std::string("Co-op: ") + g_coopStatus + "\n";
             if (Game::SaveStatus()[0]) s += std::string("Career: ") + Game::SaveStatus() + "\n";
             if (Game::EventStatus()[0]) s += std::string("Event: ") + Game::EventStatus() + "\n";

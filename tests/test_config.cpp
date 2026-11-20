@@ -47,6 +47,7 @@ TEST(config_defaults_when_file_is_missing) {
     CHECK(c.uiIntroInput);
     CHECK_EQ(c.uiMenuSpeed, 2);
     CHECK(!c.skipPursuitResults);
+    CHECK_EQ(c.syncStoryScenes, 1);
     CHECK(c.hideCursor);
     CHECK(!c.startInBackground);
     // debug options are all off unless asked for
@@ -62,7 +63,7 @@ TEST(config_parses_values) {
         "[Player]\r\nName=Kostya\r\n"
         "[Ghost]\r\nEnabled=0\r\nInterpDelayMs=150\r\nCollisions=0\r\nSafeDistance=25\r\n"
         "[Traffic]\r\nSync=0\r\nMirrorClass=6\r\nSharedInRaces=0\r\n"
-        "[Coop]\r\nNoSpeedbreaker=0\r\nNoPause=0\r\nRunInBackground=0\r\nStreamAroundPeer=0\r\n"
+        "[Coop]\r\nNoSpeedbreaker=0\r\nNoPause=0\r\nRunInBackground=0\r\nStreamAroundPeer=0\r\nSyncStoryScenes=2\r\n"
         "[Start]\r\nSkipIntro=0\r\nDirectFreeRoam=0\r\nSkipLeaveSafeHouseDialog=0\r\n"
         "[AutoStart]\r\nEnabled=0\r\nTarget=race\r\nDelayMs=10\r\nIntervalMs=20\r\nSequence=ENTER,ENTER\r\n"
         "[UI]\r\nIntroInput=0\r\nMenuSpeed=3\r\nSkipPursuitResults=1\r\n"
@@ -91,6 +92,7 @@ TEST(config_parses_values) {
     CHECK(!c.uiIntroInput);
     CHECK_EQ(c.uiMenuSpeed, 3);
     CHECK(c.skipPursuitResults);
+    CHECK_EQ(c.syncStoryScenes, 2);
     CHECK(!c.hideCursor);
     CHECK(c.startInBackground);
     CHECK(c.showOverlay); CHECK(c.testKeys); CHECK(c.autoPilot); CHECK(c.perf);
@@ -125,6 +127,13 @@ TEST(config_port_must_be_a_valid_udp_port) {
     CHECK_EQ(LoadText("[Network]\nPort=65536\n").port, 47555);       // would wrap to port 0
     CHECK_EQ(LoadText("[Network]\nPort=113091\n").port, 47555);      // would wrap to 47555 by accident
     CHECK_EQ(LoadText("[Network]\nPort=junk\n").port, 47555);
+}
+
+TEST(config_sync_story_scenes_range) {
+    CHECK_EQ(LoadText("[Coop]\nSyncStoryScenes=0\n").syncStoryScenes, 0);
+    CHECK_EQ(LoadText("[Coop]\nSyncStoryScenes=2\n").syncStoryScenes, 2);
+    CHECK_EQ(LoadText("[Coop]\nSyncStoryScenes=7\n").syncStoryScenes, 1);     // out of range: the default
+    CHECK_EQ(LoadText("[Coop]\nSyncStoryScenes=-1\n").syncStoryScenes, 1);
 }
 
 TEST(config_ghost_values_are_clamped) {
@@ -196,6 +205,7 @@ TEST(config_shipped_ini_matches_built_in_defaults) {
     CHECK_EQ(shipped.uiIntroInput, def.uiIntroInput);
     CHECK_EQ(shipped.uiMenuSpeed, def.uiMenuSpeed);
     CHECK_EQ(shipped.skipPursuitResults, def.skipPursuitResults);
+    CHECK_EQ(shipped.syncStoryScenes, def.syncStoryScenes);
     CHECK_EQ(shipped.hideCursor, def.hideCursor);
     CHECK_EQ(shipped.startInBackground, def.startInBackground);
     CHECK_EQ(shipped.showOverlay, def.showOverlay);

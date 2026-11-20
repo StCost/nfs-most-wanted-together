@@ -29,6 +29,8 @@ struct Config {
     bool        startInBackground = false; // [Window] StartInBackground - give focus back on start, game muted until clicked
     bool        catchUpLeader = true;    // [Coop] CatchUpLeader - AI catch-up follows whichever player is ahead
     bool        startTogether = true;    // [Coop] StartTogether - wait on the grid until the other player has loaded
+    int         syncStoryScenes = 1;     // [Coop] SyncStoryScenes - 0 off, 1 the other game waits while one watches a story scene
+                                         // (+ skip only when both voted), 2 also plays the same story movie there
     int         readyDelayMs = 0;        // [Debug] ReadyDelayMs - test: report "ready" this much later
     bool        sharedWins = true;       // [Career] SharedWins - a win by either player counts for both
     bool        saveSync = true;         // [Career] SaveSync - the host keeps a copy of the client's save
