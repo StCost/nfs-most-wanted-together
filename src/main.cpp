@@ -210,6 +210,7 @@ namespace {
             local.nisHash = g_gameOk ? Game::NisSceneHash() : 0;   // also during scenes without a car
             local.nisVote = g_gameOk ? Game::NisVoteHash() : 0;
             local.eventHash = g_gameOk ? Game::CurrentEventHash() : 0;
+            local.pad[0] = g_gameOk ? Game::RaceStage() : 0;
 
             static double nextSend = 0;
             double nowMs = Net::NowMs();
@@ -282,6 +283,11 @@ namespace {
             }
         }
         if (g_gameOk && Game::TakeCoopWinNotice()) Toast((st.peerName.empty() ? std::string("Your partner") : st.peerName) + " won - it counts as your win too");
+        {   // waiting on the grid for the other player
+            static std::string lastStart;
+            std::string ss = g_gameOk ? Game::StartStatus() : "";
+            if (ss != lastStart) { if (!ss.empty()) Toast(ss); lastStart = ss; }
+        }
         {   // cutscene skip votes
             static std::string lastNis;
             std::string ns = g_gameOk ? Game::NisStatus() : "";

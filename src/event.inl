@@ -308,6 +308,67 @@ namespace {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Start together. Each game loads an event at its own speed. CarState::pad[0] carries our stage in the
+// current event: 1 = loading / intro cutscene, 2 = on the grid (intro over). The game that gets there
+// first freezes its simulation (the front-end pause request counter 0x91CAE4, with the co-op "no
+// pause" patch lifted for the moment) until the other one is ready too, or 20 s pass.
+// ---------------------------------------------------------------------------
+namespace {
+    uint8_t  g_stage = 0;
+    uint32_t g_stageEvent = 0;
+    bool     g_sawNis = false, g_holding = false;
+    DWORD    g_modeSince = 0, g_holdSince = 0, g_readyAt = 0;
+    char     g_startStatus[64] = "";
+
+    void ReleaseHold(const char* why) {
+        if (!g_holding) return;
+        g_holding = false;
+        int req = 0;
+        if (Mem::Read(0x91CAE4, req) && req > 0) { --req; Mem::Write(0x91CAE4, req); }
+        g_startStatus[0] = 0;
+        LOG("Start: go (%s, waited %.1f s)", why, (GetTickCount() - g_holdSince) / 1000.f);
+    }
+}
+
+static void StartSyncTickImpl(bool connected) {
+    DWORD now = GetTickCount();
+    uint32_t hash = g_curEventHash;
+    const Net::Snapshot& pr = Net::Latest();
+    if (!hash || Game::GameFlowState() != 6) { g_stage = hash ? 1 : 0; g_stageEvent = hash; g_sawNis = false; g_modeSince = 0; ReleaseHold("event over"); return; }
+    if (hash != g_stageEvent) { g_stageEvent = hash; g_stage = 1; g_sawNis = false; g_modeSince = 0; g_readyAt = 0; }
+    int mode = 0; CurrentParms(&mode);
+    bool nis = Game::NisSceneHash() != 0;
+    if (nis) g_sawNis = true;
+    if (mode == 1) { if (!g_modeSince) g_modeSince = now; } else g_modeSince = 0;
+    // on the grid: the intro cutscene is over (or the event has none: 3 s of racing mode without one)
+    bool ready = mode == 1 && !nis && g_modeSince && (g_sawNis || now - g_modeSince > 3000);
+    if (g_stage == 1 && ready) {
+        if (!g_readyAt) g_readyAt = now;
+        if ((int)(now - g_readyAt) < g_cfg.readyDelayMs) ready = false;      // test: pretend to load slowly
+    }
+    if (g_stage == 1 && ready) {
+        g_stage = 2;
+        bool peerComing = pr.valid && (pr.s.eventHash == hash || g_inviteHash == hash || g_handledHash == hash);
+        bool peerReady = pr.valid && pr.s.eventHash == hash && pr.s.pad[0] >= 2;
+        if (connected && g_cfg.startTogether && peerComing && !peerReady && !g_holding) {
+            int req = 0;
+            if (Mem::Read(0x91CAE4, req)) { ++req; Mem::Write(0x91CAE4, req); g_holding = true; g_holdSince = now; }
+            const std::string& pn = Net::Stats().peerName;
+            sprintf_s(g_startStatus, "waiting for %s to load...", pn.empty() ? "the other player" : pn.c_str());
+            LOG("Start: on the grid first - %s", g_startStatus);
+        }
+    }
+    if (g_holding) {
+        if (!connected || !pr.valid) ReleaseHold("the other player is gone");
+        else if (pr.s.eventHash == hash && pr.s.pad[0] >= 2) ReleaseHold("both ready");
+        else if (now - g_holdSince > 20000) ReleaseHold("waited long enough");
+    }
+}
+
+uint8_t Game::RaceStage() { return g_stage; }
+const char* Game::StartStatus() { return g_startStatus; }
+
 static void RestartTickImpl(bool connected) {
     uint8_t flag = 0;
     Mem::Read(0x91CF28, flag);
@@ -331,7 +392,8 @@ static void RestartTickImpl(bool connected) {
 void Game::PauseRuleTick(bool connected) {
     if (!g_ok) return;
     __try {
-        SetNoPause(connected && g_cfg.noPause);
+        StartSyncTickImpl(connected);
+        SetNoPause(connected && g_cfg.noPause && !g_holding);    // while we wait on the grid the pause must bite
         RestartTickImpl(connected);
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }

@@ -40,6 +40,8 @@ void Config::Load(const char* ini) {
     bootTrace = ReadInt(ini, "Debug", "BootTrace", 0) != 0;
     saveSync = ReadInt(ini, "Career", "SaveSync", 1) != 0;
     sharedWins = ReadInt(ini, "Career", "SharedWins", 1) != 0;
+    startTogether = ReadInt(ini, "Coop", "StartTogether", 1) != 0;
+    readyDelayMs = ReadInt(ini, "Debug", "ReadyDelayMs", 0);
     startInBackground = ReadInt(ini, "Window", "StartInBackground", 0) != 0;
     skipPursuitResults = ReadInt(ini, "UI", "SkipPursuitResults", 0) != 0;
     gameNotices = ReadInt(ini, "UI", "GameNotices", 1) != 0;

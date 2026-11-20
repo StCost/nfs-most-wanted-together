@@ -37,6 +37,8 @@ namespace Game {
     void PauseRuleTick(bool connected);
     std::string ToggleAutopilot();
     bool ShowChyron(const char* title, const char* line2, const char* line3);   // the game's song-title banner with our text
+    uint8_t RaceStage();                // 0 none, 1 loading / intro, 2 on the grid
+    const char* StartStatus();          // "waiting for <name> to load..." while we hold the start
     uint32_t CurrentEventHash();        // event we are in, 0 = none
     std::string DebugRestart();
     std::string DebugRam();             // test: hit the other player's car

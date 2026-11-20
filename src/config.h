@@ -26,6 +26,8 @@ struct Config {
     bool        gameNotices = true;       // [UI] GameNotices - notices in the game's own banner (EA Trax chyron)
     bool        skipPursuitResults = false; // [UI] SkipPursuitResults - close the pursuit result screen in free roam
     bool        startInBackground = false; // [Window] StartInBackground - give focus back on start, game muted until clicked
+    bool        startTogether = true;    // [Coop] StartTogether - wait on the grid until the other player has loaded
+    int         readyDelayMs = 0;        // [Debug] ReadyDelayMs - test: report "ready" this much later
     bool        sharedWins = true;       // [Career] SharedWins - a win by either player counts for both
     bool        saveSync = true;         // [Career] SaveSync - the host keeps a copy of the client's save
     bool        bootTrace = false;       // [Debug] BootTrace - log memory-card / controller state changes while booting
