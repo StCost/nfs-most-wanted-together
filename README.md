@@ -39,7 +39,7 @@ Coming from the old CoopMod? Delete `scripts\CoopMod.asi`; your settings carry o
   autosave and hands it back if theirs is ever missing or older.
 - **Not yet:** 4 players, and prologue together.
 
-## Features and progress (85%)
+## Features and progress (88%)
 
 The percentage is a simple count of this list: a ticked line counts fully, a line with **(?)** counts half (it's built, but nobody has played through it on two PCs yet), an empty box counts nothing.
 
@@ -56,7 +56,6 @@ The percentage is a simple count of this list: a ticked line counts fully, a lin
 - [x] Strangers can't interfere: each game ignores network packets from anyone except the player it connected to
 - [x] Event starts and restarts are repeated for a few seconds, so a lost packet can't leave you in different races (?)
 - [ ] Up to 4 players
-- [ ] Playing over the internet without a VPN or port forwarding
 
 ### Your cars
 - [x] Each player drives their own car, with their full tuning, in free roam and in races
@@ -67,7 +66,6 @@ The percentage is a simple count of this list: a ticked line counts fully, a lin
 - [x] Car-to-car collisions between players, with the impact passed on: ram your partner and their car is thrown on their screen too
 - [x] Your names in the race standings instead of the shared save name
 - [x] Your partner's car shows what it's doing: brake lights, steering, nitrous, and damage from crashes (?)
-- [ ] Name tags above the other player's car
 
 ### The world
 - [x] Shared traffic when you're near each other
