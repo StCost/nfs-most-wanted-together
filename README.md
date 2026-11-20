@@ -2,36 +2,46 @@
 
 ![NFS MW Together](docs/banner.png)
 
-**NFS MW Together** (MWT) lets you play the Most Wanted career together. Two players share one world: each drives their own
-car with its own tuning, sees the other player's car, traffic and cops, and they start events
-together. The host's game is the reference world, and the client mirrors it.
+Play the Most Wanted career with a friend. You share one Rockport: free roam, races, Blacklist rivals and
+police chases, each of you in your own car with your own tuning. When either of you wins an event, you both
+get the cash, the unlocks and the career progress. The host also keeps a copy of your partner's save, so
+nobody loses their career.
 
-> **Where it's at:** early alpha, two players. Free roam and races already play well together on a LAN.
-> The goal is the whole career, start to finish, in co-op. The checklist below shows how far along we are.
-
-## Requirements
-- NFS Most Wanted (2005), PC, **v1.3** `speed.exe`. Other versions are detected and the mod
-  stays inactive.
-- [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) (`dinput8.dll`, included in releases).
-- Both players need the same NFS MW Together (MWT) version: the protocol version is checked on connect.
-- A network path between the PCs: LAN, a VPN such as Radmin VPN or ZeroTier, or UDP port 47555
-  forwarded to the host.
-
-This repository contains **only the mod**. It does not include game files or saves. You need your
-own copy of the game.
+**Two players, early alpha.** It works on a LAN or a VPN and it has rough edges; the checklist further
+down says exactly what's tested.
 
 ## Install
-> **Upgrading from CoopMod?** Delete `scripts\CoopMod.asi`. Your `CoopMod.ini` settings are copied to `MWTogether.ini` on the first start.
 
-1. Download the latest release zip from the **Releases** page.
-2. Copy `dinput8.dll` and the `scripts` folder next to `speed.exe`. If you already have an ASI loader,
-   keep yours and copy only `scripts\MWTogether.asi` and `scripts\MWTogether.ini`.
-3. Edit `scripts\MWTogether.ini`:
-   - **Host:** `Mode=host`, `Name=<you>`. `ClientIP=<client IP>` is optional; set it to skip firewall rules on a LAN.
-   - **Client:** `Mode=client`, `HostIP=<host IP>`, `Name=<you>`.
-4. Start the game on both PCs. The game skips the intro and loads career free roam by itself, and the
-   two games connect automatically.
+1. Download the latest zip from **Releases** and unpack it into your game folder, next to `speed.exe`.
+2. Run `MWTogetherLauncher.exe`. Type a nickname, pick **Host LAN** or **Join LAN** (to join, enter the
+   host's IP address) and press **PLAY**.
+3. Do the same on the other PC. The game skips the intro, loads your career into free roam and the two of
+   you connect by yourselves.
 
+Both players should have finished the career prologue (the opening races) on their own first.
+
+## You need
+
+- Need for Speed: Most Wanted (2005) for PC, patched to **v1.3**. Your own copy: no game files are included here.
+- The same version of the mod on both PCs.
+- A way for the two PCs to reach each other: the same home network, a VPN like Radmin VPN or ZeroTier,
+  or UDP port 47555 forwarded to the host.
+
+Already have an ASI loader? Keep your `dinput8.dll` and copy only the `scripts` folder and the launcher.
+Coming from the old CoopMod? Delete `scripts\CoopMod.asi`; your settings carry over.
+
+## What to expect
+
+- **Your own cars.** Each player drives their own car, with all its tuning and visuals, everywhere.
+- **Events together.** Start any career event and your partner is taken along. You get the same opponents,
+  start at the same moment and see each other in the standings.
+- **Shared wins.** If either of you finishes first, it counts for both careers.
+- **Police.** Each of you has your own heat and your own pursuit, and you see the cops chasing your partner.
+  Getting busted only takes out the player who was caught.
+- **One world.** Shared traffic when you're close, collisions between your cars, blips on the minimap and map.
+- **Saves.** Everyone keeps their own career save. The host stores a copy of the partner's save after every
+  autosave and hands it back if theirs is ever missing or older.
+- **Not yet:** more than two players, and playing the prologue together.
 ## Features and progress
 
 Ticked means it's in the mod. A **(?)** means it's built but hasn't been properly tested in a real co-op session yet[^1].
