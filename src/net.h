@@ -15,12 +15,13 @@ enum PacketType : uint16_t {
     PKT_EVENT   = 8, // "I just started this career event" (both directions)
     PKT_ROSTER  = 9, // one AI opponent of the event the sender starts (sent before PKT_EVENT)
     PKT_RACERNAME = 10, // host -> client: display name of a race opponent (by traffic id)
-    PKT_RESTART = 11,
-    PKT_NISSKIP = 12,
+    PKT_RESTART = 11,   // "I restarted the current race" (EventPacket layout)
+    PKT_NISSKIP = 12,   // "I want to skip this cutscene" (EventPacket layout, eventHash = scene hash); no longer
+                        // sent by the game layer: votes travel in CarState::nisHash / nisVote
     PKT_FILE    = 13,   // one chunk of a small file (career save backup / restore)
     PKT_FILEACK = 14,   // "I have the whole file with this hash"
     PKT_FILEREQ = 15,   // client -> host: "send me the save you keep for me"
-    PKT_NOFILE  = 16,   // host -> client: "I keep no save for you"   // "I want to skip this cutscene" (EventPacket layout, eventHash = scene hash)   // "I restarted the current race" (EventPacket layout)
+    PKT_NOFILE  = 16,   // host -> client: "I keep no save for you"
 };
 
 struct PacketHeader {
@@ -189,8 +190,12 @@ namespace Net {
     void SendRestart(uint32_t eventHash);
     void SendNisSkip(uint32_t sceneHash);
     // Small reliable file transfer (resent until acknowledged, ~10 s). One outgoing file at a time.
+    // The receiver checks sizes, chunk numbers and the hash; the names are passed on as received
+    // (NUL-terminated, up to 32 characters) and are NOT safe as file names: see saveutil.h.
+    // A client takes file packets only from the host's address.
     bool SendFile(const char* owner, const char* profile, const void* data, uint32_t size, uint64_t mtime);
     bool SendingFile();
+    bool LastFileDelivered();                      // the last SendFile ended with the peer's acknowledgement
     void RequestFile(const char* owner);           // client: ask the host for the save it keeps for us
     void SendNoFile();
     extern void (*OnFile)(const char* owner, const char* profile, const uint8_t* data, uint32_t size, uint64_t mtime);

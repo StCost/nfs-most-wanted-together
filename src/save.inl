@@ -10,23 +10,17 @@
 //  never edited: the game checks an MD5 inside it.
 // ---------------------------------------------------------------------------
 #include <shlobj.h>
+#include "saveutil.h"
 
 namespace {
     enum class Restore { Idle, Requested, Done } g_restore = Restore::Idle;
     DWORD    g_restoreAt = 0, g_saveFirstTick = 0;
-    uint64_t g_uploadedTime = 0;
+    uint64_t g_uploadedTime = 0;      // file time of the save the host is known to have
+    uint64_t g_pendingTime = 0;       // file time of the save being uploaded right now
     char     g_saveStatus[96] = "";
 
-    bool SafeName(const char* s, char* out, size_t n) {      // file-name safe copy; false if empty
-        size_t j = 0;
-        for (; *s && j + 1 < n; ++s) {
-            unsigned char c = (unsigned char)*s;
-            if (isalnum(c) || c == ' ' || c == '-' || c == '_') out[j++] = (char)c;
-        }
-        while (j && out[j - 1] == ' ') --j;
-        out[j] = 0;
-        return j > 0;
-    }
+    using SaveUtil::SafeName;
+    using SaveUtil::FileTime64;
     std::string DocsSavePath(const char* profile) {
         char docs[MAX_PATH];
         if (FAILED(SHGetFolderPathA(nullptr, CSIDL_PERSONAL, nullptr, SHGFP_TYPE_CURRENT, docs))) return "";
@@ -34,35 +28,6 @@ namespace {
     }
     std::string HostDir(const char* owner) { return std::string(g_dataDir) + "MWTogether-saves\\" + owner; }
 
-    uint64_t FileTime64(const std::string& path) {
-        WIN32_FILE_ATTRIBUTE_DATA a;
-        if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &a) || (a.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) return 0;
-        return ((uint64_t)a.ftLastWriteTime.dwHighDateTime << 32) | a.ftLastWriteTime.dwLowDateTime;
-    }
-    bool ReadAll(const std::string& path, std::vector<uint8_t>& out) {
-        FILE* f = _fsopen(path.c_str(), "rb", _SH_DENYNO);
-        if (!f) return false;
-        fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
-        bool ok = n > 0 && n <= (long)FILE_MAX;
-        if (ok) { out.resize(n); ok = fread(out.data(), 1, n, f) == (size_t)n; }
-        fclose(f);
-        return ok;
-    }
-    bool WriteAll(const std::string& path, const uint8_t* d, uint32_t n, uint64_t mtime) {
-        FILE* f = fopen(path.c_str(), "wb");
-        if (!f) return false;
-        bool ok = fwrite(d, 1, n, f) == n;
-        fclose(f);
-        if (ok && mtime) {
-            HANDLE h = CreateFileA(path.c_str(), FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-            if (h != INVALID_HANDLE_VALUE) {
-                FILETIME ft{ (DWORD)mtime, (DWORD)(mtime >> 32) };
-                SetFileTime(h, nullptr, nullptr, &ft);
-                CloseHandle(h);
-            }
-        }
-        return ok;
-    }
     bool ProfileLoaded() { uint8_t* fedb = nullptr; return Mem::Read(0x91CF90, fedb) && fedb && fedb[3]; }
     bool CurrentProfile(char* out, size_t n) {
         uint8_t* fedb = nullptr; uint8_t* up = nullptr; char raw[33] = {};
@@ -74,51 +39,67 @@ namespace {
     // host: a client's save arrived
     void HostStore(const char* ownerRaw, const char* profileRaw, const uint8_t* d, uint32_t n, uint64_t mtime) {
         char owner[40], profile[40];
-        if (!SafeName(ownerRaw, owner, sizeof(owner)) || !SafeName(profileRaw, profile, sizeof(profile))) return;
+        // the profile must already be a plain name (our client sends nothing else): never guess
+        if (!SafeName(ownerRaw, owner, sizeof(owner)) || !SaveUtil::PlainName(profileRaw)) {
+            LOG("Career: a save with an unusable player or profile name arrived - not stored");
+            return;
+        }
+        strcpy_s(profile, profileRaw);
         CreateDirectoryA((std::string(g_dataDir) + "MWTogether-saves").c_str(), nullptr);
         std::string dir = HostDir(owner);
         CreateDirectoryA(dir.c_str(), nullptr);
         // one save per player: remember which profile it is
-        if (WriteAll(dir + "\\" + profile, d, n, mtime)) {
+        if (SaveUtil::WriteAllAtomic(dir + "\\" + profile, d, n, mtime)) {
             WritePrivateProfileStringA("Save", "Profile", profile, (dir + "\\save.ini").c_str());
             LOG("Career: stored %s's save '%s' (%u bytes)", owner, profile, n);
             sprintf_s(g_saveStatus, "keeping %s's save", owner);
-        }
+        } else LOG("Career: could not write %s's save '%s' (the copy we had is untouched)", owner, profile);
     }
     // host: the client asks for its save
     void HostSendBack(const char* ownerRaw) {
         char owner[40], profile[40] = "";
+        if (Net::SendingFile()) return;                  // the request comes twice: already answering
         if (!SafeName(ownerRaw, owner, sizeof(owner))) { Net::SendNoFile(); return; }
         std::string dir = HostDir(owner);
         char raw[40] = "";
         GetPrivateProfileStringA("Save", "Profile", "", raw, sizeof(raw), (dir + "\\save.ini").c_str());
         std::vector<uint8_t> data;
-        if (!SafeName(raw, profile, sizeof(profile)) || !ReadAll(dir + "\\" + profile, data)) { Net::SendNoFile(); return; }
-        Net::SendFile(owner, profile, data.data(), (uint32_t)data.size(), FileTime64(dir + "\\" + profile));
-        LOG("Career: sending %s their save '%s' back", owner, profile);
+        if (!SafeName(raw, profile, sizeof(profile)) || !SaveUtil::ReadAll(dir + "\\" + profile, data, FILE_MAX)) { Net::SendNoFile(); return; }
+        if (Net::SendFile(owner, profile, data.data(), (uint32_t)data.size(), FileTime64(dir + "\\" + profile)))
+            LOG("Career: sending %s their save '%s' back", owner, profile);
     }
     // client: the host's copy of our save arrived
     void ClientRestore(const char* ownerRaw, const char* profileRaw, const uint8_t* d, uint32_t n, uint64_t mtime) {
         char profile[40];
         g_restore = Restore::Done;
-        if (_stricmp(ownerRaw, g_cfg.playerName.c_str()) || !SafeName(profileRaw, profile, sizeof(profile))) return;
+        // the host answers with the file-name form of our name; the profile must be a plain name
+        if (!SaveUtil::SameOwner(ownerRaw, g_cfg.playerName.c_str()) || !SaveUtil::PlainName(profileRaw)) {
+            LOG("Career: the host sent a save that isn't ours or has an unusable name - not applied");
+            return;
+        }
+        strcpy_s(profile, profileRaw);
         if (Game::GameFlowState() != 3 || ProfileLoaded()) { LOG("Career: host's copy arrived after the profile was loaded - not applied"); return; }
         std::string path = DocsSavePath(profile);
         if (path.empty()) return;
         uint64_t mine = FileTime64(path);
-        if (mine >= mtime) { LOG("Career: our save '%s' is up to date", profile); return; }
-        if (mine) CopyFileA(path.c_str(), (path + ".mwt-backup").c_str(), FALSE);
-        else {
+        if (!SaveUtil::HostCopyIsNewer(mine, mtime)) { LOG("Career: our save '%s' is up to date", profile); return; }
+        if (mine) {
+            // no backup, no overwrite
+            if (!CopyFileA(path.c_str(), (path + ".mwt-backup").c_str(), FALSE)) {
+                LOG("Career: could not back up our save '%s' (error %lu) - the host's copy is not applied", profile, GetLastError());
+                return;
+            }
+        } else {
             char docs[MAX_PATH];
             SHGetFolderPathA(nullptr, CSIDL_PERSONAL, nullptr, SHGFP_TYPE_CURRENT, docs);
             CreateDirectoryA((std::string(docs) + "\\NFS Most Wanted").c_str(), nullptr);
             CreateDirectoryA((std::string(docs) + "\\NFS Most Wanted\\" + profile).c_str(), nullptr);
         }
-        if (WriteAll(path, d, n, mtime)) {
+        if (SaveUtil::WriteAllAtomic(path, d, n, mtime)) {
             g_uploadedTime = mtime;
             LOG("Career: restored save '%s' from the host (%s)", profile, mine ? "ours was older; kept as .mwt-backup" : "we had none");
             strcpy_s(g_saveStatus, "save restored from the host");
-        }
+        } else LOG("Career: could not write the host's copy of '%s' - our save is untouched", profile);
     }
 }
 
@@ -126,7 +107,8 @@ namespace {
 static bool SaveSyncHoldsBoot() {
     if (g_cfg.isHost || !g_cfg.saveSync || g_restore == Restore::Done) return false;
     if (!g_saveFirstTick) g_saveFirstTick = GetTickCount();
-    if (g_restore == Restore::Requested) return true;
+    // (SaveTick ends the wait after 4 s; the second limit is for the case it isn't running)
+    if (g_restore == Restore::Requested) return GetTickCount() - g_restoreAt < 6000;
     return GetTickCount() - g_saveFirstTick < 1500;      // give the connection a moment
 }
 
@@ -144,6 +126,11 @@ static void SaveTickImpl(bool connected) {
     if (g_restore == Restore::Idle && ProfileLoaded()) g_restore = Restore::Done;
     // backup: upload our save whenever the game has written it
     static DWORD nextCheck = 0;
+    if (g_pendingTime && !Net::SendingFile()) {          // the upload ended: only an acknowledged one counts
+        if (Net::LastFileDelivered()) { g_uploadedTime = g_pendingTime; strcpy_s(g_saveStatus, "save backed up on the host"); }
+        else LOG("Career: the host did not confirm our save - will send it again");
+        g_pendingTime = 0;
+    }
     if (!connected || (int)(now - nextCheck) < 0 || Net::SendingFile()) return;
     nextCheck = now + 5000;
     char profile[40];
@@ -155,10 +142,9 @@ static void SaveTickImpl(bool connected) {
     uint64_t n64 = ((uint64_t)ftNow.dwHighDateTime << 32) | ftNow.dwLowDateTime;
     if (n64 - t < 20000000ull) return;                   // written under 2 s ago: let the game finish
     std::vector<uint8_t> data;
-    if (ReadAll(path, data) && Net::SendFile(g_cfg.playerName.c_str(), profile, data.data(), (uint32_t)data.size(), t)) {
-        g_uploadedTime = t;
+    if (SaveUtil::ReadAll(path, data, FILE_MAX) && Net::SendFile(g_cfg.playerName.c_str(), profile, data.data(), (uint32_t)data.size(), t)) {
+        g_pendingTime = t;
         LOG("Career: sending our save '%s' to the host (%u bytes)", profile, (unsigned)data.size());
-        strcpy_s(g_saveStatus, "save backed up on the host");
     }
 }
 
@@ -169,6 +155,9 @@ void Game::SaveTick(bool connected) {
 const char* Game::SaveStatus() { return g_saveStatus; }
 
 void Game::InstallSaveSync() {
+    char safe[40];
+    if (g_cfg.saveSync && !g_cfg.isHost && !SafeName(g_cfg.playerName.c_str(), safe, sizeof(safe)))
+        LOG("Career: the player name has no letters or digits the host can use as a folder name - the save can't be kept there");
     Net::OnFile = [](const char* owner, const char* profile, const uint8_t* d, uint32_t n, uint64_t mtime) {
         if (!g_cfg.saveSync) return;
         if (g_cfg.isHost) HostStore(owner, profile, d, n, mtime);
