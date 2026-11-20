@@ -483,10 +483,18 @@ static void ApplyCarControls(void* iv, const CarState& s) {
     if (in) {
         // gas / brake / handbrake are not fed in: they act on the physics and fought the hard-set motion
         // (50-80 mm jitter spikes on a car driving fast). The brake lights come from the glare bits.
-        VCall<void(__thiscall*)(void*, float)>(in, 5)(in, s.steer);
+        float steer = s.steer < -1.f ? -1.f : s.steer > 1.f ? 1.f : s.steer;
+        VCall<void(__thiscall*)(void*, float)>(in, 5)(in, steer);
         VCall<void(__thiscall*)(void*, bool)>(in, 8)(in, s.nos != 0);
     }
     *(uint32_t*)((uint8_t*)iv + 0x9C) = s.glare;
+}
+// While the remote car is held (cutscene, spawn protection) it must not keep the last steering / NOS.
+static void ClearCarControls(void* iv) {
+    void* in = Find(iv, 0x403F90 /*IInput*/);
+    if (!in) return;
+    VCall<void(__thiscall*)(void*, float)>(in, 5)(in, 0.f);
+    VCall<void(__thiscall*)(void*, bool)>(in, 8)(in, false);
 }
 
 bool Game::ReadLocalCar(CarState& out) {
@@ -958,7 +966,7 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
     }
 
     SetStreamPeer(rb);   // keep the world (and full physics) loaded around the other player too
-    if (NisActive()) { g_protectHoldReset = true; sprintf_s(out, outLen, "%s  (cutscene)", g_ghostName); return; }
+    if (NisActive()) { g_protectHoldReset = true; ClearCarControls(g_ghost); sprintf_s(out, outLen, "%s  (cutscene)", g_ghostName); return; }
 
     // --- target state: snapshot interpolation ~InterpDelayMs in the past (smooth, no guessing) ---
     CarState s = latest.s;
@@ -1011,6 +1019,7 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
             }
             RB_SetVec(rb, RB_SetLinearVelocity, zero);
             RB_SetVec(rb, RB_SetAngularVelocity, zero);
+            ClearCarControls(g_ghost);
             sprintf_s(out, outLen, "%s  spawn protection (until %d m apart)", g_ghostName, g_cfg.safeDistance);
             return;
         }
