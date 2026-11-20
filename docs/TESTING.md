@@ -41,6 +41,7 @@ second, deletes it and logs `Command '<text>': <result>`. This works with the ga
 | `pursuit` / `uncop` | start a pursuit on you / remove all police cars |
 | `ram` | first call: park 25 m from the other car. Second call (5 s later): hit it at 90 km/h |
 | `pos` | log own position, speed and damage |
+| `tp <x> <y> <z>` | move your car there (numbers as `pos` prints them). The first call loads the world at that spot; send the same `tp` again about 5 s later to move. Handy to reach a marker the autopilot won't drive to |
 | `mapevents` / `mapevents N` | list the extra not-won events on the map / switch `MapEvents` to 0, 1 or 2 now |
 | `goto <id>` | put your car on the marker of an extra event, e.g. `goto 14.2.1` |
 | `clone` / `unclone` / `cop` | spawn/remove a copy of the other player's car, spawn a cop |
@@ -150,7 +151,10 @@ A pass looks like this:
 3. Save backup and restore pass.
 4. One real session by two people with `TestKeys=0`: free roam, a race started from the game's own menus
    (not `event`), a pursuit, a rival race.
-5. Update the checklist in `README.md`: a line loses its `(?)` only when it was seen working on two PCs.
+5. Install the release zip into a copy of the game **without** the Widescreen Fix (and once with it), start it
+   through `MWTogetherLauncher.exe` > Play: the plain game's title screen is `MW_LS_Splash.fng`, the fixed
+   game's `WS_MW_LS_Splash.fng`, and the fast start must get past both into free roam.
+6. Update the checklist in `README.md`: a line loses its `(?)` only when it was seen working on two PCs.
 
 ## Known limits of the test tools
 

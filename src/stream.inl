@@ -22,7 +22,7 @@ namespace {
 
     void __cdecl hk_StreamUpdate(float dT) {
         ((void(__cdecl*)(float))StreamUpdateFn)(dT);
-        bool hold = GetTickCount() < g_streamHoldUntil;
+        bool hold = g_streamHoldUntil && (int)(GetTickCount() - g_streamHoldUntil) < 0;
         if ((!g_streamPeer && !hold) || g_streamQuiet) return;
         __try {
             char* gm = nullptr; char* rs = nullptr;

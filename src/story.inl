@@ -159,6 +159,7 @@ namespace {
     // ---- skip vote on movies ----
     using MovieNotifyFn = void(__thiscall*)(void*, uint32_t, void*, uint32_t, uint32_t);
     MovieNotifyFn g_movieNotify[3] = {};
+    bool     g_wsfSkipsMovies = false;     // the Widescreen Fix's SkipIntro = 1 (see InstallStoryHooks)
     uint32_t g_movieForceSkip = 0;        // let this skip through (the other player has skipped / voted)
 
     // what the movie player (*0x91CB10) was doing when a movie screen got a close / skip message
@@ -289,7 +290,8 @@ namespace {
         uint8_t playing = 0; Mem::Read(MoviePlayingFlag, playing);
         if (playing) return "a movie is already playing";
         uint32_t skipMovies = 0; Mem::Read(SkipMoviesOption, skipMovies);
-        if (skipMovies) return "movies are switched off in this game (SKIPMOVIES - e.g. WidescreenFix SkipIntro = 1)";
+        if (skipMovies) return "movies are switched off in this game (SKIPMOVIES)";
+        if (g_wsfSkipsMovies) return "the Widescreen Fix's SkipIntro = 1 switches off the game's movies";
         void* fe = nullptr;
         if (!Mem::Read(0x91CADC, fe) || !fe) return "no front end";
         if (const char* menu = InputScreenName(fe)) {
@@ -315,6 +317,10 @@ namespace {
     void StoryTickImpl(bool connected) {
         DWORD now = GetTickCount();
         PollMovie(false);
+        {   // a forced skip belongs to one movie: drop it when another one (or none) plays
+            static uint32_t lastMovie = 0;
+            if (g_movieHash != lastMovie) { if (g_movieForceSkip != g_movieHash) g_movieForceSkip = 0; lastMovie = g_movieHash; }
+        }
         const Net::Snapshot& p = Net::Latest();
         uint32_t mine = MyStoryScene();
         uint32_t peer = (connected && g_cfg.syncStoryScenes > 0) ? PeerStoryScene() : 0;
@@ -322,7 +328,7 @@ namespace {
             if (g_peerStory && !peer && g_storyHold) { sprintf_s(g_storyStatus, "%s finished the story scene", PeerName()); g_doneUntil = now + 3000; }
             g_peerStory = peer; g_peerStorySince = now;
             if (!peer) { g_startedFor = 0; g_startPending = 0; }
-            if (peer != g_gaveUpFor) g_gaveUpFor = 0;
+            if (!peer) g_gaveUpFor = 0;   // the safety limit holds for the whole run of scenes, not per scene
         }
         {   // remember the scene we just finished, so a partner still in it doesn't start it here again
             static uint32_t prevMine = 0;
@@ -370,7 +376,9 @@ namespace {
         g_streamQuiet = g_startPending || g_cmdPending || g_startedAt || (g_movieHash && g_movieInGame);
 
         // otherwise wait: hold the world while they watch (free roam only)
-        bool want = peer && !mine && roaming && !g_startPending && !justWatched && peer != g_gaveUpFor && now - g_peerStorySince > 700;
+        // (the 0.7 s settle only before a hold starts: a scene running straight into the next keeps it)
+        bool want = peer && !mine && roaming && !g_startPending && !justWatched && !g_gaveUpFor &&
+                    (g_storyHold || now - g_peerStorySince > 700);
         if (want && !g_storyHold) StoryHoldOn();
         if (g_storyHold) {
             if (!want) StoryHoldOff(peer ? "left free roam" : "scene over");
@@ -428,6 +436,17 @@ bool Game::StoryPauseWanted() { return g_storyHold || (g_cfg.syncStoryScenes > 0
 const char* Game::StoryStatus() { return g_storyStatus; }
 
 bool Game::InstallStoryHooks() {
+    // The Widescreen Fix (scripts\NFSMostWanted.WidescreenFix.ini, [MISC] SkipIntro = 1) skips every movie,
+    // story movies too (seen on the laptop: each ends 0 ms after the start). MW Together skips the intro
+    // by itself, so only say so - the player can set the fix's SkipIntro = 0.
+    {
+        std::string wsf = std::string(g_dataDir) + "NFSMostWanted.WidescreenFix.ini";
+        if (GetFileAttributesA(wsf.c_str()) != INVALID_FILE_ATTRIBUTES &&
+            GetPrivateProfileIntA("MISC", "SkipIntro", 0, wsf.c_str()) != 0) {
+            g_wsfSkipsMovies = true;
+            LOG("Story: the Widescreen Fix has SkipIntro = 1 - the game plays no movies, story movies included (set it to 0 in NFSMostWanted.WidescreenFix.ini to keep them; MW Together skips the intro itself)");
+        }
+    }
     struct Slot { uintptr_t slot, expect; void* hook; };
     const Slot slots[3] = {
         { InGameMovieVt + 4, 0x57E400, (void*)&hk_MovieNotify<0> },

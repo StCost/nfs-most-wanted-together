@@ -166,7 +166,7 @@ void Game::MapEventsTick() {
     static DWORD next = 0;
     if (!g_ok || !g_mapHooked) return;
     if (GameFlowState() != 6) { g_allowedN = 0; g_mapExtraN = 0; return; }   // menus / loading: another career may come next
-    if (!g_mapMode || GetTickCount() < next) return;
+    if (!g_mapMode || (int)(GetTickCount() - next) < 0) return;
     next = GetTickCount() + 4000;
     if (RefreshRaceIconsSafe(false)) LOG("Map: %d not-won event(s) shown besides the game's own", g_allowedN);
 }

@@ -131,7 +131,7 @@ The percentage is a simple count of this list: a ticked line counts fully, a lin
 - [x] Performance diagnostics: `[Debug] Perf=1` logs fps, 1% lows, worst frame and how many milliseconds each part of the mod takes, every 5 seconds (it's also shown in the F8 overlay). For testing purposes
 - [x] **F7** starts the test event (`TestEvent`) for both players. For testing purposes
 - [x] **F10 / F11** spawn or remove a test copy of the other player's car, **F12** spawns a test cop. For testing purposes
-- [x] Test commands in `scripts\MWTogether.cmd` also include `pursuit` (the cops start a pursuit on you) and `uncop` (remove every police car, so the pursuit ends in an escape). For testing purposes
+- [x] Test commands in `scripts\MWTogether.cmd` also include `pursuit` (the cops start a pursuit on you), `uncop` (remove every police car, so the pursuit ends in an escape) and `tp x y z` (move your car). Full list in `docs/TESTING.md`. For testing purposes
 
 [^1]: (?) means feature is implemented, unit tested, but not playtested 100%. If you try one of these, tell us how it went.
 
