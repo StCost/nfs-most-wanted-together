@@ -89,7 +89,7 @@ Unticked items are still to do.
 - [x] The host keeps a copy of the other player's career save, updated after every autosave. If that player's own save is missing or older when they connect, it's restored from the host (their old file is kept as a backup)
 - [x] Cutscene skip voting: a cutscene you both watch is skipped only when both press skip
 - [ ] Story cutscenes outside events started for both players at the same time
-- [ ] Getting busted or escaping only affects the player being chased; not checked in co-op yet
+- [x] Getting busted or escaping only affects the player being chased; the other one keeps playing
 
 ### Quality of life (settings in `[Start]` and `[UI]`)
 - [x] Skip the intro logos and movie and load straight into career free roam after the profile (`SkipIntro`, `DirectFreeRoam`)
