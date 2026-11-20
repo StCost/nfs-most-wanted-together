@@ -94,6 +94,34 @@ tools\coop-test.ps1 -Scenario solo -Solo
 | Visual state | watch the partner's car | brake lights when it stops; `Ghost: damage zones now X` after it crashes |
 | Join / leave | start and quit one game | banner `<name> joined` / `left` on the other |
 
+## Prologue and new profiles
+
+Co-op stays off until a profile has started its career and finished the prologue (the scripted races
+16.x in the starting BMW). This is checked on each PC (`Game::CoopAllowed`) and sent with the state
+(`CarState.pad[1]`).
+
+Making a fresh profile without losing the real one:
+
+1. Close the game. Copy `Documents\NFS Most Wanted` to a backup folder, then rename the folder (e.g. to
+   `NFS Most Wanted.real`). The game now finds no profile.
+2. Set `HostIP` to the other PC. For the second side of the check, the other PC (on a normal career)
+   should show `<name> is still in the prologue` once and no car.
+3. Start the game focused, create the profile by hand ("Create a new alias?" Yes, the autosave notices,
+   the name, "save the alias?" Yes), then Career > Start Career.
+4. Afterwards close the game, rename the test folder away and the real one back. Check the real save's
+   time/hash is what it was.
+
+A pass looks like this:
+
+| Step | Expected |
+|---|---|
+| Boot with no profile | log `Start: no saved profile - the profile screens are left to the player`; the mod presses nothing on the profile screens (default name `NAME` is NOT accepted for you) |
+| A question on the profile screen | `Start: the profile screen asks a question (op ...) - left to the player`, nothing more is confirmed in that boot |
+| Profile loaded, career not started | banner `Finish the prologue first - co-op starts in free roam` once; overlay `Co-op: off - finish the prologue first`; `Start: direct free roam - career not started in this profile` |
+| Prologue races (16.1.0, 16.2.2 ...) | no `Event: sent ... to peer`, no `Start: on the grid ... waiting`, no `AI racer built as peer car`, no ghost car; the other PC shows `<name> is still in the prologue ...` once and no car |
+| Next boot of that profile | the load screen is confirmed again (`OK on the load screen`), the gate notice shows again |
+| Normal career profile | no `Co-op: off` lines; ghost, events, traffic as usual |
+
 ## Before a release
 
 1. `tests\build_tests.bat` passes.

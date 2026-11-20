@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdio>
 #include <initializer_list>
+#include <shlobj.h>
 #include <vector>
 #include <string>
 #include <share.h>
@@ -73,6 +74,7 @@ enum IRBV { IRBV_EnableObjectCollisions = 3 };
 
 namespace {
     bool g_ok = false;
+    bool g_coopLinked = true;   // co-op is active right now: connected, and both players are past the prologue
 
     struct Vec3 { float x, y, z; };
     struct Quat { float x, y, z, w; };
@@ -688,7 +690,7 @@ static void* __cdecl hk_VehicleConstruct(SimParam p) {
     using Fn = void* (__cdecl*)(SimParam);
     VehicleParams* vp = (VehicleParams*)p.mData;
     bool replaced = false;
-    if (vp && vp->carClass == DRV_RACER && !g_racerReplacedThisLoad && g_cfg.ghostEnabled && Net::Stats().connected && !BossRaceStarting()) {
+    if (vp && vp->carClass == DRV_RACER && !g_racerReplacedThisLoad && g_cfg.ghostEnabled && Net::Stats().connected && g_coopLinked && !BossRaceStarting()) {
         if (const CarInfo* pc = Net::PeerCar()) {
             g_origRacer[0] = vp->carType; g_origRacerCustom = vp->customization; g_origRacerMatched = vp->matched;
             vp->carType = pc->carKey;
@@ -703,7 +705,7 @@ static void* __cdecl hk_VehicleConstruct(SimParam p) {
     // the other AI racers: build the same opponents as the game that started the event
     bool fromRoster = false;
     uint32_t rKey = 0; void* rCustom = nullptr; void* rMatched = nullptr;
-    if (vp && vp->carClass == DRV_RACER && !replaced && g_usePeerRoster && g_peerRosterNext < g_peerRosterN) {
+    if (vp && vp->carClass == DRV_RACER && !replaced && g_coopLinked && g_usePeerRoster && g_peerRosterNext < g_peerRosterN) {
         RosterEntry& r = g_peerRoster[g_peerRosterNext++];
         rKey = vp->carType; rCustom = vp->customization; rMatched = vp->matched;
         vp->carType = r.key;
@@ -766,6 +768,7 @@ bool Game::InstallVehicleFactoryHook() {
     InstallNisHook();
     InstallSaveSync();
     Net::OnHit = [](const float* dv) {
+        if (!g_coopLinked) return;
         __try {
             void* lrb = RigidBodyOf(LocalVehicle());
             if (!lrb || Game::GameFlowState() != 6 || !g_ghostCollide || !g_separated || g_protectHolding) return;

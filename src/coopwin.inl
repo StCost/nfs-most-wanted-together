@@ -26,7 +26,7 @@ namespace {
         if (localRi && Mem::Read((uintptr_t)localRi + 0x10, rank) && rank == 1) return true;
         if (!g_cfg.sharedWins) return false;
         if (g_peerWonEvent && g_peerWonEvent == Game::CurrentEventHash()) return true;
-        if (!Net::Stats().connected) return false;
+        if (!Net::Stats().connected || !g_coopLinked) return false;
         const Net::Snapshot& p = Net::Latest();
         if (!p.valid || !p.s.inRace || !p.s.eventHash || p.s.eventHash != Game::CurrentEventHash()) return false;   // same event only
         void* gri = GhostRacerInfo();

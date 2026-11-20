@@ -128,12 +128,43 @@ namespace {
     // Without focus the pad messages don't reach it, so McNotify delivers the button messages itself.
     // Only for harmless prompts (operation code 0 / 8 / 9), once per prompt - focused or not (a new
     // player without a profile gets real questions here, which are never answered for them).
+    // Is there a saved profile at all (Documents\NFS Most Wanted\<name>\<name>)? Without one the boot
+    // creates a profile ("Create a new alias?", name entry, autosave question) - never answered for the
+    // player: once the alias question is answered, those prompts show operation code 0 too.
+    bool AnyProfileSaved() {
+        char docs[MAX_PATH] = "";
+        if (FAILED(SHGetFolderPathA(nullptr, CSIDL_PERSONAL, nullptr, SHGFP_TYPE_CURRENT, docs))) return true;
+        std::string root = std::string(docs) + "\\NFS Most Wanted\\";
+        WIN32_FIND_DATAA fd;
+        HANDLE h = FindFirstFileA((root + "*").c_str(), &fd);
+        if (h == INVALID_HANDLE_VALUE) return false;
+        bool found = false;
+        do {
+            if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || fd.cFileName[0] == '.') continue;
+            DWORD a = GetFileAttributesA((root + fd.cFileName + "\\" + fd.cFileName).c_str());
+            if (a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY)) found = true;
+        } while (!found && FindNextFileA(h, &fd));
+        FindClose(h);
+        return found;
+    }
+    bool g_mcSawQuestion = false;       // a real question was on screen during this boot: answer nothing more
     bool ConfirmLoadScreen(DWORD shownMs) {
         void* cfeng = nullptr;
         if (shownMs < 500 || !Mem::Read(0x91CADC, cfeng) || !cfeng) return false;
+        static int profileSaved = -1;
+        if (profileSaved < 0) {
+            profileSaved = AnyProfileSaved() ? 1 : 0;
+            if (!profileSaved) LOG("Start: no saved profile - the profile screens are left to the player");
+        }
+        if (!profileSaved || g_mcSawQuestion) return false;
         uint8_t* btn = McOkButton();
         uint32_t op = 0;
-        if (!btn || !McOpHarmless(&op)) return false;                         // never answer other questions
+        if (!btn) return false;
+        if (!McOpHarmless(&op)) {                                              // never answer other questions
+            LOG("Start: the profile screen asks a question (op %08X) - left to the player", op);
+            g_mcSawQuestion = true;
+            return false;
+        }
         static uint8_t* lastBtn = nullptr; static uint32_t lastOp = 0xFFFFFFFF; static DWORD seenAt = 0, sentAt = 0;
         if (btn != lastBtn || op != lastOp) { lastBtn = btn; lastOp = op; seenAt = GetTickCount(); sentAt = 0; return false; }
         if (GetTickCount() - seenAt < 600) return false;                       // let the box finish appearing

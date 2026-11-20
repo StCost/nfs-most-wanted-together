@@ -180,7 +180,7 @@ static void EventTickImpl(bool connected) {
 
 bool Game::InstallEventSync() {
     Net::OnRoster = [](const RosterPacket& p) {
-        if (p.index >= 8 || p.count > 8) return;
+        if (!g_coopLinked || p.index >= 8 || p.count > 8) return;
         // a new roster only after a pause: repeats of the same invitation must not reset it mid-build
         if (GetTickCount() - g_peerRosterAt > 3000 && !g_usePeerRoster) g_peerRosterN = 0;
         RosterEntry& r = g_peerRoster[p.index];
@@ -191,6 +191,7 @@ bool Game::InstallEventSync() {
         g_peerRosterAt = GetTickCount();
     };
     Net::OnEvent = [](uint32_t hash, const char* id) {
+        if (!g_coopLinked) return;     // one of us is still in the prologue: no shared events
         __try { OnEventPacket(hash, id); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Event: exception handling peer event"); }
     };
     return true;
@@ -419,6 +420,7 @@ void Game::PauseRuleTick(bool connected) {
 
 bool Game::InstallRestartSync() {
     Net::OnRestart = [](uint32_t hash, uint32_t seq) {
+        if (!g_coopLinked) return;
         __try {
             int mode = 0;
             void* parms = CurrentParms(&mode);
@@ -450,3 +452,23 @@ std::string Game::DebugRestart() {
     return DebugRestartSafe();
 }
 uint32_t Game::CurrentEventHash() { return g_curEventHash; }
+
+// Co-op needs a career that is past the prologue. The prologue is a scripted single-player sequence
+// (fixed car, scripted races 16.x and cutscenes); following events or showing cars there would pull
+// the other player into it. Profile: FEDatabase *0x91CF90, loaded flag byte +3, user profile +0x10:
+// +0xAC bit 0 = career started, +0xB0 == 0x10 = prologue (same checks DirectFreeRoam uses).
+static bool CoopAllowedImpl() {
+    uint8_t* fedb = nullptr; uint8_t* up = nullptr;
+    if (!Mem::Read(0x91CF90, fedb) || !fedb || !fedb[3]) return true;          // no profile loaded yet
+    if (!Mem::Read((uintptr_t)fedb + 0x10, up) || !up) return true;
+    if (!(up[0xAC] & 1)) return false;                                         // career not started
+    if (up[0xB0] == 0x10) return false;                                        // in the prologue
+    const char* id = EventIdOf(CurrentParms());
+    if (id && id[0] == '1' && id[1] == '6' && id[2] == '.') return false;      // a prologue event (16.x)
+    return true;
+}
+bool Game::CoopAllowed() {
+    if (!g_ok) return true;
+    __try { return CoopAllowedImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) { return true; }
+}
+void Game::SetCoopLinked(bool linked) { g_coopLinked = linked; }

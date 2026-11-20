@@ -35,6 +35,8 @@ namespace {
     HWND        g_prevForeground = nullptr;   // the window that had focus when the game started
     std::string g_toast;                      // short notification (player joined / left)
     uint32_t    g_toastAt = 0;
+    bool        g_coopHere = true;            // this profile may play co-op (career started, prologue done)
+    const char* g_coopStatus = "";            // overlay line when co-op is off because of the prologue
     // A short notice for the player: in the game's own banner (the EA Trax chyron) when it can show one,
     // otherwise as a line in the corner (drawn by the overlay, also when the overlay is hidden).
     void Toast(const std::string& s) {
@@ -205,12 +207,14 @@ namespace {
             Net::Tick();
 
             local.gameFlowState = Game::GameFlowState();
+            g_coopHere = !g_gameOk || Game::CoopAllowed();
             haveLocal = g_gameOk && Game::ReadLocalCar(local);
-            local.hasCar = haveLocal ? 1 : 0;
+            local.hasCar = (haveLocal && g_coopHere) ? 1 : 0;   // in the prologue the other side shows nothing
             local.nisHash = g_gameOk ? Game::NisSceneHash() : 0;   // also during scenes without a car
             local.nisVote = g_gameOk ? Game::NisVoteHash() : 0;
             local.eventHash = g_gameOk ? Game::CurrentEventHash() : 0;
             local.pad[0] = g_gameOk ? Game::RaceStage() : 0;
+            local.pad[1] = g_coopHere ? 1 : 0;                    // co-op allowed here (past the prologue)
 
             static double nextSend = 0;
             double nowMs = Net::NowMs();
@@ -224,23 +228,40 @@ namespace {
         // --- ghost ---
         std::string ghostStatus = "off";
         const NetStats& st = Net::Stats();
+        // Co-op only while both players are past the prologue (pad[1] = 1 from a peer that allows it;
+        // a peer we have no state from yet counts as allowed).
+        const Net::Snapshot& peerSnap = Net::Latest();
+        bool peerAllowed = !peerSnap.valid || peerSnap.s.pad[1] != 0;
+        bool linked = st.connected && g_coopHere && peerAllowed;
+        if (g_gameOk) Game::SetCoopLinked(linked);
+        {
+            static bool toldHere = false, toldPeer = false;
+            if (st.connected && !g_coopHere && !toldHere) { toldHere = true; Toast("Finish the prologue first - co-op starts in free roam"); LOG("Co-op: off - this profile is still in the prologue / career not started"); }
+            if (st.connected && g_coopHere && !peerAllowed && !toldPeer) {
+                toldPeer = true;
+                Toast((st.peerName.empty() ? std::string("The other player") : st.peerName) + " is still in the prologue - co-op starts when they reach free roam");
+                LOG("Co-op: off - the other player is still in the prologue");
+            }
+            if (!st.connected) toldPeer = false;
+            g_coopStatus = !st.connected ? "" : !g_coopHere ? "off - finish the prologue first" : !peerAllowed ? "off - the other player is in the prologue" : "";
+        }
         { Perf::Scope perfGhost(Perf::Ghost);
-        if (g_netOk && g_gameOk && st.connected) {
+        if (g_netOk && g_gameOk && linked) {
             ghostStatus = Game::UpdateGhost(Net::Latest(), Net::Previous(), g_ghostOn && g_cfg.ghostEnabled);
         } else if (g_gameOk) {
             Game::ReleaseGhost();
         }
         }
-        { Perf::Scope p(Perf::Traffic); if (g_netOk && g_gameOk) Game::TrafficTick(st.connected, Net::Latest()); }
-        { Perf::Scope p(Perf::Pursuit); if (g_netOk && g_gameOk) Game::PursuitTick(st.connected, Net::Latest()); }
+        { Perf::Scope p(Perf::Traffic); if (g_netOk && g_gameOk) Game::TrafficTick(linked, Net::Latest()); }
+        { Perf::Scope p(Perf::Pursuit); if (g_netOk && g_gameOk) Game::PursuitTick(linked, Net::Latest()); }
         { Perf::Scope perfRules(Perf::Rules);
-        if (g_netOk && g_gameOk) Game::EventTick(st.connected);
-        if (g_netOk && g_gameOk) Game::CoopRulesTick(st.connected);
-        if (g_netOk && g_gameOk) Game::PauseRuleTick(st.connected);
+        if (g_netOk && g_gameOk) Game::EventTick(linked);
+        if (g_netOk && g_gameOk) Game::CoopRulesTick(linked);
+        if (g_netOk && g_gameOk) Game::PauseRuleTick(linked);
         if (g_gameOk) Game::AutopilotTick();
-        if (g_netOk && g_gameOk) Game::NisTick(st.connected);
-        if (g_netOk && g_gameOk) Game::SaveTick(st.connected);
-        if (g_netOk && g_gameOk) Game::CoopWinTick(st.connected, Net::Latest());
+        if (g_netOk && g_gameOk) Game::NisTick(linked);
+        if (g_netOk && g_gameOk) Game::SaveTick(linked);
+        if (g_netOk && g_gameOk) Game::CoopWinTick(linked, Net::Latest());
         Macro::Tick();
         }
 
@@ -355,6 +376,7 @@ namespace {
             }
             s += std::string("AutoStart: ") + AutoStart::Status() + "\n";
             if (Game::NisStatus()[0]) s += std::string("Cutscene: ") + Game::NisStatus() + "\n";
+            if (g_coopStatus[0]) s += std::string("Co-op: ") + g_coopStatus + "\n";
             if (Game::SaveStatus()[0]) s += std::string("Career: ") + Game::SaveStatus() + "\n";
             if (Game::EventStatus()[0]) s += std::string("Event: ") + Game::EventStatus() + "\n";
             if (flow == 3 && FEScreens::Current()[0]) s += std::string("Screen: ") + FEScreens::Current() + "\n";
