@@ -75,6 +75,7 @@ namespace {
             if (!NetUtil::TrafficIdAccepted(e[i].id, g_cfg.isHost)) continue;
             bool racer = (e[i].flags & 2) != 0;
             if (!g_cfg.isHost && !racer && !g_trafficNear) continue;   // far from the host: own traffic
+            if (!g_cfg.isHost && !racer && g_clientRacing && !(e[i].flags & 1)) continue;   // in a race: own traffic too
             Mirror* m = FindMirror(e[i].id);
             if (!m) {
                 for (auto& slot : g_mirrors) if (!slot.used) { slot = Mirror{}; slot.used = true; slot.id = e[i].id; m = &slot; break; }
@@ -359,6 +360,25 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
         LOG("Traffic: %s the host (%.0f m) - %s", isNear ? "near" : "away from", distToPeer,
             isNear ? "mirroring host traffic" : "using own traffic");
         if (!isNear) for (auto& m : g_mirrors) if (m.used && !m.racer) RemoveMirror(m);
+    }
+    {
+        void* rs = nullptr; int mode = 0;
+        bool racing = Mem::Read(0x91E000, rs) && rs && Mem::Read((uintptr_t)rs + 0x1960, mode) && mode == 1;
+        if (racing != g_clientRacing) {
+            g_clientRacing = racing;
+            LOG("Traffic: %s", racing ? "in a race - keeping our own traffic" : "race over - sharing the host's traffic again");
+            if (racing) for (auto& m : g_mirrors) if (m.used && !m.racer && m.n && !(m.s[m.n - 1].e.flags & 1)) RemoveMirror(m);
+        }
+    }
+    if (g_clientRacing) {
+        g_suppressTraffic = false;
+        if (sendNow) {
+            TrafficEntry out[MAX_TRAFFIC_PER_PACKET];
+            g_sentCount = CollectOwned({ VL_AICOPS }, peer.s.pos, out, 8);
+            Net::SendTraffic(out, g_sentCount, Game::SimTimeSec());
+        }
+        g_mirrorCount = MaintainMirrors(now);
+        return;
     }
     g_suppressTraffic = isNear;   // no own traffic / patrol spawns near the host (pursuit spawns stay)
     if (!isNear) { g_sentCount = 0; g_mirrorCount = MaintainMirrors(now); return; }   // race opponents only
