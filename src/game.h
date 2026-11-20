@@ -49,6 +49,7 @@ namespace Game {
     std::string DebugRestart();
     std::string DebugRam();             // test: hit the other player's car
     std::string DebugPos();             // test: our position and speed
+    std::string DebugTeleport(const char* args);   // test: 'tp x y z' puts our car there (2 m up, stopped)
     std::string DebugNisSkip();         // test: press skip on the current cutscene
     std::string DebugStopOpponents();   // test: AI opponents stop driving (so a player wins)
     std::string DebugCash();            // test: career cash and whether the current event is won

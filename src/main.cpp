@@ -183,6 +183,7 @@ namespace {
                     else if (c == "uncop") r = Game::DebugKillCops();
                     else if (c == "ram") r = Game::DebugRam();
                     else if (c == "pos") r = Game::DebugPos();
+                    else if (c.rfind("tp ", 0) == 0) r = Game::DebugTeleport(c.substr(3).c_str());
                     else if (c == "mapevents") r = Game::DebugMapEvents("");
                     else if (c.rfind("mapevents ", 0) == 0) r = Game::DebugMapEvents(c.substr(10).c_str());
                     else if (c.rfind("goto ", 0) == 0) r = Game::DebugGotoEvent(c.substr(5).c_str());

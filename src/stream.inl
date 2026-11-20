@@ -17,18 +17,25 @@ namespace {
                                   // our own area, like single player - the movie takes its buffers from the
                                   // streamer's pool (0x517470 -> 0x723A00) once the streamer is idle (0x58F1E0)
     float g_streamPos[3], g_streamVel[2];
+    DWORD g_streamHoldUntil = 0;  // test 'tp': keep the world loaded around g_holdPos until then
+    float g_holdPos[3];
 
     void __cdecl hk_StreamUpdate(float dT) {
         ((void(__cdecl*)(float))StreamUpdateFn)(dT);
+<<<<<<< Updated upstream
         if (!g_streamPeer || g_streamQuiet) return;
+=======
+        bool hold = GetTickCount() < g_streamHoldUntil;
+        if (!g_streamPeer && !hold) return;
+>>>>>>> Stashed changes
         __try {
             char* gm = nullptr; char* rs = nullptr;
             Mem::Read(0x91E00C, gm); Mem::Read(0x91E000, rs);
             if (gm && gm[0x2B4]) return;          // the original skips while these are set (loading / NIS)
             if (rs && rs[0x19A4]) return;
-            float dir[2] = { 0, 0 };
+            float dir[2] = { 0, 0 }, still[2] = { 0, 0 };
             ((void(__thiscall*)(void*, int, float*, float*, float*, bool))PredictStreamFn)
-                ((void*)0x9AA9D0, 1, g_streamPos, g_streamVel, dir, true);
+                ((void*)0x9AA9D0, 1, hold ? g_holdPos : g_streamPos, hold ? still : g_streamVel, dir, true);
         } __except (EXCEPTION_EXECUTE_HANDLER) { g_streamPeer = false; }
     }
 }
@@ -39,6 +46,11 @@ bool Game::InstallStreamHook() {
     return ok;
 }
 
+// Test 'tp': load the world around a sim position for ms milliseconds (uses the second streaming slot).
+static void StreamHoldAt(const float* p, DWORD ms) {
+    g_holdPos[0] = p[2]; g_holdPos[1] = -p[0]; g_holdPos[2] = p[1];
+    g_streamHoldUntil = GetTickCount() + ms;
+}
 // Called every frame from the ghost update: where the other player's car is (or none).
 static void SetStreamPeer(void* rb) {
     if (!rb || !g_cfg.streamAroundPeer) { g_streamPeer = false; return; }

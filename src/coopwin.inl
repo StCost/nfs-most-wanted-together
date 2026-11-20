@@ -273,3 +273,29 @@ bool Game::InstallCatchUp() {
     LOG("Race: catch-up follows the leading player %s", ok ? "hooked" : "NOT hooked (call site differs)");
     return ok;
 }
+static void TeleportSafe(const float* to, char* out, size_t n) {
+    __try {
+        void* me = RigidBodyOf(LocalVehicle());
+        if (!me) { strcpy_s(out, n, "no car"); return; }
+        float pos[3] = { to[0], to[1] + 2.f, to[2] }, zero[3] = { 0, 0, 0 };
+        RB_SetVec(me, RB_SetPosition, pos); RB_SetVec(me, RB_SetLinearVelocity, zero); RB_SetVec(me, RB_SetAngularVelocity, zero);
+        sprintf_s(out, n, "teleported to %.1f %.1f %.1f", to[0], to[1], to[2]);
+    } __except (EXCEPTION_EXECUTE_HANDLER) { strcpy_s(out, n, "exception"); }
+}
+// The first 'tp' to a place loads the world there (the game puts a car standing on unloaded ground back
+// on its old road); the same 'tp' again a few seconds later moves the car.
+std::string Game::DebugTeleport(const char* args) {
+    float p[3];
+    if (sscanf_s(args, "%f %f %f", &p[0], &p[1], &p[2]) != 3) return "usage: tp x y z (as printed by pos)";
+    if (!g_ok || GameFlowState() != 6) return "not in game";
+    static float last[3] = { 1e9f, 1e9f, 1e9f }; static DWORD loadedAt = 0;
+    bool same = fabsf(last[0] - p[0]) < 1.f && fabsf(last[1] - p[1]) < 1.f && fabsf(last[2] - p[2]) < 1.f;
+    StreamHoldAt(p, 30000);
+    if (!same || GetTickCount() - loadedAt > 60000) {
+        memcpy(last, p, 12); loadedAt = GetTickCount();
+        return "loading the world there - send the same tp again in about 5 s";
+    }
+    char b[96] = "";
+    TeleportSafe(p, b, sizeof(b));
+    return b;
+}
