@@ -90,8 +90,7 @@ Open an issue and include:
 - what you did, what you expected and what happened instead.
 
 ## Good first areas
-See [ROADMAP.md](ROADMAP.md): career progress sharing, cutscene skip sync, connect/disconnect
-notifications in the game UI, a launcher, and up to 4 players.
+The unticked lines in the [README checklist](README.md#features-and-progress) are what's left: more than two players, internet play without a VPN, name tags, shared traffic in races, and story cutscenes for both players.
 
 ## Testing in the game
 See [docs/TESTING.md](docs/TESTING.md): the test commands, `tools\coop-test.ps1` scenarios for two PCs, and the release checklist. Add a scenario there when you add a co-op feature.
