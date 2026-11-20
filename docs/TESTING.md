@@ -40,6 +40,8 @@ second, deletes it and logs `Command '<text>': <result>`. This works with the ga
 | `pursuit` / `uncop` | start a pursuit on you / remove all police cars |
 | `ram` | first call: park 25 m from the other car. Second call (5 s later): hit it at 90 km/h |
 | `pos` | log own position, speed and damage |
+| `mapevents` / `mapevents N` | list the extra not-won events on the map / switch `MapEvents` to 0, 1 or 2 now |
+| `goto <id>` | put your car on the marker of an extra event, e.g. `goto 14.2.1` |
 | `clone` / `unclone` / `cop` | spawn/remove a copy of the other player's car, spawn a cop |
 | `notice <text>` | show a notice in the game's banner |
 | `shot <file.bmp>` | save the next frame (without the overlay) |
