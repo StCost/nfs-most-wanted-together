@@ -128,6 +128,8 @@ namespace {
             } else if (!same) {
                 return; // ignore third parties while a peer is connected
             }
+        } else if (g_havePeer && from.sin_addr.s_addr != g_peer.sin_addr.s_addr) {
+            return;     // the client only listens to the host it dialled
         }
 
         g_stats.packetsIn++;
