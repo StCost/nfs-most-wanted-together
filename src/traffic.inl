@@ -350,7 +350,11 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
 
     // ---- client ----
     bool isNear = g_trafficNear ? distToPeer < 450.f : distToPeer < 350.f;
+    // not more than one switch every 15 s: each one removes and rebuilds all traffic around us
+    static double lastFlip = -1e9;
+    if (isNear != g_trafficNear && now - lastFlip < 15000) isNear = g_trafficNear;
     if (isNear != g_trafficNear) {
+        lastFlip = now;
         g_trafficNear = isNear;
         LOG("Traffic: %s the host (%.0f m) - %s", isNear ? "near" : "away from", distToPeer,
             isNear ? "mirroring host traffic" : "using own traffic");

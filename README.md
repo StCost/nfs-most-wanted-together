@@ -80,7 +80,8 @@ Unticked items are still to do.
 - [x] Race intro cutscenes play normally for both
 - [x] A win by either player counts for both: cash, unlocks and career progress in each player's own career (`SharedWins`)
 - [x] The other player's finish is shown in your standings
-- [ ] Blacklist rival races and their rewards (cars, markers): they start together and use shared wins, but nobody has played one in co-op yet
+- [x] Blacklist rival races: you both race the rival in the same event (your partner's car drives alongside, outside the standings), and each of you gets the normal rival flow after winning
+- [ ] Rival rewards (markers, pink slips) picked in co-op: not played through yet
 - [ ] Milestones, speed traps and bounty count for each player's own career as in single player; not checked in co-op yet
 - [x] Challenge Series events are announced to the other player too. From the menu they get the event's preset car; from free roam they join in their own car (?)
 
