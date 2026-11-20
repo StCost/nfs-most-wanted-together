@@ -19,10 +19,16 @@
 //  start-together hold in event.inl), and with SyncStoryScenes=2 plays the same movie when its own
 //  career has reached it.
 //  Starting one ourselves (watch along, test command "story <movie>"):
-//   - 0x57E470 sets the byte first and pushes the screen only if the HUD (name in 0x8F4318) is the top
-//     active screen (0x516B90). Otherwise the byte stays set and the world stays stopped (the sim gate
-//     0x6EF150 tests the byte at 0x6EF159, before the co-op no-pause patch at 0x6EF1B1). So we check
-//     that ourselves first and clear the byte if no screen came up.
+//   - 0x57E470 sets the byte first, then pushes the movie screen in both cases: SwitchPackage
+//     (0x525940 -> 0x5BBB40) when the screen named in 0x8F4318 is the top input screen (0x516B90 walks
+//     cFEng's package list for the first one with +0x20 set and compares its name), PushPackage
+//     (0x5257F0 -> 0x5BBB60) otherwise. In free roam no package has +0x20 set (the HUD takes no menu
+//     input; a menu or dialog does - e.g. Pause_Main), and 0x8F4318 holds the last loading screen's
+//     name, so the push path is the normal one. We don't start over an open menu / dialog, and clear the
+//     byte if no screen came up (else the world stays stopped: the sim gate 0x6EF150 tests the byte at
+//     0x6EF159, before the co-op no-pause patch at 0x6EF1B1).
+//   - The game option SKIPMOVIES (0x926144; the Widescreen Fix's SkipIntro = 1 sets it) makes every movie
+//     send "movie done" at once - story movies too. Then we don't start any.
 //   - The career only starts these over the world from an NIS (EPlayRaceMovie 0x62F820, created by INIS
 //     at 0x6F56DB / 0x6EA8FF), i.e. with the world held and the streamer settled. The screen ctor
 //     (0x58F180) waits for the track streamer (0x9AA9D0) to go idle, and the movie library allocates
@@ -40,7 +46,8 @@ namespace {
     constexpr uintptr_t MoviePlayingFlag = 0x91CF68, InGameMovieName = 0x8F3F40, InGameMovieName2 = 0x8F3F80,
                         FEMovieName = 0x8F3750, PlayInGameMovieFn = 0x57E470, PauseRequests = 0x91CAE4,
                         InGameMovieVt = 0x8A0FC8, InGameMovie2Vt = 0x8A0FD4, FEMovieVt = 0x89E3C4,
-                        HudPackageName = 0x8F4318, IsTopScreenFn = 0x516B90, MoviePlayerPtr = 0x91CB10;
+                        MoviePlayerPtr = 0x91CB10,
+                        SkipMoviesOption = 0x926144;   // SKIPMOVIES (read at boot, 0x78A9E2): every movie ends at once (0x542A56, 0x5596A2)
     constexpr uint32_t PadAccept = 0x406415E3, PadStart = 0xB5AF2461, MovieDone = 0xC3960EB9;
 
     const char* const kStoryMovies[] = {
@@ -262,17 +269,34 @@ namespace {
         __try { ((void(__cdecl*)(const char*))PlayInGameMovieFn)(name); return true; }
         __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     }
-    // why the game would not show an in-game movie now (nullptr = it would). 0x57E470 itself only
-    // pushes the screen when the HUD is the top active screen (0x516B90), but sets the byte anyway.
+    // The first package in cFEng's list that takes menu input (+0x20 set; walked like 0x516B90): a pause
+    // menu, dialog, map ... nullptr in plain free roam.
+    const char* InputScreenName(void* fe) {
+        uint8_t* root = nullptr; uint8_t* e = nullptr;
+        if (!Mem::Read((uintptr_t)fe, root) || !root || !Mem::Read((uintptr_t)root + 0xD8 + 0xC, e)) return nullptr;
+        for (int i = 0; e && i < 64; ++i) {
+            uint32_t active = 0; const char* name = nullptr;
+            Mem::Read((uintptr_t)e + 0x20, active);
+            if (active) { Mem::Read((uintptr_t)e + 0xC, name); return (name && Mem::IsReadable(name, 2)) ? name : "?"; }
+            if (!Mem::Read((uintptr_t)e + 8, e)) break;
+        }
+        return nullptr;
+    }
+    // why the game would not show an in-game movie now (nullptr = it would)
     const char* MovieStartBlockerRaw() {
         if (Game::GameFlowState() != 6) return "not in the world";
         if (Game::NisSceneHash()) return "a cutscene is playing";
         uint8_t playing = 0; Mem::Read(MoviePlayingFlag, playing);
         if (playing) return "a movie is already playing";
-        void* fe = nullptr; const char* hud = nullptr;
-        if (!Mem::Read(0x91CADC, fe) || !fe || !Mem::Read(HudPackageName, hud) || !hud || !Mem::IsReadable(hud, 2) || !hud[0])
-            return "no in-game HUD";
-        if (!((bool(__thiscall*)(void*, const char*))IsTopScreenFn)(fe, hud)) return "a menu / dialog is open over the HUD";
+        uint32_t skipMovies = 0; Mem::Read(SkipMoviesOption, skipMovies);
+        if (skipMovies) return "movies are switched off in this game (SKIPMOVIES - e.g. WidescreenFix SkipIntro = 1)";
+        void* fe = nullptr;
+        if (!Mem::Read(0x91CADC, fe) || !fe) return "no front end";
+        if (const char* menu = InputScreenName(fe)) {
+            static char why[96];
+            sprintf_s(why, "a menu / dialog is open (%.48s)", menu);
+            return why;
+        }
         return nullptr;
     }
     const char* MovieStartBlocker() {

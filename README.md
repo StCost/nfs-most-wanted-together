@@ -35,6 +35,8 @@ yours first if you have one), start the game and pick the `MWT` profile.
 
 Already have an ASI loader? Keep your `dinput8.dll` and copy only the `scripts` folder and the launcher.
 Coming from the old CoopMod? Delete `scripts\CoopMod.asi`; your settings carry over.
+Using the Widescreen Fix? Its `SkipIntro = 1` switches off all of the game's movies (the game option SKIPMOVIES), story movies included.
+MW Together already skips the intro logos and movie by itself (`[Start] SkipIntro`), so set the Widescreen Fix's `SkipIntro = 0` to keep the story movies.
 
 ## What to expect
 
