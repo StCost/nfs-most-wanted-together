@@ -68,7 +68,8 @@ namespace NetUtil {
     }
     inline bool ValidCarState(const CarState& s) {
         return ValidMotion(s.pos, s.rot, s.linVel, s.angVel) &&
-               FiniteWithin(&s.speedMps, 1, MAX_VEL) && FiniteWithin(&s.simTime, 1, MAX_SIMTIME_S);
+               FiniteWithin(&s.speedMps, 1, MAX_VEL) && FiniteWithin(&s.simTime, 1, MAX_SIMTIME_S) &&
+               FiniteWithin(&s.steer, 1, 1.5f);
     }
     inline bool ValidTrafficEntry(const TrafficEntry& e) {
         return ValidMotion(e.pos, e.rot, e.linVel, e.angVel);

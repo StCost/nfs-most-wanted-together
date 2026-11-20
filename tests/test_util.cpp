@@ -134,6 +134,8 @@ TEST(util_validation_rejects_bad_floats) {
     b = s; b.speedMps = inf;               CHECK(!ValidCarState(b));
     b = s; b.simTime = nan;                CHECK(!ValidCarState(b));
     b = s; b.simTime = inf;                CHECK(!ValidCarState(b));
+    b = s; b.steer = nan;                  CHECK(!ValidCarState(b));
+    b = s; b.steer = 40.0f;                CHECK(!ValidCarState(b));   // not a steering value
 
     TrafficEntry e = th::MakeTrafficEntry(1, 100.0f);
     CHECK(ValidTrafficEntry(e));

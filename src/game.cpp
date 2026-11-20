@@ -452,6 +452,37 @@ std::string Game::ToggleAutopilot() {
     return ToggleAutopilotSafe();
 }
 
+// Visual state of a car: its IInput controls (handle 0x403F90; controls block at IInput+8: steering
+// +0x0C, gas +0x1C, brake +0x20, handbrake +0x24, NOS byte +0x29 - relative to the IInput pointer;
+// setters slot 5 steering, 6 gas, 7 brake, 8 NOS(bool), 9 handbrake) and its light bits (IVehicle+0x9C).
+static uint8_t Unit8(float v) { return (uint8_t)(v <= 0.f ? 0 : v >= 1.f ? 255 : (int)(v * 255.f + 0.5f)); }
+static void ReadCarControls(void* iv, CarState& out) {
+    const uint8_t* in = (const uint8_t*)Find(iv, 0x403F90 /*IInput*/);
+    if (in) {
+        out.steer = *(const float*)(in + 0x0C);
+        if (!(fabsf(out.steer) <= 1.f)) out.steer = 0.f;
+        out.gas = Unit8(*(const float*)(in + 0x1C));
+        out.brake = Unit8(*(const float*)(in + 0x20));
+        out.handbrake = Unit8(*(const float*)(in + 0x24));
+        out.nos = in[0x29] ? 1 : 0;
+    }
+    out.glare = *(const uint32_t*)((const uint8_t*)iv + 0x9C);
+}
+// Show the other player's controls on their car here: front-wheel angle, brake lights, tyre smoke and
+// nitrous flames come from these. Gas is applied too (engine sound, wheelspin); the motion itself is
+// still hard-set from the network every frame, so it can't drive the car away.
+static void ApplyCarControls(void* iv, const CarState& s) {
+    void* in = Find(iv, 0x403F90 /*IInput*/);
+    if (in) {
+        VCall<void(__thiscall*)(void*, float)>(in, 5)(in, s.steer);
+        VCall<void(__thiscall*)(void*, float)>(in, 6)(in, s.gas / 255.f);
+        VCall<void(__thiscall*)(void*, float)>(in, 7)(in, s.brake / 255.f);
+        VCall<void(__thiscall*)(void*, bool)>(in, 8)(in, s.nos != 0);
+        VCall<void(__thiscall*)(void*, float)>(in, 9)(in, s.handbrake / 255.f);
+    }
+    *(uint32_t*)((uint8_t*)iv + 0x9C) = s.glare;
+}
+
 bool Game::ReadLocalCar(CarState& out) {
     if (!g_ok || GameFlowState() != 6) return false;
     __try {
@@ -470,6 +501,7 @@ bool Game::ReadLocalCar(CarState& out) {
         Mem::Read(0x9885D8, out.simTime);                 // when (in simulation time) this state is from
         // race progress of my racer (GRacerInfo: +0x18 pct race, +0x21 finished, +0x24 pct lap,
         // +0x28 laps, +0x2C checkpoints this lap), looked up with GRaceStatus::GetRacerInfo(ISimable*)
+        ReadCarControls(iv, out);
         out.inRace = 0;
         void* rs = nullptr;
         int mode = 0;
@@ -984,6 +1016,7 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
     RB_SetVec(rb, RB_SetLinearVelocity, s.linVel);
     RB_SetVec(rb, RB_SetAngularVelocity, s.angVel);
     float* newPos = s.pos;
+    if (g_cfg.syncControls) ApplyCarControls(g_ghost, s);
 
     // jitter meter: how far each frame's position is from a straight-line prediction made from the
     // previous two frames, scaled by their frame times (so uneven frame rates don't count). RMS, mm.

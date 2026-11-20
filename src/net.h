@@ -64,6 +64,14 @@ struct CarState {
     uint32_t nisHash;       // cutscene the sender is in (scene name hash), 0 = none
     uint32_t nisVote;       // cutscene the sender wants skipped, 0 = no vote
     uint32_t eventHash;     // event the sender is in (race parameters set), 0 = free roam
+    // what the sender's car is doing, so the other PC can show it (brake lights, front wheels, smoke,
+    // nitrous): the car's IInput controls and its light bits (IVehicle+0x9C)
+    float    steer;         // -1 (left) .. 1 (right)
+    uint8_t  gas;           // 0..255
+    uint8_t  brake;         // 0..255
+    uint8_t  handbrake;     // 0..255
+    uint8_t  nos;           // 1 = nitrous button held
+    uint32_t glare;         // light bits: head / brake / reverse / signals
 };
 
 struct StatePacket {
@@ -150,7 +158,7 @@ struct TrafficPacket {
 #pragma pack(pop)
 
 constexpr uint32_t COOP_MAGIC   = 0x4F43574D; // "MWCO"
-constexpr uint16_t COOP_VERSION = 13;
+constexpr uint16_t COOP_VERSION = 14;
 
 struct NetStats {
     bool        connected = false;
