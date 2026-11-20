@@ -49,7 +49,7 @@ Coming from the old CoopMod? Delete `scripts\CoopMod.asi`; your settings carry o
   autosave and hands it back if theirs is ever missing or older.
 - **Not yet:** 4 players, and prologue together.
 
-## Features and progress (89%)
+## Features and progress (91%)
 
 The percentage is a simple count of this list: a ticked line counts fully, a line with **(?)** counts half (it's built, but nobody has played through it on two PCs yet), an empty box counts nothing.
 
@@ -75,7 +75,8 @@ The percentage is a simple count of this list: a ticked line counts fully, a lin
 - [x] Other player on the world map, coloured like your own arrow and moving while the map is open
 - [x] Car-to-car collisions between players, with the impact passed on: ram your partner and their car is thrown on their screen too
 - [x] Your names in the race standings instead of the shared save name
-- [x] Your partner's car shows what it's doing: brake lights, steering, nitrous, and damage from crashes (?)
+- [x] Your partner's car shows brake lights and damage from crashes (dents, broken parts)
+- [x] Your partner's car shows steering and nitrous (?)
 
 ### The world
 - [x] Shared traffic when you're near each other
@@ -86,7 +87,7 @@ The percentage is a simple count of this list: a ticked line counts fully, a lin
 - [x] Hitting the other player's traffic, cops or race opponents pushes the real car on their PC (?)
 - [x] Pause menu and world map don't pause the time while you're connected
 - [x] No speedbreaker in co-op (slow motion can't work for two people)
-- [x] Shared traffic inside races: the host's traffic cars are shown by the client's own traffic cars, so race scripts keep every car they own (`[Traffic] SharedInRaces`, 0 = each player keeps their own traffic in races) (?)
+- [x] Shared traffic inside races: the host's traffic cars are shown by the client's own traffic cars, so race scripts keep every car they own. Cars are in the same places on both screens, but may be a different model when no matching one is free (`[Traffic] SharedInRaces`, 0 = each player keeps their own traffic in races)
 
 ### Events and races
 - [x] Starting an event takes the other player into it too, even from the results screen of the last race
