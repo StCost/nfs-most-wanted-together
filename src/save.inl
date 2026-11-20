@@ -48,6 +48,16 @@ namespace {
         CreateDirectoryA((std::string(g_dataDir) + "MWTogether-saves").c_str(), nullptr);
         std::string dir = HostDir(owner);
         CreateDirectoryA(dir.c_str(), nullptr);
+        // only the connected player's own save, and never an older one over a newer one
+        char peer[40] = "";
+        if (!SafeName(Net::Stats().peerName.c_str(), peer, sizeof(peer)) || _stricmp(peer, owner)) {
+            LOG("Career: a save for '%s' arrived from player '%s' - not stored", owner, peer);
+            return;
+        }
+        std::string target = dir + "\\" + profile;
+        uint64_t have = FileTime64(target);
+        if (have > mtime) { LOG("Career: %s's save is older than the copy we keep - kept ours", owner); return; }
+        if (have && have != mtime) CopyFileA(target.c_str(), (target + ".prev").c_str(), FALSE);   // one generation back
         // one save per player: remember which profile it is
         if (SaveUtil::WriteAllAtomic(dir + "\\" + profile, d, n, mtime)) {
             WritePrivateProfileStringA("Save", "Profile", profile, (dir + "\\save.ini").c_str());
