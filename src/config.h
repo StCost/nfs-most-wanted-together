@@ -27,6 +27,7 @@ struct Config {
     bool        startInBackground = false; // [Window] StartInBackground - give focus back on start, game muted until clicked
     bool        sharedWins = true;       // [Career] SharedWins - a win by either player counts for both
     bool        saveSync = true;         // [Career] SaveSync - the host keeps a copy of the client's save
+    bool        bootTrace = false;       // [Debug] BootTrace - log memory-card / controller state changes while booting
     bool        perf = false;            // [Debug] Perf - log fps / frame times / mod cost every 5 s
     bool        autoPilot = false;       // [Debug] AutoPilot - the AI drives the local car in free roam and races (F5 toggles)
     bool        runInBackground = true;  // [Coop] RunInBackground - keep running when the window loses focus

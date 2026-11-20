@@ -66,8 +66,8 @@ namespace {
                 LOG("Window: started in the background (focus returned)");
             }
         }
-        // While it boots in the background, keep the game's "application active" flag (0x982BEC) set:
-        // the profile load only runs while the game thinks it is active. Once in the world, tell it
+        // While it boots in the background, keep the game's "application active" flag (0x982BEC) set
+        // so its input polling and boot flow keep running (the profile screen is confirmed in boot.inl). Once in the world, tell it
         // that it's inactive (it mutes itself, like after alt-tab).
         if (g_bgBoot) {
             HWND gw = Overlay::GameWindow();
