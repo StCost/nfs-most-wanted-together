@@ -22,8 +22,8 @@ Wanted online free roam with a friend, Need for Speed Most Wanted two player mod
 
 ATTENTION: Both players must finish the career prologue (the opening races). Reach free roam to see and interact with other players.
 
-Don't want to replay the prologue? Releases also have a **StarterSave** zip: a fresh career saved right after the prologue,
-at the car lot where you buy your first car. Unpack it into `Documents` (it holds the `NFS Most Wanted` folder; back up
+Don't want to replay the prologue? Releases also have a **StarterSave** zip: a fresh career saved at the end of the prologue: you drive
+the last short scripted race, then go to the car lot and pick your first car. Unpack it into `Documents` (it holds the `NFS Most Wanted` folder; back up
 yours first if you have one), start the game and pick the `MWT` profile.
 
 ## You need
@@ -96,7 +96,7 @@ The percentage is a simple count of this list: a ticked line counts fully, a lin
 - [x] Race positions use each player's real progress
 - [x] Start together: whoever loads first waits on the grid until the other is ready (`StartTogether`)
 - [x] Restarting a race restarts it for both of you
-- [x] AI opponents' catch-up (rubber banding) follows whichever player is ahead, so they race the best of you (`CatchUpLeader`) (?)
+- [x] AI opponents' catch-up (rubber banding) follows whichever player is ahead, so they race the best of you (`CatchUpLeader`)
 - [x] Race intro cutscenes play normally for both
 - [x] A win by either player counts for both: cash, unlocks and career progress in each player's own career (`SharedWins`)
 - [x] The other player's finish is shown in your standings
