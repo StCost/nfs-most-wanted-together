@@ -83,7 +83,7 @@ Unticked items are still to do.
 
 ### Career
 - [ ] The host's save is the shared career
-- [ ] The client's progress is kept by the host and loaded when they connect
+- [x] The host keeps a copy of the other player's career save, updated after every autosave. If that player's own save is missing or older when they connect, it's restored from the host (their old file is kept as a backup)
 - [x] Cutscene skip voting: a cutscene you both watch is skipped only when both press skip (?)
 - [ ] Story cutscenes started for both players at the same time
 - [ ] Busted / escape results handled for both players
