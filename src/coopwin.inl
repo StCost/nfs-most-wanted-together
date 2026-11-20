@@ -203,7 +203,9 @@ static void PosSafe(char* out, size_t n) {
         void* me = RigidBodyOf(LocalVehicle());
         if (!me) { strcpy_s(out, n, "no car"); return; }
         const float* p = RB_GetVec(me, RB_GetPosition); const float* v = RB_GetVec(me, RB_GetLinearVelocity);
-        sprintf_s(out, n, "pos %.1f %.1f %.1f speed %.1f m/s", p[0], p[1], p[2], sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]));
+        CarState cs{}; ReadCarControls(LocalVehicle(), cs);
+        sprintf_s(out, n, "pos %.1f %.1f %.1f speed %.1f m/s damage %08X lights %08X", p[0], p[1], p[2],
+                  sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]), cs.damageZones, cs.brokenLights);
     } __except (EXCEPTION_EXECUTE_HANDLER) { strcpy_s(out, n, "exception"); }
 }
-std::string Game::DebugPos() { char b[96] = "not in game"; if (g_ok && GameFlowState() == 6) PosSafe(b, sizeof(b)); return b; }
+std::string Game::DebugPos() { char b[128] = "not in game"; if (g_ok && GameFlowState() == 6) PosSafe(b, sizeof(b)); return b; }

@@ -474,10 +474,26 @@ static void ReadCarControls(void* iv, CarState& out) {
         out.nos = in[0x29] ? 1 : 0;
     }
     out.glare = *(const uint32_t*)((const uint8_t*)iv + 0x9C);
+    // damage: IDamageable (handle 0x405000) slot 8 GetZoneDamage(out) - 10 zones x 3 bits, the same
+    // value it keeps at IDamageable+0x4C; broken lights: IDamageableVehicle (0x668440) +0x5C bit mask
+    if (void* dmg = Find(iv, 0x405000)) { uint32_t z = 0; VCall<void*(__thiscall*)(void*, uint32_t*)>(dmg, 8)(dmg, &z); out.damageZones = z; }
+    if (void* dv = Find(iv, 0x668440)) out.brokenLights = *(const uint32_t*)((const uint8_t*)dv + 0x5C);
 }
 // Show the other player's controls on their car here: front-wheel angle (steering), nitrous flames (NOS)
 // and the lights (brake / head / reverse / signals from the glare bits). The motion itself is still
 // hard-set from the network every frame.
+// Dents / broken parts and lights of the other player's car (written only when they change).
+static void ApplyCarDamage(void* iv, const CarState& s) {
+    if (!g_cfg.syncDamage) return;
+    if (uint8_t* dmg = (uint8_t*)Find(iv, 0x405000)) {
+        uint32_t& z = *(uint32_t*)(dmg + 0x4C);
+        if (z != (s.damageZones & 0x3FFFFFFF)) { z = s.damageZones & 0x3FFFFFFF; LOG("Ghost: damage zones now %08X", z); }
+    }
+    if (uint8_t* dv = (uint8_t*)Find(iv, 0x668440)) {
+        uint32_t& l = *(uint32_t*)(dv + 0x5C);
+        if (l != s.brokenLights) { l = s.brokenLights; LOG("Ghost: broken lights now %08X", l); }
+    }
+}
 static void ApplyCarControls(void* iv, const CarState& s) {
     void* in = Find(iv, 0x403F90 /*IInput*/);
     if (in) {
@@ -1034,6 +1050,7 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
     RB_SetVec(rb, RB_SetAngularVelocity, s.angVel);
     float* newPos = s.pos;
     if (g_cfg.syncControls) ApplyCarControls(g_ghost, s);
+    ApplyCarDamage(g_ghost, s);
 
     // jitter meter: how far each frame's position is from a straight-line prediction made from the
     // previous two frames, scaled by their frame times (so uneven frame rates don't count). RMS, mm.

@@ -73,6 +73,8 @@ struct CarState {
     uint8_t  handbrake;     // 0..255
     uint8_t  nos;           // 1 = nitrous button held
     uint32_t glare;         // light bits: head / brake / reverse / signals
+    uint32_t damageZones;   // body damage: 10 zones x 3 bits (IDamageable GetZoneDamage)
+    uint32_t brokenLights;  // broken head / brake lights (IDamageableVehicle +0x5C bit mask)
 };
 
 struct StatePacket {
@@ -166,7 +168,7 @@ struct TrafficPacket {
 #pragma pack(pop)
 
 constexpr uint32_t COOP_MAGIC   = 0x4F43574D; // "MWCO"
-constexpr uint16_t COOP_VERSION = 14;
+constexpr uint16_t COOP_VERSION = 15;
 
 struct NetStats {
     bool        connected = false;
