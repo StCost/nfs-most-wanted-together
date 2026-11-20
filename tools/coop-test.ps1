@@ -59,10 +59,10 @@ try {
         'smoke'    { Start-Game; Start-Sleep 10; Show-Log "$always|Connected|Ghost acq|Notice|flow state 5" }
         'race'     { if (-not $Event) { $Event = '15.1.1' }; Start-Game; Start-Sleep 20; Send-Cmd 'cash'; Send-Cmd "event $Event"
                      Wait-Log 'peer racer info|HUD_SingleRace' 60 | Out-Null; Start-Sleep 20; Send-Cmd 'slowai'
-                     Wait-Log 'FE screens: \[PostRace' 420 | Out-Null; Start-Sleep 6; Send-Cmd 'cash'
+                     Wait-Log 'Race: we finished|FE screens: \[PostRace' 420 | Out-Null; Start-Sleep 6; Send-Cmd 'cash'
                      Show-Log "$always|Event: s|Race: (the|AI racer|opponent)|Start: (on|go)|Notice|FE screens: \[Post" 18 }
         'boss'     { if (-not $Event) { $Event = '15.1.2' }; Start-Game; Start-Sleep 20; Send-Cmd "event $Event"
-                     Wait-Log 'FE screens: \[PostRace' 420 | Out-Null; Start-Sleep 6; Send-Cmd 'cash'
+                     Wait-Log 'Race: we finished|FE screens: \[PostRace' 420 | Out-Null; Start-Sleep 6; Send-Cmd 'cash'
                      Show-Log "$always|Event: s|Race:|Ghost acq|Notice|FE screens: \[Post" 18 }
         'restart'  { if (-not $Event) { $Event = '15.1.1' }; Start-Game; Start-Sleep 20; Send-Cmd "event $Event"
                      Wait-Log 'peer racer info|HUD_SingleRace' 60 | Out-Null; Start-Sleep 40; Send-Cmd 'restart'; Start-Sleep 40
@@ -81,7 +81,7 @@ try {
                          "== $ev (game still running: $([bool](Get-Process speed -ErrorAction SilentlyContinue)))"
                          Show-Log "$always|Event: (race|starting)|Race: (AI racer|peer racer)|Traffic: in a race" 6 } }
         'solo'     { if (-not $Event) { $Event = '15.1.1' }; $Solo = $true; Start-Game; Start-Sleep 10; Send-Cmd 'cash'; Send-Cmd "event $Event"
-                     Start-Sleep 35; Send-Cmd 'slowai'; Wait-Log 'FE screens: \[PostRace' 420 | Out-Null; Start-Sleep 15; Send-Cmd 'cash'
+                     Start-Sleep 35; Send-Cmd 'slowai'; Wait-Log 'Race: we finished|FE screens: \[PostRace' 420 | Out-Null; Start-Sleep 15; Send-Cmd 'cash'
                      Show-Log "$always|Start: (on|go)|Collision|Race: the|FE screens: \[Post" }
     }
 }

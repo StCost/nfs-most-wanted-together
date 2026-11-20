@@ -25,7 +25,10 @@ namespace {
         int rank = 0;
         if (localRi && Mem::Read((uintptr_t)localRi + 0x10, rank) && rank == 1) return true;
         if (!g_cfg.sharedWins) return false;
-        if (g_peerWonEvent && g_peerWonEvent == Game::CurrentEventHash()) return true;
+        if (g_peerWonEvent && g_peerWonEvent == Game::CurrentEventHash()) {
+            if (!g_coopWinLogged) { g_coopWinLogged = true; g_coopWinNotice = true; LOG("Race: the other player won - counted as our win too"); }
+            return true;
+        }
         if (!Net::Stats().connected || !g_coopLinked) return false;
         const Net::Snapshot& p = Net::Latest();
         if (!p.valid || !p.s.inRace || !p.s.eventHash || p.s.eventHash != Game::CurrentEventHash()) return false;   // same event only
@@ -210,3 +213,39 @@ static void PosSafe(char* out, size_t n) {
     } __except (EXCEPTION_EXECUTE_HANDLER) { strcpy_s(out, n, "exception"); }
 }
 std::string Game::DebugPos() { char b[128] = "not in game"; if (g_ok && GameFlowState() == 6) PosSafe(b, sizeof(b)); return b; }
+// ---------------------------------------------------------------------------
+// Catch-up ("rubber banding") follows the player who is ahead.
+//  Once a second each AI racer measures its gap to the humans: 0x4293D0 calls 0x4255A0(&out, 1, 0, 0)
+//  at 0x42956F, which sums GRacerInfo race % (+0x18) over the players list and returns {sum, count};
+//  the caller turns it into an average. In co-op the other player is a racer slot, not in that list,
+//  so the AI only ever measured itself against the local player. We answer that call ourselves with
+//  the progress of whichever human is further along.
+// ---------------------------------------------------------------------------
+namespace {
+    struct PctAvg { float sum, cnt; };
+    using AvgFn = PctAvg* (__cdecl*)(PctAvg*, int, float, float);
+    bool LeaderPct(float& out) {
+        __try {
+            void* mine = RacerInfoOfLocal();
+            float a = 0, b = 0;
+            if (!mine || !Mem::Read((uintptr_t)mine + 0x18, a)) return false;
+            const Net::Snapshot& p = Net::Latest();
+            void* gri = GhostRacerInfo();
+            bool peerRacing = Net::Stats().connected && p.valid && p.s.inRace && p.s.eventHash && p.s.eventHash == Game::CurrentEventHash();
+            if (peerRacing && gri && Mem::Read((uintptr_t)gri + 0x18, b)) { out = b > a ? b : a; return true; }
+            if (peerRacing && !gri) { out = p.s.racePct > a ? p.s.racePct : a; return true; }   // rival races: their car isn't a racer here
+            return false;                                                                      // solo: leave the game alone
+        } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+    }
+    PctAvg* __cdecl hk_PlayersPct(PctAvg* out, int list, float s0, float c0) {
+        float pct = 0;
+        if (g_cfg.catchUpLeader && list == 1 && LeaderPct(pct)) { out->sum = pct; out->cnt = 1.0f; return out; }
+        return ((AvgFn)0x4255A0)(out, list, s0, c0);
+    }
+}
+
+bool Game::InstallCatchUp() {
+    bool ok = PatchCallChecked(0x42956F, 0x4255A0, (void*)&hk_PlayersPct);
+    LOG("Race: catch-up follows the leading player %s", ok ? "hooked" : "NOT hooked (call site differs)");
+    return ok;
+}

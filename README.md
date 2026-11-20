@@ -39,7 +39,7 @@ Coming from the old CoopMod? Delete `scripts\CoopMod.asi`; your settings carry o
   autosave and hands it back if theirs is ever missing or older.
 - **Not yet:** 4 players, and prologue together.
 
-## Features and progress (82%)
+## Features and progress (85%)
 
 The percentage is a simple count of this list: a ticked line counts fully, a line with **(?)** counts half (it's built, but nobody has played through it on two PCs yet), an empty box counts nothing.
 
@@ -88,7 +88,7 @@ The percentage is a simple count of this list: a ticked line counts fully, a lin
 - [x] Race positions use each player's real progress
 - [x] Start together: whoever loads first waits on the grid until the other is ready (`StartTogether`)
 - [x] Restarting a race restarts it for both of you
-- [ ] AI opponents' catch-up follows whichever player is ahead (for now it follows the host)
+- [x] AI opponents' catch-up (rubber banding) follows whichever player is ahead, so they race the best of you (`CatchUpLeader`) (?)
 - [x] Race intro cutscenes play normally for both
 - [x] A win by either player counts for both: cash, unlocks and career progress in each player's own career (`SharedWins`)
 - [x] The other player's finish is shown in your standings

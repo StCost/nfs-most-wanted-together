@@ -60,6 +60,16 @@ namespace {
         int flow = Game::GameFlowState();
         int mode = 0;
         void* cur = CurrentParms(&mode);
+        if (cur && mode == 1 && fromPeer && EventHashOf(cur) != eventHash && FEScreens::IsPushed("PostRace_Results.fng")) {
+            static DWORD lastExit = 0;
+            void* fe = nullptr;
+            if (GetTickCount() - lastExit > 2500 && Mem::Read(0x91CADC, fe) && fe) {
+                lastExit = GetTickCount();
+                ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0x406415E3, "PostRace_Results.fng", 0xFF);
+                LOG("Event: %s invited while we're on the results screen - leaving it to join", eventId);
+            }
+            return;                               // the invitation is repeated; the next copy finds us in free roam
+        }
         if (cur && (mode == 1 || fromPeer)) {     // racing, or already loading into an event
             static DWORD lastLog = 0;
             if (GetTickCount() - lastLog > 5000) { lastLog = GetTickCount(); LOG("Event: %s requested but we're already in an event - ignored", eventId); }
@@ -154,7 +164,7 @@ static void EventTickImpl(bool connected) {
                 g_inviteN = g_localRosterN;
                 for (int i = 0; i < g_inviteN; ++i) g_inviteRoster[i] = g_localRoster[i];
                 g_inviteHash = h; strncpy_s(g_inviteId, id, _TRUNCATE);
-                g_inviteUntil = GetTickCount() + 6000; g_inviteNext = GetTickCount() + 1500;
+                g_inviteUntil = GetTickCount() + 12000; g_inviteNext = GetTickCount() + 1500;   // long enough for a partner to leave a results screen
                 SendInvite();
                 LOG("Event: sent %d opponent(s) to peer", g_inviteN);
                 sprintf_s(g_eventStatus, "started %s - inviting peer", id);

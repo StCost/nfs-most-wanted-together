@@ -43,6 +43,7 @@ void Config::Load(const char* ini) {
     saveSync = ReadInt(ini, "Career", "SaveSync", 1) != 0;
     sharedWins = ReadInt(ini, "Career", "SharedWins", 1) != 0;
     startTogether = ReadInt(ini, "Coop", "StartTogether", 1) != 0;
+    catchUpLeader = ReadInt(ini, "Coop", "CatchUpLeader", 1) != 0;
     readyDelayMs = ReadInt(ini, "Debug", "ReadyDelayMs", 0);
     startInBackground = ReadInt(ini, "Window", "StartInBackground", 0) != 0;
     skipPursuitResults = ReadInt(ini, "UI", "SkipPursuitResults", 0) != 0;
