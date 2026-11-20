@@ -66,6 +66,16 @@ static void PursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     void* me = LocalVehicle();
     void* pursuit = (connected && Game::GameFlowState() == 6) ? PursuitOf(me) : nullptr;
     void* other = g_ghost;
+    {   // one status line every 5 s while either of us is being chased
+        static DWORD nextLog = 0;
+        int n0 = 0; if (pursuit) Mem::Read((uintptr_t)pursuit + 0x20, n0);
+        if ((pursuit || (peer.valid && peer.s.pursuitHeat > 0)) && (int)(GetTickCount() - nextLog) > 0) {
+            nextLog = GetTickCount() + 5000;
+            int mirrors = 0; for (auto& m : g_mirrors) if (m.used && m.iv && m.n && (m.s[m.n - 1].e.flags & 1)) ++mirrors;
+            LOG("Pursuit: mine %s (%d cops, heat %.1f) | theirs heat %.1f, %d of their cops shown here",
+                pursuit ? "yes" : "no", n0, Game::LocalPursuitHeat() / 10.f, peer.valid ? peer.s.pursuitHeat / 10.f : 0.f, mirrors);
+        }
+    }
     bool peerInPursuit = peer.valid && peer.s.hasCar && peer.s.pursuitHeat > 0;
     void* otherRb = RigidBodyOf(other);
     if (!pursuit || !peerInPursuit || !otherRb) { ReleaseRetarget(pursuit); return; }

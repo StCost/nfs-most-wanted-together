@@ -238,6 +238,7 @@ static int MaintainMirrors(double now) {
             m.iv = SpawnVehicle(e.model, nullptr, e.pos, dir, g_cfg.trafficMirrorClass);
             ++spawned;
             if (!m.iv) { ++m.fails; LOG("Traffic: mirror spawn of %08X failed (%d)", e.model, m.fails); continue; }
+            if (e.flags & 1) LOG("Cops: showing the other player's police car (id %u, model %08X)", (unsigned)m.id, e.model);
         }
         if (m.iv) {
             DriveMirror(m, renderSend);
