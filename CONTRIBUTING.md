@@ -60,7 +60,7 @@ What lives where:
 | `test_net.cpp` | hello / bye / timeouts, sequence numbers, snapshot ring, interpolation, clock offset, car info |
 | `test_packets.cpp` | traffic, event, roster, racer name, restart: real serializer -> handler round trips |
 | `test_file.cpp` | the file transfer (lost / repeated / damaged chunks, request, "no file") and `src/saveutil.h`: names from the network, which save wins, safe file writes |
-| `test_util.cpp` | `src/netutil.h`: name truncation, traffic ids, Hermite / nlerp, float validation |
+| `test_util.cpp` | `src/netutil.h`: name truncation, traffic ids, race traffic binding, Hermite / nlerp, float validation |
 | `test_config.cpp` | `MWTogether.ini` defaults, parsing, clamping; `perf.h` |
 | `test_fuzz.cpp` | random / mutated / truncated datagrams |
 | `test_loopback.cpp` | the real socket code against a raw UDP socket on localhost |
@@ -90,7 +90,7 @@ Open an issue and include:
 - what you did, what you expected and what happened instead.
 
 ## Good first areas
-The unticked lines in the [README checklist](README.md#features-and-progress) are what's left: more than two players, internet play without a VPN, name tags, shared traffic in races, and story cutscenes for both players.
+The unticked lines in the [README checklist](README.md#features-and-progress) are what's left: more than two players, internet play without a VPN, name tags, and story cutscenes for both players.
 
 ## Testing in the game
 See [docs/TESTING.md](docs/TESTING.md): the test commands, `tools\coop-test.ps1` scenarios for two PCs, and the release checklist. Add a scenario there when you add a co-op feature.

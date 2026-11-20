@@ -1,4 +1,4 @@
-// Pure helpers from src/netutil.h: names, traffic ids, interpolation math, validation.
+// Pure helpers from src/netutil.h: names, traffic ids, race traffic binding, interpolation math, validation.
 #include "net_helpers.h"
 #include <limits>
 
@@ -53,6 +53,39 @@ TEST(util_traffic_id_allocation_wraps) {
         id = NextTrafficLocalId(id);
         if (id == 0 || (id & CLIENT_ID_BIT)) { CHECK(!"local id left 1..0x7FFF"); break; }
     }
+}
+
+TEST(util_race_traffic_partner_prefers_same_model) {
+    const float at[3] = { 0, 0, 0 };
+    TrafficCandidate c[4] = {
+        { 0xA, {   5, 0, 0 }, false },   // other model, nearest
+        { 0xB, { 300, 0, 0 }, false },   // same model, far
+        { 0xB, { 100, 0, 0 }, false },   // same model, nearer
+        { 0xB, {   1, 0, 0 }, true  },   // same model, nearest, but taken
+    };
+    CHECK_EQ(PickTrafficPartner(0xB, at, c, 4, false), 2);
+    CHECK_EQ(PickTrafficPartner(0xB, at, c, 4, true), 2);     // same model wins over a nearer other model
+    CHECK_EQ(PickTrafficPartner(0xC, at, c, 4, false), -1);   // no such model, any model not allowed
+    CHECK_EQ(PickTrafficPartner(0xC, at, c, 4, true), 0);     // nearest of any model
+}
+
+TEST(util_race_traffic_partner_edge_cases) {
+    const float at[3] = { 10, 0, 10 };
+    CHECK_EQ(PickTrafficPartner(1, at, nullptr, 0, true), -1);
+    TrafficCandidate all[2] = { { 1, { 0, 0, 0 }, true }, { 2, { 0, 0, 0 }, true } };
+    CHECK_EQ(PickTrafficPartner(1, at, all, 2, true), -1);    // everything taken
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    TrafficCandidate bad[2] = { { 1, { nan, 0, 0 }, false }, { 1, { 50, 0, 50 }, false } };
+    CHECK_EQ(PickTrafficPartner(1, at, bad, 2, true), 1);     // a NaN position is never picked
+    // greedy binding with `skip` never gives one car to two host cars
+    TrafficCandidate c[3] = { { 7, { 0, 0, 0 }, false }, { 7, { 20, 0, 0 }, false }, { 8, { 40, 0, 0 }, false } };
+    bool used[3] = {};
+    for (int host = 0; host < 4; ++host) {
+        int k = PickTrafficPartner(7, at, c, 3, true);
+        if (host < 3) { REQUIRE(k >= 0); CHECK(!used[k]); used[k] = true; c[k].skip = true; }
+        else CHECK_EQ(k, -1);
+    }
+    CHECK(used[2]);                                           // the third host car got the other model
 }
 
 TEST(util_hermite) {

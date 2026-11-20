@@ -49,7 +49,7 @@ Coming from the old CoopMod? Delete `scripts\CoopMod.asi`; your settings carry o
   autosave and hands it back if theirs is ever missing or older.
 - **Not yet:** 4 players, and prologue together.
 
-## Features and progress (88%)
+## Features and progress (89%)
 
 The percentage is a simple count of this list: a ticked line counts fully, a line with **(?)** counts half (it's built, but nobody has played through it on two PCs yet), an empty box counts nothing.
 
@@ -86,7 +86,7 @@ The percentage is a simple count of this list: a ticked line counts fully, a lin
 - [x] Hitting the other player's traffic, cops or race opponents pushes the real car on their PC (?)
 - [x] Pause menu and world map don't pause the time while you're connected
 - [x] No speedbreaker in co-op (slow motion can't work for two people)
-- [ ] Shared traffic inside races (for now each player has their own traffic during a race)
+- [x] Shared traffic inside races: the host's traffic cars are shown by the client's own traffic cars, so race scripts keep every car they own (`[Traffic] SharedInRaces`, 0 = each player keeps their own traffic in races) (?)
 
 ### Events and races
 - [x] Starting an event takes the other player into it too, even from the results screen of the last race
@@ -175,7 +175,7 @@ The code is in `src/`:
 |---|---|
 | `main.cpp` | frame loop, hotkeys, overlay text, start-up patches |
 | `net.*` | UDP protocol (hello, state, car info, traffic, events, roster, restart, keep-alive) |
-| `netutil.h` | pure helpers: interpolation maths, traffic ids, name limits, validation of received numbers |
+| `netutil.h` | pure helpers: interpolation maths, traffic ids, race traffic binding, name limits, validation of received numbers |
 | `game.cpp` | vehicles, spawning, the other player's car (ghost), race integration, autopilot |
 | `traffic.inl` | traffic, cop and race-opponent mirroring |
 | `event.inl` | shared event start, roster, co-op rules (speedbreaker, no pause, restart sync) |
