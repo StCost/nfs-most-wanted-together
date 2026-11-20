@@ -43,7 +43,7 @@ Coming from the old CoopMod? Delete `scripts\CoopMod.asi`; your settings carry o
   autosave and hands it back if theirs is ever missing or older.
 - **Not yet:** 4 players, and prologue together.
 
-## Features and progress (88%)
+## Features and progress (89%)
 
 The percentage is a simple count of this list: a ticked line counts fully, a line with **(?)** counts half (it's built, but nobody has played through it on two PCs yet), an empty box counts nothing.
 
@@ -58,7 +58,7 @@ The percentage is a simple count of this list: a ticked line counts fully, a lin
 - [x] Notifications use game's own UI: the EA Trax banner (where songs are announced) shows "<name> joined / left";
 - [x] Joining while the other player is in a race: you roam freely, get a notice, and go together into the next event (?)
 - [x] Strangers can't interfere: each game ignores network packets from anyone except the player it connected to
-- [x] Event starts and restarts are repeated for a few seconds, so a lost packet can't leave you in different races (?)
+- [x] Event starts and restarts are repeated for a few seconds, so a lost packet can't leave you in different races
 - [ ] Up to 4 players
 
 ### Your cars
@@ -83,7 +83,7 @@ The percentage is a simple count of this list: a ticked line counts fully, a lin
 - [ ] Shared traffic inside races (for now each player has their own traffic during a race)
 
 ### Events and races
-- [x] Starting an event takes the other player into it too
+- [x] Starting an event takes the other player into it too, even from the results screen of the last race
 - [x] Both games build the same AI opponents (car models and tuning)
 - [x] Opponents on the client follow the host's opponents, so the race looks the same on both screens
 - [x] Opponent names match on both PCs
