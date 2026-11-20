@@ -174,6 +174,8 @@ namespace {
     }
 }
 
+static void OnCarHitImpl(uint16_t id, const float* dv);
+
 bool Game::InstallTrafficHooks() {
     uint8_t op = 0; int32_t rel = 0;
     if (!Mem::Read(DensityCallSite, op) || !Mem::Read(DensityCallSite + 1, rel) || op != 0xE8 ||
@@ -188,6 +190,7 @@ bool Game::InstallTrafficHooks() {
     LOG("Cops: spawn hooks %s/%s/%s", c1 ? "ok" : "FAIL", c2 ? "ok" : "FAIL", c3 ? "ok" : "FAIL");
     Net::OnTraffic = &OnTrafficPacket;
     Net::OnRacerName = &OnRacerName;
+    Net::OnCarHit = [](uint16_t id, const float* dv) { __try { OnCarHitImpl(id, dv); } __except (EXCEPTION_EXECUTE_HANDLER) {} };
     LOG("Traffic: hooked ComputeDensity call (client can suppress its own traffic)");
     return true;
 }
@@ -406,9 +409,60 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
     g_mirrorCount = MaintainMirrors(now);
 }
 
+// Hitting a car the OTHER game owns (their traffic, cops, race opponents shown here as mirrors): the
+// mirror is moved by the network, so only our car reacts. Measure what our car lost in the impact
+// (250 ms from the first abrupt change) and send it to the owner, who pushes the real car.
+static void MirrorHitTick() {
+    void* lrb = RigidBodyOf(LocalVehicle());
+    if (!lrb) return;
+    static float prevV[3], v0[3]; static DWORD prevT = 0, t0 = 0, lastSent = 0; static uint16_t target = 0;
+    const float* lv = RB_GetVec(lrb, RB_GetLinearVelocity);
+    const float* lp = RB_GetVec(lrb, RB_GetPosition);
+    DWORD now = GetTickCount();
+    if (!t0 && prevT && now - prevT < 100 && now - lastSent > 600) {
+        float d0[3] = { prevV[0] - lv[0], prevV[1] - lv[1], prevV[2] - lv[2] };
+        if (sqrtf(d0[0] * d0[0] + d0[1] * d0[1] + d0[2] * d0[2]) > 3.f) {
+            float best = 5.5f; uint16_t id = 0;
+            for (auto& m : g_mirrors) {
+                if (!m.used || !m.iv) continue;
+                void* rb = RigidBodyOf(m.iv);
+                if (!rb) continue;
+                float dd = Dist(RB_GetVec(rb, RB_GetPosition), lp);
+                if (dd < best) { best = dd; id = m.id; }
+            }
+            void* grb = RigidBodyOf(g_ghost);
+            if (id && !(grb && Dist(RB_GetVec(grb, RB_GetPosition), lp) < best)) { t0 = now; target = id; memcpy(v0, prevV, 12); }
+        }
+    }
+    if (t0 && now - t0 >= 250) {
+        float dv[3] = { v0[0] - lv[0], v0[1] - lv[1], v0[2] - lv[2] };
+        float mag = sqrtf(dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2]);
+        t0 = 0; lastSent = now;
+        if (mag > 4.f) { Net::SendCarHit(target, dv); LOG("Collision: hit the other player's car %u, lost %.0f km/h - sent to them", (unsigned)target, mag * 3.6f); }
+    }
+    memcpy(prevV, lv, 12); prevT = now;
+}
+
+// owner side: push our real car
+static void OnCarHitImpl(uint16_t id, const float* dv) {
+    for (auto& h : g_hostIds) {
+        if (!h.iv || (uint16_t)(g_cfg.isHost ? h.id : (h.id | CLIENT_ID_BIT)) != id) continue;
+        if (!ListContains(-1, h.iv)) return;
+        void* rb = RigidBodyOf(h.iv);
+        if (!rb) return;
+        float mag = sqrtf(dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2]);
+        float k = 0.6f * (mag > 45.f ? 45.f / mag : 1.f);
+        const float* v = RB_GetVec(rb, RB_GetLinearVelocity);
+        float nv[3] = { v[0] + dv[0] * k, v[1], v[2] + dv[2] * k };
+        RB_SetVec(rb, RB_SetLinearVelocity, nv);
+        LOG("Collision: the other player hit our car %u (%s), pushed by %.0f km/h", (unsigned)id, VehName(h.iv), mag * k * 3.6f);
+        return;
+    }
+}
+
 void Game::TrafficTick(bool connected, const Net::Snapshot& peer) {
     if (!g_ok || !g_cfg.trafficSync) return;
-    __try { TrafficTickImpl(connected, peer); }
+    __try { TrafficTickImpl(connected, peer); if (connected && GameFlowState() == 6) MirrorHitTick(); }
     __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Traffic: exception"); }
 }
 

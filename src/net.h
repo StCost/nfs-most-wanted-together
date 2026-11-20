@@ -22,6 +22,7 @@ enum PacketType : uint16_t {
     PKT_FILEACK = 14,   // "I have the whole file with this hash"
     PKT_FILEREQ = 15,   // client -> host: "send me the save you keep for me"
     PKT_NOFILE  = 16,
+    PKT_CARHIT  = 18,   // "my car hit YOUR traffic car / cop / racer <id> and lost this much velocity"
     PKT_HIT     = 17,   // "my car just lost this much velocity hitting yours" (momentum for the car that was hit)   // host -> client: "I keep no save for you"
 };
 
@@ -140,6 +141,13 @@ struct HitPacket {
     uint32_t hitSeq;       // the copies of one hit carry the same number
     float    dv[3];        // velocity the sender's car lost in the impact (m/s, world axes)
 };
+struct CarHitPacket {
+    PacketHeader h;
+    uint32_t hitSeq;
+    uint16_t id;           // TrafficEntry id of the car that was hit (owned by the receiver)
+    uint16_t pad;
+    float    dv[3];
+};
 struct FileAckPacket {
     PacketHeader h;
     uint32_t fileHash;
@@ -204,6 +212,8 @@ namespace Net {
     void SendRacerName(uint16_t id, const char* name);
     void SendRestart(uint32_t eventHash, uint32_t seq);      // a repeat carries the same seq
     void SendNisSkip(uint32_t sceneHash);
+    void SendCarHit(uint16_t id, const float* dv);
+    extern void (*OnCarHit)(uint16_t id, const float* dv);
     void SendHit(const float* dv);
     extern void (*OnHit)(const float* dv);
     // Small reliable file transfer (resent until acknowledged, ~10 s). One outgoing file at a time.

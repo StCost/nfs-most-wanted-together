@@ -243,6 +243,15 @@ namespace {
             HandleFilePacket(h->type, buf, len);
             break;
         }
+        case PKT_CARHIT: {
+            if (len < (int)sizeof(CarHitPacket)) return;
+            const CarHitPacket* p = (const CarHitPacket*)buf;
+            static uint32_t lastCarHit = 0;
+            if (p->hitSeq == lastCarHit) return;
+            lastCarHit = p->hitSeq;
+            if (std::isfinite(p->dv[0]) && std::isfinite(p->dv[1]) && std::isfinite(p->dv[2]) && Net::OnCarHit) Net::OnCarHit(p->id, p->dv);
+            break;
+        }
         case PKT_HIT: {
             if (len < (int)sizeof(HitPacket)) return;
             const HitPacket* p = (const HitPacket*)buf;
@@ -805,5 +814,15 @@ void Net::SendHit(const float* dv) {
     HitPacket p{};
     FillHeader(p.h, PKT_HIT);
     p.hitSeq = ++seq; memcpy(p.dv, dv, sizeof(p.dv));
+    for (int i = 0; i < 2; ++i) SendRaw(&p, sizeof(p));
+}
+
+void (*Net::OnCarHit)(uint16_t, const float*) = nullptr;
+void Net::SendCarHit(uint16_t id, const float* dv) {
+    if (!g_stats.connected) return;
+    static uint32_t seq = 0;
+    CarHitPacket p{};
+    FillHeader(p.h, PKT_CARHIT);
+    p.hitSeq = ++seq; p.id = id; memcpy(p.dv, dv, sizeof(p.dv));
     for (int i = 0; i < 2; ++i) SendRaw(&p, sizeof(p));
 }
