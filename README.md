@@ -63,7 +63,7 @@ Unticked items are still to do.
 ### The world
 - [x] Shared traffic when you're near each other
 - [x] Cops of the other player show up for you, light bars included
-- [x] Each player keeps their own heat and pursuit (?)
+- [x] Each player keeps their own heat and pursuit, and sees the cops chasing the other player
 - [x] Cops may switch to chasing the other player when you're both being chased (?)
 - [x] Cars near the other player keep full physics instead of floating along the road (?)
 - [x] Hitting the other player's traffic or cops pushes them on their PC too (?)
