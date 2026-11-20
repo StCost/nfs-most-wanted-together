@@ -4,7 +4,13 @@
 
 Play the Most Wanted career with a friend! (2 players, LAN)
 
-Free roam with traffic, races with AI opponents, Blacklist rivals, police, own car and tuning. 
+A **co-op / multiplayer mod for Need for Speed: Most Wanted 2005** (PC, v1.3): two players play the
+single-player **career campaign together** - free roam with traffic, races against AI opponents, the
+Blacklist rivals, police pursuits, each with their own car and tuning. Works over LAN or a VPN
+(Hamachi, Radmin VPN, ZeroTier).
+
+*Also searched as: NFS MW co-op, NFSMW multiplayer career, Most Wanted 2005 coop campaign, NFS Most
+Wanted online free roam with a friend, Need for Speed Most Wanted two player mod.*
 
 ## Install
 
@@ -43,7 +49,7 @@ Coming from the old CoopMod? Delete `scripts\CoopMod.asi`; your settings carry o
   autosave and hands it back if theirs is ever missing or older.
 - **Not yet:** 4 players, and prologue together.
 
-## Features and progress (89%)
+## Features and progress (88%)
 
 The percentage is a simple count of this list: a ticked line counts fully, a line with **(?)** counts half (it's built, but nobody has played through it on two PCs yet), an empty box counts nothing.
 
@@ -113,6 +119,7 @@ The percentage is a simple count of this list: a ticked line counts fully, a lin
 - [x] No "leave the safe house?" question (`SkipLeaveSafeHouseDialog`)
 - [x] Menus react while their opening animation plays, and animate 2x faster (`IntroInput`, `MenuSpeed`) to improve UI responsivness
 - [x] Optional: close the pursuit result screens in free roam by itself ("Bounty achieved" and the pursuit summary), off by default (`SkipPursuitResults`). Getting busted still shows the fine screen
+- [x] Optional: see career events you haven't won yet on the map, minimap and as markers on the road, for your current Blacklist rival or for all of them, so you can finish the whole career together (`MapEvents`, launcher: Events on the map). The closest ones are shown, as many as the map has room for (?)
 
 ### Test tools (`[Debug] TestKeys=1`)
 - [x] **F5** autopilot: the game's AI drives your car, cruising in free roam and following the route in races. `AutoPilot=1` turns it on by itself. For testing purposes

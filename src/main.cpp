@@ -182,6 +182,9 @@ namespace {
                     else if (c == "uncop") r = Game::DebugKillCops();
                     else if (c == "ram") r = Game::DebugRam();
                     else if (c == "pos") r = Game::DebugPos();
+                    else if (c == "mapevents") r = Game::DebugMapEvents("");
+                    else if (c.rfind("mapevents ", 0) == 0) r = Game::DebugMapEvents(c.substr(10).c_str());
+                    else if (c.rfind("goto ", 0) == 0) r = Game::DebugGotoEvent(c.substr(5).c_str());
                     else if (c == "skipnis") r = Game::DebugNisSkip();
                     else if (c == "slowai") r = Game::DebugStopOpponents();
                     else if (c == "cash") r = Game::DebugCash();
@@ -262,6 +265,7 @@ namespace {
         if (g_netOk && g_gameOk) Game::NisTick(linked);
         if (g_netOk && g_gameOk) Game::SaveTick(linked);
         if (g_netOk && g_gameOk) Game::CoopWinTick(linked, Net::Latest());
+        if (g_gameOk) Game::MapEventsTick();
         Macro::Tick();
         }
 

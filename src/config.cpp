@@ -47,6 +47,8 @@ void Config::Load(const char* ini) {
     readyDelayMs = ReadInt(ini, "Debug", "ReadyDelayMs", 0);
     startInBackground = ReadInt(ini, "Window", "StartInBackground", 0) != 0;
     skipPursuitResults = ReadInt(ini, "UI", "SkipPursuitResults", 0) != 0;
+    mapEvents = ReadInt(ini, "UI", "MapEvents", 0);
+    if (mapEvents < 0 || mapEvents > 2) mapEvents = 0;
     gameNotices = ReadInt(ini, "UI", "GameNotices", 1) != 0;
     skipIntro = ReadInt(ini, "Start", "SkipIntro", 1) != 0;
     directFreeRoam = ReadInt(ini, "Start", "DirectFreeRoam", 1) != 0;

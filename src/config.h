@@ -25,6 +25,7 @@ struct Config {
     bool        skipLeaveSafeHouseDialog = true; // [Start] SkipLeaveSafeHouseDialog
     bool        gameNotices = true;       // [UI] GameNotices - notices in the game's own banner (EA Trax chyron)
     bool        skipPursuitResults = false; // [UI] SkipPursuitResults - close the pursuit result screen in free roam
+    int         mapEvents = 0;           // [UI] MapEvents - 0 game default, 1 + not-won events of the current rival, 2 + of all rivals
     bool        startInBackground = false; // [Window] StartInBackground - give focus back on start, game muted until clicked
     bool        catchUpLeader = true;    // [Coop] CatchUpLeader - AI catch-up follows whichever player is ahead
     bool        startTogether = true;    // [Coop] StartTogether - wait on the grid until the other player has loaded
