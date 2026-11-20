@@ -44,7 +44,7 @@ namespace {
     bool IsChallengeEvent(void* parms) {
         if (!parms) return false;
         const char* car = ((const char*(__thiscall*)(void*))0x5FC5C0)(parms);
-        return car && Mem::IsReadable(car, 1) && *car;
+        return car && Mem::IsReadable(car, 2) && (unsigned char)car[0] >= 0x20 && (unsigned char)car[0] < 0x7F;   // a printable name
     }
     uint32_t EventHashOf(void* parms) {           // GRaceParameters::GetEventHash (0x5FAB40)
         return parms ? ((uint32_t(__thiscall*)(void*))0x5FAB40)(parms) : 0;
@@ -69,6 +69,12 @@ namespace {
         Mem::Read(0x91E004, db);
         void* parms = db ? ((void*(__thiscall*)(void*, uint32_t))0x5FB710)(db, eventHash) : nullptr;
         if (!parms) { LOG("Event: unknown event %s (%08X)", eventId, eventHash); return; }
+        if (fromPeer && flow == 6 && IsChallengeEvent(parms)) {
+            // a Challenge Series event needs its preset car, which only a start from the menu builds
+            static DWORD lastLog = 0;
+            if (GetTickCount() - lastLog > 10000) { lastLog = GetTickCount(); LOG("Event: %s is a Challenge Series event - join it from the main menu, not from free roam", eventId); }
+            return;
+        }
         g_joiningEvent = fromPeer ? eventHash : 0;   // a local test start is sent on to the peer
         g_startingEventHash = eventHash;             // lets the car factory know which event is loading
         // build the same AI opponents as the peer (roster packets arrive just before the event)
@@ -134,6 +140,7 @@ static void EventTickImpl(bool connected) {
         const char* id = EventIdOf(parms);
         g_curEventHash = (parms && id) ? EventHashOf(parms) : 0;
         if (!parms) g_handledHash = 0;                         // event over: the same one may be started again
+        if (!parms) g_startingEventHash = 0;
         if (g_inviteHash && g_inviteHash != g_curEventHash) g_inviteHash = 0;   // we left it: stop inviting
         if (parms && id) {
             uint32_t h = EventHashOf(parms);
@@ -349,7 +356,10 @@ static void StartSyncTickImpl(bool connected) {
     }
     if (g_stage == 1 && ready) {
         g_stage = 2;
-        bool peerComing = pr.valid && (pr.s.eventHash == hash || g_inviteHash == hash || g_handledHash == hash);
+        // coming = already in this event, or still on the way to it (no event yet and we invited them /
+        // they invited us). A peer in ANOTHER event, or roaming and ignoring us, is not waited for.
+        bool peerComing = pr.valid && (pr.s.eventHash == hash ||
+                                       (pr.s.eventHash == 0 && (g_inviteHash == hash || g_handledHash == hash)));
         bool peerReady = pr.valid && pr.s.eventHash == hash && pr.s.pad[0] >= 2;
         if (connected && g_cfg.startTogether && peerComing && !peerReady && !g_holding) {
             int req = 0;
@@ -363,6 +373,13 @@ static void StartSyncTickImpl(bool connected) {
         if (!connected || !pr.valid) ReleaseHold("the other player is gone");
         else if (pr.s.eventHash == hash && pr.s.pad[0] >= 2) ReleaseHold("both ready");
         else if (now - g_holdSince > 20000) ReleaseHold("waited long enough");
+        else {
+            // roaming with no event, or in a different one, for 1.5 s: they are not coming
+            static DWORD elsewhereSince = 0;
+            bool elsewhere = pr.s.eventHash != hash && pr.s.gameFlowState == 6 && pr.s.hasCar && now - g_holdSince > 3000;
+            if (!elsewhere) elsewhereSince = 0; else if (!elsewhereSince) elsewhereSince = now;
+            if (elsewhere && now - elsewhereSince > 1500) { elsewhereSince = 0; ReleaseHold("the other player is not joining"); }
+        }
     }
 }
 
@@ -377,6 +394,7 @@ static void RestartTickImpl(bool connected) {
         else if (connected) {
             int mode = 0;
             void* parms = CurrentParms(&mode);
+            if (!g_restartSeq) g_restartSeq = GetTickCount();     // differs after a relaunch
             ++g_restartSeq; g_ownRestartAt = GetTickCount();
             Net::SendRestart(EventHashOf(parms), g_restartSeq);
             g_restartResendHash = EventHashOf(parms);            // twice more, in case it was lost
@@ -391,6 +409,7 @@ static void RestartTickImpl(bool connected) {
 
 void Game::PauseRuleTick(bool connected) {
     if (!g_ok) return;
+    __try { if (g_holding && GetTickCount() - g_holdSince > 21000) ReleaseHold("safety limit"); } __except (EXCEPTION_EXECUTE_HANDLER) { g_holding = false; }
     __try {
         StartSyncTickImpl(connected);
         SetNoPause(connected && g_cfg.noPause && !g_holding);    // while we wait on the grid the pause must bite

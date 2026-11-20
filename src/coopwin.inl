@@ -16,6 +16,7 @@
 // ---------------------------------------------------------------------------
 namespace {
     bool g_coopWinLogged = false;
+    uint32_t g_peerWonEvent = 0;    // event the other player has won (kept until our event changes)
     bool g_coopWinNotice = false;   // main.cpp shows a notice once
 
     void* GhostRacerInfo() { return (g_ghost && g_ghostKind == GK_RACER) ? RacerInfoOf(g_ghost) : nullptr; }
@@ -23,7 +24,9 @@ namespace {
     bool CoopWonImpl(void* localRi) {
         int rank = 0;
         if (localRi && Mem::Read((uintptr_t)localRi + 0x10, rank) && rank == 1) return true;
-        if (!g_cfg.sharedWins || !Net::Stats().connected) return false;
+        if (!g_cfg.sharedWins) return false;
+        if (g_peerWonEvent && g_peerWonEvent == Game::CurrentEventHash()) return true;
+        if (!Net::Stats().connected) return false;
         const Net::Snapshot& p = Net::Latest();
         if (!p.valid || !p.s.inRace || !p.s.eventHash || p.s.eventHash != Game::CurrentEventHash()) return false;   // same event only
         void* gri = GhostRacerInfo();
@@ -31,6 +34,7 @@ namespace {
         // their own result - sent with their state - decides)
         uint8_t fin = 0; int grank = 0;
         if (gri) { Mem::Read((uintptr_t)gri + 0x21, fin); Mem::Read((uintptr_t)gri + 0x10, grank); }
+        if (p.s.finished == 1) g_peerWonEvent = Game::CurrentEventHash();   // remembered: they may leave the race before we finish
         bool won = p.s.finished == 1 || (fin && grank == 1);     // they say they won / they won here
         if (won && !g_coopWinLogged) { g_coopWinLogged = true; g_coopWinNotice = true; LOG("Race: the other player won - counted as our win too"); }
         return won;
@@ -91,7 +95,13 @@ uint8_t Game::LocalFinishRank(void* localRi) {
 static void CoopWinTickImpl(bool connected, const Net::Snapshot& peer) {
     bool sameEvent = peer.valid && peer.s.eventHash && peer.s.eventHash == Game::CurrentEventHash();
     void* gri = (connected && sameEvent && peer.s.inRace) ? GhostRacerInfo() : nullptr;
-    if (!gri) { g_coopWinLogged = false; return; }
+    {   // a new event (or none): forget the last one's result
+        static uint32_t lastEvent = 0;
+        uint32_t ev = Game::CurrentEventHash();
+        if (ev != lastEvent) { lastEvent = ev; g_coopWinLogged = false; g_peerWonEvent = 0; }
+        if (connected && peer.valid && sameEvent && peer.s.inRace && peer.s.finished == 1) g_peerWonEvent = ev;   // also without a ghost racer (rival races)
+    }
+    if (!gri) return;
     uint8_t fin = 0;
     if (!peer.s.finished || !Mem::Read((uintptr_t)gri + 0x21, fin) || fin) return;
     void* rs = nullptr;

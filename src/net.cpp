@@ -810,7 +810,7 @@ void Net::SendNoFile() { PacketHeader p{}; FillHeader(p, PKT_NOFILE); for (int i
 void (*Net::OnHit)(const float*) = nullptr;
 void Net::SendHit(const float* dv) {
     if (!g_stats.connected) return;
-    static uint32_t seq = 0;
+    static uint32_t seq = GetTickCount();       // differs after a relaunch, so the first hit isn't taken for a repeat
     HitPacket p{};
     FillHeader(p.h, PKT_HIT);
     p.hitSeq = ++seq; memcpy(p.dv, dv, sizeof(p.dv));
@@ -820,7 +820,7 @@ void Net::SendHit(const float* dv) {
 void (*Net::OnCarHit)(uint16_t, const float*) = nullptr;
 void Net::SendCarHit(uint16_t id, const float* dv) {
     if (!g_stats.connected) return;
-    static uint32_t seq = 0;
+    static uint32_t seq = GetTickCount();
     CarHitPacket p{};
     FillHeader(p.h, PKT_CARHIT);
     p.hitSeq = ++seq; p.id = id; memcpy(p.dv, dv, sizeof(p.dv));

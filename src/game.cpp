@@ -214,6 +214,13 @@ namespace {
     float  g_push[3] = { 0, 0, 0 };   // velocity we got from being hit by the other player
     DWORD  g_pushFrom = 0;
     DWORD  g_lastHitSent = 0, g_hitT0 = 0;   // our own impact being measured / last one sent
+    DWORD  g_noHitUntil = 0;                 // teleport / restart / cutscene: a velocity jump is not an impact
+    // lost velocity must point at the car we supposedly hit (horizontal plane)
+    bool HitPointsAt(const float* dv, const float* from, const float* to) {
+        float dx = to[0] - from[0], dz = to[2] - from[2];
+        float dl = sqrtf(dx * dx + dz * dz), vl = sqrtf(dv[0] * dv[0] + dv[2] * dv[2]);
+        return dl > 0.01f && vl > 0.01f && (dv[0] * dx + dv[2] * dz) > 0.5f * dl * vl;
+    }
     bool   g_ghostStarved = false;
     DWORD  g_noSpawnUntil = 0;      // an event is starting: the race builds the peer's car, don't spawn one  // spawning the peer car failed: traffic mirrors give up budget
     int    g_ghostList = VL_AIRACERS; // which vehicle list g_ghost came from (VL_ALL for our spawned car)
@@ -736,7 +743,9 @@ bool Game::InstallVehicleFactoryHook() {
     Net::OnHit = [](const float* dv) {
         __try {
             void* lrb = RigidBodyOf(LocalVehicle());
-            if (!lrb || Game::GameFlowState() != 6 || !g_ghostCollide) return;
+            if (!lrb || Game::GameFlowState() != 6 || !g_ghostCollide || !g_separated || g_protectHolding) return;
+            void* grb = RigidBodyOf(g_ghost);                       // only when their car really is next to us
+            if (!grb || Dist(RB_GetVec(grb, RB_GetPosition), RB_GetVec(lrb, RB_GetPosition)) > 10.f) return;
             float mag = sqrtf(dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2]);
             float k = 0.6f * (mag > 45.f ? 45.f / mag : 1.f);          // part of the impact, capped
             // A standing player car brakes itself, so one velocity write is gone within a frame or two:
@@ -1058,9 +1067,10 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
         const float* lv = RB_GetVec(lrb, RB_GetLinearVelocity);
         DWORD tnow = GetTickCount();
         // an impact takes several frames: note the velocity when it begins, send the total loss 250 ms later
-        if (!hitT0 && !g_pushFrom && g_ghostCollide && prevT && tnow - prevT < 100 && sep < 6.f && tnow - lastHitSent > 600) {
-            float d0[3] = { prevV[0] - lv[0], prevV[1] - lv[1], prevV[2] - lv[2] };
-            if (sqrtf(d0[0] * d0[0] + d0[1] * d0[1] + d0[2] * d0[2]) > 3.f) { hitT0 = tnow; memcpy(hitV0, prevV, 12); }
+        if ((int)(g_noHitUntil - tnow) > 0) hitT0 = 0;
+        if (!hitT0 && (int)(g_noHitUntil - tnow) <= 0 && !g_pushFrom && g_ghostCollide && prevT && tnow - prevT < 100 && sep < 6.f && tnow - lastHitSent > 600) {
+            float d0[3] = { prevV[0] - lv[0], 0, prevV[2] - lv[2] };
+            if (sqrtf(d0[0] * d0[0] + d0[2] * d0[2]) > 3.f && HitPointsAt(d0, RB_GetVec(lrb, RB_GetPosition), newPos)) { hitT0 = tnow; memcpy(hitV0, prevV, 12); }
         }
         if (hitT0 && tnow - hitT0 >= 250) {
             float dv[3] = { hitV0[0] - lv[0], hitV0[1] - lv[1], hitV0[2] - lv[2] };

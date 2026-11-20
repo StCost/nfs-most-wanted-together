@@ -56,6 +56,7 @@ namespace {
     // some of those cars (drag races), and removing one crashed the game (0x5FD94A). Cops and race
     // opponents are still mirrored.
     bool   g_clientRacing = false;
+    DWORD  g_raceEndedTick = 0;        // the race scripts may still own cars for a moment: no culling for 8 s
     int    g_mirrorCount = 0, g_killedOwn = 0;
 
     Mirror* FindMirror(uint16_t id) {
@@ -360,6 +361,7 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
     bool isNear = g_trafficNear ? distToPeer < 450.f : distToPeer < 350.f;
     // not more than one switch every 15 s: each one removes and rebuilds all traffic around us
     static double lastFlip = -1e9;
+    if (lastFlip > now) lastFlip = -1e9;                         // the sim clock restarted (world reload)
     if (isNear != g_trafficNear && now - lastFlip < 15000) isNear = g_trafficNear;
     if (isNear != g_trafficNear) {
         lastFlip = now;
@@ -375,6 +377,7 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
             g_clientRacing = racing;
             LOG("Traffic: %s", racing ? "in a race - keeping our own traffic" : "race over - sharing the host's traffic again");
             if (racing) for (auto& m : g_mirrors) if (m.used && !m.racer && m.n && !(m.s[m.n - 1].e.flags & 1)) RemoveMirror(m);
+            if (!racing) g_raceEndedTick = GetTickCount();
         }
     }
     if (g_clientRacing) {
@@ -392,7 +395,7 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
 
     // remove our own (non-mirror) traffic cars, a few per frame. Our own cops stay: they belong to
     // our pursuit and are sent to the host.
-    {
+    if (!g_raceEndedTick || GetTickCount() - g_raceEndedTick > 8000) {
         int killed = 0;
         void** b = nullptr;
         int cnt = ListSize(VL_AITRAFFIC, &b);
@@ -419,16 +422,28 @@ static void MirrorHitTick() {
     const float* lv = RB_GetVec(lrb, RB_GetLinearVelocity);
     const float* lp = RB_GetVec(lrb, RB_GetPosition);
     DWORD now = GetTickCount();
-    if (!t0 && prevT && now - prevT < 100 && now - lastSent > 600) {
-        float d0[3] = { prevV[0] - lv[0], prevV[1] - lv[1], prevV[2] - lv[2] };
-        if (sqrtf(d0[0] * d0[0] + d0[1] * d0[1] + d0[2] * d0[2]) > 3.f) {
+    // a teleport (restart, reset to track, event start) or a cutscene is not an impact: no hits for 1 s
+    {
+        static float lastPos[3]; static bool have = false;
+        float sp = sqrtf(lv[0] * lv[0] + lv[1] * lv[1] + lv[2] * lv[2]);
+        float dt = prevT ? (now - prevT) / 1000.f : 0.f;
+        uint8_t restartPending = 0; Mem::Read(0x91CF28, restartPending);
+        if ((have && Dist(lastPos, lp) > sp * dt + 3.f) || restartPending || NisActive() || Game::RaceStage() == 1) g_noHitUntil = now + 1000;
+        memcpy(lastPos, lp, 12); have = true;
+    }
+    if ((int)(g_noHitUntil - now) > 0) t0 = 0;
+    void* grb0 = RigidBodyOf(g_ghost);
+    bool playerNear = grb0 && Dist(RB_GetVec(grb0, RB_GetPosition), lp) < 6.f;    // then it is the player-to-player case
+    if (!t0 && !playerNear && (int)(g_noHitUntil - now) <= 0 && prevT && now - prevT < 100 && now - lastSent > 600) {
+        float d0[3] = { prevV[0] - lv[0], 0, prevV[2] - lv[2] };
+        if (sqrtf(d0[0] * d0[0] + d0[2] * d0[2]) > 3.f) {
             float best = 5.5f; uint16_t id = 0;
             for (auto& m : g_mirrors) {
                 if (!m.used || !m.iv) continue;
                 void* rb = RigidBodyOf(m.iv);
                 if (!rb) continue;
                 float dd = Dist(RB_GetVec(rb, RB_GetPosition), lp);
-                if (dd < best) { best = dd; id = m.id; }
+                if (dd < best && HitPointsAt(d0, lp, RB_GetVec(rb, RB_GetPosition))) { best = dd; id = m.id; }
             }
             void* grb = RigidBodyOf(g_ghost);
             if (id && !(grb && Dist(RB_GetVec(grb, RB_GetPosition), lp) < best)) { t0 = now; target = id; memcpy(v0, prevV, 12); }
