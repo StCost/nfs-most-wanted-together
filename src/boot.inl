@@ -46,6 +46,18 @@ namespace {
         ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0x406415E3, pkg, 0xFF);
         return true;
     }
+    // The "load complete" screen (MC_Main) ignores pad messages while the game is in the background.
+    // Its handler (0x564070) finishes on message 0xDA5B8712 (profile applied, boot flow moves on), so
+    // unfocused we send that one - but only once the screen has been up for 2 s (load finished).
+    bool ConfirmLoadScreen(DWORD shownMs) {
+        if (Overlay::GameWindow() == GetForegroundWindow()) return Input::Tap(0x1C);
+        return false;   // sending 0xDA5B8712 by hand crashed (0x460C79): unfocused confirm is not solved yet
+        if (shownMs < 2000) return false;
+        void* fe = nullptr;
+        if (!Mem::Read(0x91CADC, fe) || !fe) return false;
+        ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0xDA5B8712, "MC_Main.fng", 0xFF);
+        return true;
+    }
 
     enum class Boot { Waiting, Settling, Done } g_boot = Boot::Waiting;
     DWORD g_bootReadyAt = 0;
@@ -132,7 +144,7 @@ void Game::BootTick() {
             // [Start] SkipLoadComplete: confirm it right away (retry until the screen accepts it)
             if (GetTickCount() - since > 300 && GetTickCount() - lastTap > 1000) {
                 lastTap = GetTickCount();
-                if (PressAccept("MC_Main.fng")) LOG("Start: confirming the profile load screen");
+                if (ConfirmLoadScreen(GetTickCount() - since)) LOG("Start: confirming the profile load screen");
             }
             return;
         }
@@ -159,7 +171,7 @@ void Game::PursuitResultTick() {
     if (!since) since = GetTickCount();
     if (GetTickCount() - since > 700 && GetTickCount() - lastTap > 1500) {
         lastTap = GetTickCount();
-        if (Input::Tap(0x1C)) LOG("UI: closing the pursuit result screen");
+        if (PressAccept("PostRace_Pursuit.fng")) LOG("UI: closing the pursuit result screen");
     }
 }
 std::string Game::FEAccept(const char* pkg) {
