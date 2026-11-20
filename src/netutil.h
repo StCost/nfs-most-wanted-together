@@ -47,7 +47,7 @@ namespace NetUtil {
             if (c[i].skip) continue;
             float dx = c[i].pos[0] - pos[0], dy = c[i].pos[1] - pos[1], dz = c[i].pos[2] - pos[2];
             float d = dx * dx + dy * dy + dz * dz;
-            if (!(d == d)) continue;                                           // NaN position: never
+            if (!(d == d) || d > 150.f * 150.f) continue;                      // NaN, or too far to jump in unnoticed
             if (c[i].model == model && (best < 0 || d < bestD)) { best = i; bestD = d; }
             if (bestAny < 0 || d < bestAnyD) { bestAny = i; bestAnyD = d; }
         }

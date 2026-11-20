@@ -271,7 +271,7 @@ static int MaintainMirrors(double now) {
     int spawned = 0, alive = 0, freed = 0;
     if (SharedRaceTraffic()) {
         for (auto& m : g_mirrors)   // the game removed a car we followed with: find another one
-            if (m.used && m.bound && m.iv && !ListContains(-1, m.iv)) { m.iv = nullptr; m.bound = false; }
+            if (m.used && m.bound && m.iv && (!ListContainsOne(VL_AITRAFFIC, m.iv) || m.iv == LocalVehicle())) { m.iv = nullptr; m.bound = false; }   // gone, or the address now holds another kind of car
         BindRaceTraffic();
     }
     // The other player's own car comes first: no mirror spawns until it exists, and when its spawn

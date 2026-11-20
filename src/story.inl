@@ -98,8 +98,11 @@ namespace {
         else if (g_moviePkg && strstr(g_moviePkg, "FEAnyMovie")) src = FEMovieName;
         if (src && Mem::SafeRead((const void*)src, raw, sizeof(raw) - 1)) raw[sizeof(raw) - 1] = 0; else raw[0] = 0;
         NormalizeMovie(raw, g_movieName, sizeof(g_movieName));
-        g_movieInGame = playing != 0;
-        g_movieHash = (src && g_movieName[0] && IsStoryMovieName(g_movieName)) ? BHash(g_movieName) : 0;
+        static DWORD playingSince = 0;
+        if (!playing) playingSince = 0; else if (!playingSince) playingSince = GetTickCount();
+        bool shown = g_moviePkg || (playing && GetTickCount() - playingSince < 1000);   // a set byte with no screen is not a movie
+        g_movieInGame = playing != 0 && shown;
+        g_movieHash = (src && shown && g_movieName[0] && IsStoryMovieName(g_movieName)) ? BHash(g_movieName) : 0;
     }
     void PollMovie(bool force) {
         DWORD now = GetTickCount();
@@ -160,6 +163,8 @@ namespace {
     DWORD    g_storyHoldSince = 0, g_peerStorySince = 0, g_startAt = 0, g_startedAt = 0, g_doneUntil = 0;
     uint32_t g_peerStory = 0, g_startedFor = 0, g_startPending = 0;
     DWORD    g_lastSkipSend = 0, g_peerLeftSince = 0;
+    uint32_t g_gaveUpFor = 0;                 // scene we stopped waiting for (safety limit): not held again
+    uint32_t g_lastWatched = 0; DWORD g_lastWatchedAt = 0;   // a scene we just finished here: not replayed or waited for
     char     g_storyStatus[128] = "";
 
     const char* PeerName() { const std::string& n = Net::Stats().peerName; return n.empty() ? "The other player" : n.c_str(); }
@@ -210,13 +215,20 @@ namespace {
             if (g_peerStory && !peer && g_storyHold) { sprintf_s(g_storyStatus, "%s finished the story scene", PeerName()); g_doneUntil = now + 3000; }
             g_peerStory = peer; g_peerStorySince = now;
             if (!peer) { g_startedFor = 0; g_startPending = 0; }
+            if (peer != g_gaveUpFor) g_gaveUpFor = 0;
         }
+        {   // remember the scene we just finished, so a partner still in it doesn't start it here again
+            static uint32_t prevMine = 0;
+            if (prevMine && mine != prevMine) { g_lastWatched = prevMine; g_lastWatchedAt = now; }
+            prevMine = mine;
+        }
+        bool justWatched = peer && peer == g_lastWatched && now - g_lastWatchedAt < 60000;
         int flow = Game::GameFlowState();
         bool roaming = flow == 6 && !Game::CurrentEventHash() && !Game::NisSceneHash() && !g_movieInGame;
 
         // watch along (SyncStoryScenes=2): the same movie, when this career has reached it
         const char* movie = peer ? KnownMovie(peer) : nullptr;
-        if (movie && g_cfg.syncStoryScenes >= 2 && roaming && !Game::LocalPursuitHeat() && g_startedFor != peer && !g_startPending &&
+        if (movie && !justWatched && g_cfg.syncStoryScenes >= 2 && roaming && !Game::LocalPursuitHeat() && g_startedFor != peer && !g_startPending &&
             now - g_peerStorySince > 300 && CareerHasMovie(movie, p.s.pad[2]) && MovieFileExists(movie)) {
             g_startPending = peer; g_startAt = now + 150;
             StoryHoldOff("starting the same movie here");   // a pushed screen must find no pause request of ours
@@ -237,11 +249,11 @@ namespace {
         }
 
         // otherwise wait: hold the world while they watch (free roam only)
-        bool want = peer && !mine && roaming && !g_startPending && now - g_peerStorySince > 700;
+        bool want = peer && !mine && roaming && !g_startPending && !justWatched && peer != g_gaveUpFor && now - g_peerStorySince > 700;
         if (want && !g_storyHold) StoryHoldOn();
         if (g_storyHold) {
             if (!want) StoryHoldOff(peer ? "left free roam" : "scene over");
-            else if (now - g_storyHoldSince > 8 * 60 * 1000) { StoryHoldOff("safety limit"); g_startedFor = peer; }
+            else if (now - g_storyHoldSince > 8 * 60 * 1000) { StoryHoldOff("safety limit"); g_startedFor = peer; g_gaveUpFor = peer; }
             else { int req = 0; if (Mem::Read(PauseRequests, req) && req <= 0) { req = 1; Mem::Write(PauseRequests, req); } }  // a closed menu took ours
         }
 
@@ -282,7 +294,10 @@ uint8_t Game::CareerBin() {
 void Game::StoryTick(bool connected) {
     if (!g_ok) return;
     __try { StoryTickImpl(connected); }
-    __except (EXCEPTION_EXECUTE_HANDLER) { g_storyHold = false; g_storyStatus[0] = 0; }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        __try { StoryHoldOff("error"); } __except (EXCEPTION_EXECUTE_HANDLER) { g_storyHold = false; }   // never leave our pause request behind
+        g_storyStatus[0] = 0;
+    }
     if (!connected || g_cfg.syncStoryScenes <= 0) { __try { StoryHoldOff("disconnected / off"); } __except (EXCEPTION_EXECUTE_HANDLER) {} }
 }
 
