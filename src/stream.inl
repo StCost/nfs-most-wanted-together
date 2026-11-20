@@ -13,11 +13,14 @@
 namespace {
     constexpr uintptr_t StreamCallSite = 0x480C16, StreamUpdateFn = 0x47C880, PredictStreamFn = 0x7238D0;
     bool  g_streamPeer = false;   // set every frame by the game thread: peer car exists, connected
+    bool  g_streamQuiet = false;  // a story movie starts / plays over the world here (story.inl): only
+                                  // our own area, like single player - the movie takes its buffers from the
+                                  // streamer's pool (0x517470 -> 0x723A00) once the streamer is idle (0x58F1E0)
     float g_streamPos[3], g_streamVel[2];
 
     void __cdecl hk_StreamUpdate(float dT) {
         ((void(__cdecl*)(float))StreamUpdateFn)(dT);
-        if (!g_streamPeer) return;
+        if (!g_streamPeer || g_streamQuiet) return;
         __try {
             char* gm = nullptr; char* rs = nullptr;
             Mem::Read(0x91E00C, gm); Mem::Read(0x91E000, rs);

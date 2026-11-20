@@ -18,12 +18,30 @@
 //  The other player's game waits meanwhile: the front-end pause request counter 0x91CAE4 (as the
 //  start-together hold in event.inl), and with SyncStoryScenes=2 plays the same movie when its own
 //  career has reached it.
+//  Starting one ourselves (watch along, test command "story <movie>"):
+//   - 0x57E470 sets the byte first and pushes the screen only if the HUD (name in 0x8F4318) is the top
+//     active screen (0x516B90). Otherwise the byte stays set and the world stays stopped (the sim gate
+//     0x6EF150 tests the byte at 0x6EF159, before the co-op no-pause patch at 0x6EF1B1). So we check
+//     that ourselves first and clear the byte if no screen came up.
+//   - The career only starts these over the world from an NIS (EPlayRaceMovie 0x62F820, created by INIS
+//     at 0x6F56DB / 0x6EA8FF), i.e. with the world held and the streamer settled. The screen ctor
+//     (0x58F180) waits for the track streamer (0x9AA9D0) to go idle, and the movie library allocates
+//     its buffers through 0x517470 from the streamer's pool (0x723A00, pool 7). With StreamAroundPeer
+//     our streamer also keeps the other player's area loaded. While a story movie starts / plays we
+//     stream only our own area (stream.inl g_streamQuiet) and start it 0.4 s after that.
+//   - The movie screen closes only through its slot 1 (0x57E400): message 0xC3960EB9 ("movie done",
+//     sent to every package by the movie player at 0x542BC9 when it can't open the movie, 0x542CFC when
+//     playback ends, 0x5597F8 when the file is missing) or PAD_ACCEPT / PAD_START (skip, always allowed
+//     in the career), or by being popped (destructor 0x57E390 clears the byte). We log which one it was
+//     with the movie player's state (*0x91CB10: +0x11C/+0x120 state, 5 = playing; +0x140 stream,
+//     +0x144 first frame).
 // ---------------------------------------------------------------------------
 namespace {
     constexpr uintptr_t MoviePlayingFlag = 0x91CF68, InGameMovieName = 0x8F3F40, InGameMovieName2 = 0x8F3F80,
                         FEMovieName = 0x8F3750, PlayInGameMovieFn = 0x57E470, PauseRequests = 0x91CAE4,
-                        InGameMovieVt = 0x8A0FC8, InGameMovie2Vt = 0x8A0FD4, FEMovieVt = 0x89E3C4;
-    constexpr uint32_t PadAccept = 0x406415E3, PadStart = 0xB5AF2461;
+                        InGameMovieVt = 0x8A0FC8, InGameMovie2Vt = 0x8A0FD4, FEMovieVt = 0x89E3C4,
+                        HudPackageName = 0x8F4318, IsTopScreenFn = 0x516B90, MoviePlayerPtr = 0x91CB10;
+    constexpr uint32_t PadAccept = 0x406415E3, PadStart = 0xB5AF2461, MovieDone = 0xC3960EB9;
 
     const char* const kStoryMovies[] = {
         "blacklist_01", "blacklist_02", "blacklist_03", "blacklist_04", "blacklist_05", "blacklist_06",
@@ -74,6 +92,8 @@ namespace {
     const char* g_moviePkg = nullptr;     // its front-end package (to send it the skip button)
     uintptr_t   g_lastMovieVt = 0;        // vtable of the movie screen that last got a message
     DWORD       g_lastMoviePoll = 0;
+    DWORD       g_playingSince = 0;       // the "movie playing" byte is set since (0 = isn't)
+    uint32_t    g_lastCloseMsg = 0; DWORD g_lastCloseMsgAt = 0;   // last close / skip message a movie screen got
 
     // "MOVIES\Blacklist_05.vp6" -> "blacklist_05"
     void NormalizeMovie(const char* src, char* out, size_t n) {
@@ -94,13 +114,13 @@ namespace {
         for (const char* p : pkgs) if (FEScreens::IsPushed(p)) { g_moviePkg = p; break; }
         char raw[64] = "";
         uintptr_t src = 0;
+        if (!playing && g_lastMovieVt != FEMovieVt) g_lastMovieVt = 0;   // the next in-game movie may be the other class
         if (playing) src = g_lastMovieVt == InGameMovie2Vt ? InGameMovieName2 : InGameMovieName;
         else if (g_moviePkg && strstr(g_moviePkg, "FEAnyMovie")) src = FEMovieName;
         if (src && Mem::SafeRead((const void*)src, raw, sizeof(raw) - 1)) raw[sizeof(raw) - 1] = 0; else raw[0] = 0;
         NormalizeMovie(raw, g_movieName, sizeof(g_movieName));
-        static DWORD playingSince = 0;
-        if (!playing) playingSince = 0; else if (!playingSince) playingSince = GetTickCount();
-        bool shown = g_moviePkg || (playing && GetTickCount() - playingSince < 1000);   // a set byte with no screen is not a movie
+        if (!playing) g_playingSince = 0; else if (!g_playingSince) g_playingSince = GetTickCount();
+        bool shown = g_moviePkg || (playing && GetTickCount() - g_playingSince < 1000);   // a set byte with no screen is not a movie
         g_movieInGame = playing != 0 && shown;
         g_movieHash = (src && shown && g_movieName[0] && IsStoryMovieName(g_movieName)) ? BHash(g_movieName) : 0;
     }
@@ -134,10 +154,27 @@ namespace {
     MovieNotifyFn g_movieNotify[3] = {};
     uint32_t g_movieForceSkip = 0;        // let this skip through (the other player has skipped / voted)
 
+    // what the movie player (*0x91CB10) was doing when a movie screen got a close / skip message
+    void LogMovieClose(uintptr_t vt, uint32_t msg) {
+        DWORD now = GetTickCount();
+        if (msg == g_lastCloseMsg && now - g_lastCloseMsgAt < 1000) { g_lastCloseMsgAt = now; return; }   // broadcast / repeated
+        g_lastCloseMsg = msg; g_lastCloseMsgAt = now;
+        uint8_t* mp = nullptr; int st = -1, st2 = -1; void* strm = nullptr; void* frame = nullptr;
+        if (Mem::Read(MoviePlayerPtr, mp) && mp) {
+            Mem::Read((uintptr_t)mp + 0x11C, st); Mem::Read((uintptr_t)mp + 0x120, st2);
+            Mem::Read((uintptr_t)mp + 0x140, strm); Mem::Read((uintptr_t)mp + 0x144, frame);
+        }
+        const char* what = msg == MovieDone ? "movie done (0xC3960EB9)" : msg == PadAccept ? "PAD_ACCEPT" : "PAD_START";
+        LOG("Story: %s movie screen got %s %u ms after the start (player %p state %d/%d stream %p frame %p)",
+            vt == InGameMovieVt ? "in-game" : vt == InGameMovie2Vt ? "in-game (2)" : "front-end", what,
+            g_playingSince ? (unsigned)(now - g_playingSince) : 0u, mp, st, st2, strm, frame);
+    }
+
     bool MovieMessageAllowed(void* self, uint32_t msg) {
         __try {
             uintptr_t vt = 0; Mem::Read((uintptr_t)self, vt);
             g_lastMovieVt = vt;
+            if (msg == MovieDone || msg == PadAccept || msg == PadStart) LogMovieClose(vt, msg);
             if (msg != PadAccept && msg != PadStart) return true;
             if (g_cfg.syncStoryScenes <= 0 || !g_nisConnected) return true;
             PollMovie(true);
@@ -158,10 +195,31 @@ namespace {
         if (MovieMessageAllowed(self, msg)) g_movieNotify[I](self, msg, obj, a, b);
     }
 
+    // in-game movie screens' scalar deleting destructors (vtable slot 0): a screen that goes away
+    // without a close message was popped by someone else
+    using MovieDtorFn = void*(__thiscall*)(void*, unsigned);
+    MovieDtorFn g_movieDtor[2] = {};
+    void NoteMovieScreenGone() {
+        __try {
+            DWORD now = GetTickCount();
+            bool byMsg = g_lastCloseMsg && now - g_lastCloseMsgAt < 1500;
+            LOG("Story: in-game movie screen closed %u ms after the start (%s)",
+                g_playingSince ? (unsigned)(now - g_playingSince) : 0u,
+                !byMsg ? "popped without a close message" : g_lastCloseMsg == MovieDone ? "after movie done" : "skipped");
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+    template <int I>
+    void* __fastcall hk_MovieDtor(void* self, void*, unsigned flags) {
+        NoteMovieScreenGone();
+        return g_movieDtor[I](self, flags);
+    }
+
     // ---- the other player watches: wait, or watch along ----
     bool     g_storyHold = false;
     DWORD    g_storyHoldSince = 0, g_peerStorySince = 0, g_startAt = 0, g_startedAt = 0, g_doneUntil = 0;
     uint32_t g_peerStory = 0, g_startedFor = 0, g_startPending = 0;
+    uint32_t g_cmdPending = 0; DWORD g_cmdAt = 0;   // test command "story <movie>": start pending
+    bool     g_screenSeen = false;                  // our last start brought its screen up
     DWORD    g_lastSkipSend = 0, g_peerLeftSince = 0;
     uint32_t g_gaveUpFor = 0;                 // scene we stopped waiting for (safety limit): not held again
     uint32_t g_lastWatched = 0; DWORD g_lastWatchedAt = 0;   // a scene we just finished here: not replayed or waited for
@@ -204,6 +262,31 @@ namespace {
         __try { ((void(__cdecl*)(const char*))PlayInGameMovieFn)(name); return true; }
         __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     }
+    // why the game would not show an in-game movie now (nullptr = it would). 0x57E470 itself only
+    // pushes the screen when the HUD is the top active screen (0x516B90), but sets the byte anyway.
+    const char* MovieStartBlockerRaw() {
+        if (Game::GameFlowState() != 6) return "not in the world";
+        if (Game::NisSceneHash()) return "a cutscene is playing";
+        uint8_t playing = 0; Mem::Read(MoviePlayingFlag, playing);
+        if (playing) return "a movie is already playing";
+        void* fe = nullptr; const char* hud = nullptr;
+        if (!Mem::Read(0x91CADC, fe) || !fe || !Mem::Read(HudPackageName, hud) || !hud || !Mem::IsReadable(hud, 2) || !hud[0])
+            return "no in-game HUD";
+        if (!((bool(__thiscall*)(void*, const char*))IsTopScreenFn)(fe, hud)) return "a menu / dialog is open over the HUD";
+        return nullptr;
+    }
+    const char* MovieStartBlocker() {
+        __try { return MovieStartBlockerRaw(); } __except (EXCEPTION_EXECUTE_HANDLER) { return "exception"; }
+    }
+
+    // start a story movie over the world here, as the game would (see the notes at the top)
+    bool FireOwnMovie(const char* name, const char* why) {
+        if (const char* no = MovieStartBlocker()) { LOG("Story: not starting %s here - %s", name, no); return false; }
+        if (!PlayInGameMovie(name)) { LOG("Story: exception starting %s", name); return false; }
+        g_startedAt = GetTickCount(); g_playingSince = g_startedAt; g_screenSeen = false;
+        LOG("Story: playing %s here (%s)", name, why);
+        return true;
+    }
 
     void StoryTickImpl(bool connected) {
         DWORD now = GetTickCount();
@@ -230,23 +313,37 @@ namespace {
         const char* movie = peer ? KnownMovie(peer) : nullptr;
         if (movie && !justWatched && g_cfg.syncStoryScenes >= 2 && roaming && !Game::LocalPursuitHeat() && g_startedFor != peer && !g_startPending &&
             now - g_peerStorySince > 300 && CareerHasMovie(movie, p.s.pad[2]) && MovieFileExists(movie)) {
-            g_startPending = peer; g_startAt = now + 150;
+            g_startPending = peer; g_startAt = now + 400;     // our streamer drops the other player's area first
+            g_streamQuiet = true;
             StoryHoldOff("starting the same movie here");   // a pushed screen must find no pause request of ours
         }
         if (g_startPending && (int)(now - g_startAt) >= 0) {
             uint32_t h = g_startPending; g_startPending = 0; g_startedFor = h;
             const char* name = KnownMovie(h);
-            if (name && roaming && PlayInGameMovie(name)) {
-                g_startedAt = now;
-                LOG("Story: playing %s here too (the other player is watching it)", name);
+            if (name && roaming) FireOwnMovie(name, "the other player is watching it");
+        }
+        if (g_cmdPending && (int)(now - g_cmdAt) >= 0) {
+            uint32_t h = g_cmdPending; g_cmdPending = 0;
+            if (const char* name = KnownMovie(h)) FireOwnMovie(name, "test command");
+        }
+        if (g_startedAt) {
+            if (!g_screenSeen && g_moviePkg && g_movieInGame) {
+                g_screenSeen = true;
+                LOG("Story: movie screen %s is up (%u ms)", g_moviePkg, (unsigned)(now - g_startedAt));
+            }
+            // a start that pushed no screen leaves the "movie playing" byte set, and the byte alone stops
+            // the world (0x6EF159): clear it. (g_movieInGame is already false then - read the byte itself.)
+            if (now - g_startedAt > 2500) {
+                g_startedAt = 0;
+                PollMovie(true);
+                uint8_t b = 0;
+                bool rd = Mem::Read(MoviePlayingFlag, b);
+                if (rd && b && !g_moviePkg) { uint8_t z = 0; Mem::Write(MoviePlayingFlag, z); LOG("Story: the movie screen did not come up here - cleared the movie byte"); }
+                else if (rd && !b) LOG("Story: our movie is over within 2.5 s (screen %s) - see the close reason above", g_screenSeen ? "was up" : "never seen");
             }
         }
-        // a start that pushed no screen would leave the "movie playing" byte set: clear it
-        if (g_startedAt && now - g_startedAt > 2500) {
-            g_startedAt = 0;
-            PollMovie(true);
-            if (g_movieInGame && !g_moviePkg) { uint8_t z = 0; Mem::Write(MoviePlayingFlag, z); LOG("Story: the movie did not start here"); }
-        }
+        // stream only our own area while a story movie starts / plays over the world here
+        g_streamQuiet = g_startPending || g_cmdPending || g_startedAt || (g_movieHash && g_movieInGame);
 
         // otherwise wait: hold the world while they watch (free roam only)
         bool want = peer && !mine && roaming && !g_startPending && !justWatched && peer != g_gaveUpFor && now - g_peerStorySince > 700;
@@ -297,6 +394,7 @@ void Game::StoryTick(bool connected) {
     __except (EXCEPTION_EXECUTE_HANDLER) {
         __try { StoryHoldOff("error"); } __except (EXCEPTION_EXECUTE_HANDLER) { g_storyHold = false; }   // never leave our pause request behind
         g_storyStatus[0] = 0;
+        g_streamQuiet = false;
     }
     if (!connected || g_cfg.syncStoryScenes <= 0) { __try { StoryHoldOff("disconnected / off"); } __except (EXCEPTION_EXECUTE_HANDLER) {} }
 }
@@ -321,25 +419,43 @@ bool Game::InstallStoryHooks() {
         ++ok;
     }
     LOG("Story: movie skip voting hooked on %d/3 movie screens (SyncStoryScenes=%d)", ok, g_cfg.syncStoryScenes);
+    // diagnostics: the in-game movie screens' destructors (a screen popped without a close message)
+    const Slot dtors[2] = {
+        { InGameMovieVt, 0x58F2A0, (void*)&hk_MovieDtor<0> },
+        { InGameMovie2Vt, 0x58F5F0, (void*)&hk_MovieDtor<1> },
+    };
+    for (int i = 0; i < 2; ++i) {
+        uintptr_t cur = 0;
+        if (!Mem::Read(dtors[i].slot, cur) || cur != dtors[i].expect) { LOG("Story: movie screen dtor %08X holds %08X - not watched", (unsigned)dtors[i].slot, (unsigned)cur); continue; }
+        g_movieDtor[i] = (MovieDtorFn)cur;
+        Mem::PatchPointer((void*)dtors[i].slot, dtors[i].hook);
+    }
     return ok == 3;
 }
 
 // Test command: "story" = what we see; "story <movie>" = play that movie over the world here (as the
-// career would), e.g. story storyfmv_pin11 / story blacklist_15.
+// career would), e.g. story storyfmv_pin11 / story blacklist_15. It starts 0.4 s later (after our
+// streamer has dropped the other player's area); the log tells how it went.
 static const char* DebugStorySafe(const char* arg) {
-    static char out[160];
+    static char out[320];
     __try {
         if (arg && arg[0]) {
             char name[64]; NormalizeMovie(arg, name, sizeof(name));
-            if (!KnownMovie(BHash(name))) return "not a story movie name (blacklist_NN / storyfmv_...)";
-            if (Game::GameFlowState() != 6) return "not in the world";
+            uint32_t h = BHash(name);
+            if (!KnownMovie(h)) return "not a story movie name (blacklist_NN / storyfmv_...)";
             if (!MovieFileExists(name)) return "no such file in MOVIES";
-            return PlayInGameMovie(name) ? "movie started" : "exception";
+            if (const char* no = MovieStartBlocker()) { sprintf_s(out, "not now: %s", no); return out; }
+            if (g_cmdPending || g_startPending) return "a start is already pending";
+            g_cmdPending = h; g_cmdAt = GetTickCount() + 400; g_streamQuiet = true;
+            sprintf_s(out, "starting %s in 0.4 s (see the log)", name);
+            return out;
         }
         PollMovie(true);
-        sprintf_s(out, "movie '%s' story %08X in-game %d pkg %s | scene %08X | peer story %08X | hold %d | rival %u",
-                  g_movieName, g_movieHash, g_movieInGame ? 1 : 0, g_moviePkg ? g_moviePkg : "-",
-                  Game::SceneHash(), PeerStoryScene(), g_storyHold ? 1 : 0, (unsigned)CareerBinRaw());
+        uint8_t byte = 0; Mem::Read(MoviePlayingFlag, byte);
+        const char* no = MovieStartBlocker();
+        sprintf_s(out, "movie '%s' story %08X in-game %d byte %u pkg %s | scene %08X | peer story %08X | hold %d | rival %u | start: %s",
+                  g_movieName, g_movieHash, g_movieInGame ? 1 : 0, (unsigned)byte, g_moviePkg ? g_moviePkg : "-",
+                  Game::SceneHash(), PeerStoryScene(), g_storyHold ? 1 : 0, (unsigned)CareerBinRaw(), no ? no : "ok");
         return out;
     } __except (EXCEPTION_EXECUTE_HANDLER) { return "exception"; }
 }
