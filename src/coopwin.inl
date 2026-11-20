@@ -251,7 +251,12 @@ namespace {
             // a partner who already finished is out of the race: the AI goes back to racing just us
             bool peerRacing = Net::Stats().connected && g_coopLinked && p.valid && p.s.inRace && !p.s.finished &&
                               p.s.eventHash && p.s.eventHash == Game::CurrentEventHash();
-            if (peerRacing && gri && Mem::Read((uintptr_t)gri + 0x18, b)) { out = b > a ? b : a; return true; }
+            if (peerRacing && gri && Mem::Read((uintptr_t)gri + 0x18, b)) {
+                out = b > a ? b : a;
+                static DWORD lastLog = 0;
+                if (GetTickCount() - lastLog > 15000) { lastLog = GetTickCount(); LOG("Race: catch-up measured against %.1f%% (ours %.1f%%, partner %.1f%%)", out, a, b); }
+                return true;
+            }
             if (peerRacing && !gri) { out = p.s.racePct > a ? p.s.racePct : a; return true; }   // rival races: their car isn't a racer here
             return false;                                                                      // solo: leave the game alone
         } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
