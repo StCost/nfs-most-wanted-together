@@ -39,7 +39,9 @@ Coming from the old CoopMod? Delete `scripts\CoopMod.asi`; your settings carry o
   autosave and hands it back if theirs is ever missing or older.
 - **Not yet:** 4 players, and prologue together.
 
-## Features and progress
+## Features and progress (82%)
+
+The percentage is a simple count of this list: a ticked line counts fully, a line with **(?)** counts half (it's built, but nobody has played through it on two PCs yet), an empty box counts nothing.
 
 ### Connecting
 - [x] Direct connection between two PCs (one hosts, one joins), with ping shown in the overlay
@@ -54,6 +56,7 @@ Coming from the old CoopMod? Delete `scripts\CoopMod.asi`; your settings carry o
 - [x] Strangers can't interfere: each game ignores network packets from anyone except the player it connected to
 - [x] Event starts and restarts are repeated for a few seconds, so a lost packet can't leave you in different races (?)
 - [ ] Up to 4 players
+- [ ] Playing over the internet without a VPN or port forwarding
 
 ### Your cars
 - [x] Each player drives their own car, with their full tuning, in free roam and in races
@@ -63,6 +66,8 @@ Coming from the old CoopMod? Delete `scripts\CoopMod.asi`; your settings carry o
 - [x] Other player on the world map, coloured like your own arrow and moving while the map is open
 - [x] Car-to-car collisions between players, with the impact passed on: ram your partner and their car is thrown on their screen too
 - [x] Your names in the race standings instead of the shared save name
+- [x] Your partner's car shows what it's doing: brake lights, steering, nitrous, and damage from crashes (?)
+- [ ] Name tags above the other player's car
 
 ### The world
 - [x] Shared traffic when you're near each other
@@ -73,6 +78,7 @@ Coming from the old CoopMod? Delete `scripts\CoopMod.asi`; your settings carry o
 - [x] Hitting the other player's traffic, cops or race opponents pushes the real car on their PC (?)
 - [x] Pause menu and world map don't pause the time while you're connected
 - [x] No speedbreaker in co-op (slow motion can't work for two people)
+- [ ] Shared traffic inside races (for now each player has their own traffic during a race)
 
 ### Events and races
 - [x] Starting an event takes the other player into it too
@@ -82,6 +88,7 @@ Coming from the old CoopMod? Delete `scripts\CoopMod.asi`; your settings carry o
 - [x] Race positions use each player's real progress
 - [x] Start together: whoever loads first waits on the grid until the other is ready (`StartTogether`)
 - [x] Restarting a race restarts it for both of you
+- [ ] AI opponents' catch-up follows whichever player is ahead (for now it follows the host)
 - [x] Race intro cutscenes play normally for both
 - [x] A win by either player counts for both: cash, unlocks and career progress in each player's own career (`SharedWins`)
 - [x] The other player's finish is shown in your standings
