@@ -51,68 +51,99 @@ namespace {
     // MC_Main (vtable slots 0x89EDA4 -> 0x5644F0 and 0x89EDD4 -> 0x564630; both end in the shared
     // 0x564070). We watch both to know the live screen object and, when the game has no focus, hand
     // it the messages Enter on the OK button (name hash 0xB8A7C6CD) produces - see McNotify.
+    enum class Boot { Waiting, Settling, Done } g_boot = Boot::Waiting;
+    DWORD g_bootReadyAt = 0;
+
     using NotifyFn = void(__thiscall*)(void*, uint32_t, void*, uint32_t, uint32_t);
     NotifyFn g_origMcNotify[2] = {};
     void*    g_mcScreen = nullptr;          // live MC_Main screen object
     int      g_mcScreenKind = -1;
     DWORD    g_mcScreenSeen = 0;
-    bool     g_mcConfirmPending = false;
-    void McNotify(int kind, void* self, uint32_t msg, void* obj, uint32_t p1, uint32_t p2) {
-        g_mcScreen = self; g_mcScreenKind = kind; g_mcScreenSeen = GetTickCount();
-        if (g_cfg.bootTrace) {
-            uint32_t h = 0; if (obj && Mem::IsReadable((uint8_t*)obj + 0x10, 4)) Mem::Read((uintptr_t)obj + 0x10, h);
-            static uint32_t lastMsg = 0; static int repeats = 0;
-            if (msg != lastMsg) { lastMsg = msg; repeats = 0; }
-            if (++repeats <= 2) LOG("BootTrace: MC_Main[%d] notify %08X obj %p (name %08X) p1 %08X p2 %08X", kind, msg, obj, h, p1, p2);
-        }
-        g_origMcNotify[kind](self, msg, obj, p1, p2);
-        // Enter on the OK button reaches the screen as two messages: 0xC502DF5D (button pressed - this
-        // starts the pending memory-card step, e.g. the profile load) and, on release, 0x0C407210
-        // (button activated - closes the prompt). Send the same pair, the second ~150 ms later.
-        static int step = 0; static DWORD stepAt = 0;
-        if (msg == 0xC502DF5D || msg == 0x0C407210) return;         // a real key press is in progress
-        if (g_mcConfirmPending) { g_mcConfirmPending = false; if (step == 0) step = 1; }
-        if (step == 2 && GetTickCount() - stepAt < 150) return;
-        if (step == 0) return;
+
+    // The memory card operation the MC_Main prompt is about (*0x91CBAC & 0x0F000000). We only ever
+    // answer 0 (boot autoload / "load complete") and 8 / 9 (autosave notices); never a question.
+    bool McOpHarmless(uint32_t* opOut) {
+        uint32_t mc = 0;
+        if (!Mem::Read(0x91CBAC, mc)) return false;
+        uint32_t op = mc & 0x0F000000;
+        if (opOut) *opOut = op;
+        return op == 0 || op == 0x08000000 || op == 0x09000000;
+    }
+    uint8_t* McOkButton() {     // the OK button of MC_Main.fng (package +0x8C, name hash 0xB8A7C6CD)
         void* cfeng = nullptr; uint8_t* btn = nullptr; uint32_t hash = 0;
         uint8_t* pkg = (Mem::Read(0x91CADC, cfeng) && cfeng) ? ((uint8_t*(__thiscall*)(void*, const char*))0x516AF0)(cfeng, "MC_Main.fng") : nullptr;
-        if (!pkg || !Mem::Read((uintptr_t)pkg + 0x8C, btn) || !btn || !Mem::Read((uintptr_t)btn + 0x10, hash) || hash != 0xB8A7C6CD) { step = 0; return; }
-        if (step == 1) {
-            step = 2; stepAt = GetTickCount();
-            LOG("Start: OK on the load screen (no focus)");
-            g_origMcNotify[kind](self, 0xC502DF5D, btn, 0, p2);
-        } else {
-            step = 0;
-            g_origMcNotify[kind](self, 0x0C407210, btn, 0, p2);
+        if (!pkg || !Mem::Read((uintptr_t)pkg + 0x8C, btn) || !btn || !Mem::Read((uintptr_t)btn + 0x10, hash) || hash != 0xB8A7C6CD) return nullptr;
+        return btn;
+    }
+    // A requested "OK" for one prompt: delivered only to that screen object and button, for the same
+    // operation, while the game is still unfocused, and only within ~1 s of the request.
+    struct McConfirm { void* self; uint8_t* btn; uint32_t op; DWORD tick; int step; DWORD stepAt; };
+    McConfirm g_mcReq = {};
+
+    // Enter on the OK button reaches the screen as two messages: 0xC502DF5D (button pressed - starts the
+    // pending memory-card step, e.g. the profile load) and, on release, 0x0C407210 (button activated -
+    // closes the prompt). We send the same pair, the second ~150 ms later. p2 is the same value every
+    // message to this screen carries (a real press has it too), so the incoming message's p2 is used.
+    // Called BEFORE the incoming message is forwarded, so the screen object is certainly alive.
+    void McDeliver(int kind, void* self, uint32_t p2) {
+        McConfirm& r = g_mcReq;
+        if (!r.step) return;
+        DWORD now = GetTickCount();
+        bool stale = r.self != self || (r.step == 1 && now - r.tick > 1000) || (r.step == 2 && now - r.stepAt > 1000)
+                     || Overlay::GameWindow() == GetForegroundWindow();
+        uint32_t op = 0;
+        if (!stale) stale = McOkButton() != r.btn || !McOpHarmless(&op) || op != r.op;
+        if (stale) { r = {}; return; }
+        if (r.step == 2 && now - r.stepAt < 150) return;
+        __try {
+            if (r.step == 1) {
+                r.step = 2; r.stepAt = now;
+                LOG("Start: OK on the load screen (no focus)");
+                g_origMcNotify[kind](self, 0xC502DF5D, r.btn, 0, p2);
+            } else {
+                uint8_t* btn = r.btn; r = {};
+                g_origMcNotify[kind](self, 0x0C407210, btn, 0, p2);
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) { r = {}; LOG("Start: exception confirming the load screen"); }
+    }
+    void McNotify(int kind, void* self, uint32_t msg, void* obj, uint32_t p1, uint32_t p2) {
+        if (g_boot != Boot::Done) {      // after the boot: pure pass-through
+            if (self != g_mcScreen) g_mcReq = {};
+            g_mcScreen = self; g_mcScreenKind = kind; g_mcScreenSeen = GetTickCount();
+            if (g_cfg.bootTrace) {
+                uint32_t h = 0; if (obj && Mem::IsReadable((uint8_t*)obj + 0x10, 4)) Mem::Read((uintptr_t)obj + 0x10, h);
+                static uint32_t lastMsg = 0; static int repeats = 0;
+                if (msg != lastMsg) { lastMsg = msg; repeats = 0; }
+                if (++repeats <= 2) LOG("BootTrace: MC_Main[%d] notify %08X obj %p (name %08X) p1 %08X p2 %08X", kind, msg, obj, h, p1, p2);
+            }
+            if (msg == 0xC502DF5D || msg == 0x0C407210) g_mcReq = {};      // a real key press: ours is not needed
+            else McDeliver(kind, self, p2);
         }
+        g_origMcNotify[kind](self, msg, obj, p1, p2);
     }
     void __fastcall hk_McNotify0(void* self, void*, uint32_t msg, void* obj, uint32_t p1, uint32_t p2) { McNotify(0, self, msg, obj, p1, p2); }
     void __fastcall hk_McNotify1(void* self, void*, uint32_t msg, void* obj, uint32_t p1, uint32_t p2) { McNotify(1, self, msg, obj, p1, p2); }
     // The boot's profile screen (MC_Main) waits for accept before it loads the profile (memory card
     // state *0x91CBAC = 0x20, pending step 5 at card+0x40) - focused or not. Focused we press Enter.
     // Without focus the pad messages don't reach it, so McNotify delivers the button messages itself.
-    // Only for harmless prompts (operation code 0 / autosave notices), once per prompt.
+    // Only for harmless prompts (operation code 0 / 8 / 9), once per prompt - focused or not (a new
+    // player without a profile gets real questions here, which are never answered for them).
     bool ConfirmLoadScreen(DWORD shownMs) {
-        if (Overlay::GameWindow() == GetForegroundWindow()) return Input::Tap(0x1C);
         void* cfeng = nullptr;
         if (shownMs < 500 || !Mem::Read(0x91CADC, cfeng) || !cfeng) return false;
-        uint8_t* pkg = ((uint8_t*(__thiscall*)(void*, const char*))0x516AF0)(cfeng, "MC_Main.fng");
-        uint8_t* btn = nullptr; uint32_t hash = 0, mc = 0;
-        if (!pkg || !Mem::Read((uintptr_t)pkg + 0x8C, btn) || !btn || !Mem::Read((uintptr_t)btn + 0x10, hash) || hash != 0xB8A7C6CD) return false;
-        Mem::Read(0x91CBAC, mc);
-        uint32_t op = mc & 0x0F000000;
-        if (op != 0 && op != 0x08000000 && op != 0x09000000) return false;     // never answer other questions
+        uint8_t* btn = McOkButton();
+        uint32_t op = 0;
+        if (!btn || !McOpHarmless(&op)) return false;                         // never answer other questions
         static uint8_t* lastBtn = nullptr; static uint32_t lastOp = 0xFFFFFFFF; static DWORD seenAt = 0, sentAt = 0;
         if (btn != lastBtn || op != lastOp) { lastBtn = btn; lastOp = op; seenAt = GetTickCount(); sentAt = 0; return false; }
         if (GetTickCount() - seenAt < 600) return false;                       // let the box finish appearing
         if (sentAt && GetTickCount() - sentAt < 5000) return false;            // once; again only if it's still there after 5 s
+        if (Overlay::GameWindow() == GetForegroundWindow()) { sentAt = GetTickCount(); return Input::Tap(0x1C); }
         if (g_mcScreenKind < 0 || !g_origMcNotify[g_mcScreenKind] || !g_mcScreen || GetTickCount() - g_mcScreenSeen > 1000) return false;
         sentAt = GetTickCount();
-        g_mcConfirmPending = true;      // McNotify delivers it with the screen's next message
+        g_mcReq = { g_mcScreen, btn, op, GetTickCount(), 1, 0 };             // McNotify delivers it with the screen's next message
         return true;
     }
-    enum class Boot { Waiting, Settling, Done } g_boot = Boot::Waiting;
-    DWORD g_bootReadyAt = 0;
 
     // returns a message for the log
     const char* DirectFreeRoamNow() {
@@ -161,7 +192,9 @@ void Game::InstallBootPatches() {
         }
         LOG("Start: skip intro screens - %d boot entries removed", n);
     }
-    {   // MC_Main (profile load screen) NotificationMessage - see McNotify
+    // MC_Main (profile load screen) NotificationMessage - see McNotify. Only needed by the fast start;
+    // the slot check (it must still hold v1.3's function) is the version check.
+    if (g_cfg.skipLoadComplete || g_cfg.directFreeRoam || g_cfg.startInBackground) {
         static const struct { uintptr_t slot, fn; void* hook; } mc[2] = {
             { 0x89EDA4, 0x5644F0, (void*)&hk_McNotify0 }, { 0x89EDD4, 0x564630, (void*)&hk_McNotify1 } };
         for (int i = 0; i < 2; ++i) {
@@ -251,7 +284,13 @@ void Game::PursuitResultTick() {
     if (!since) since = GetTickCount();
     if (GetTickCount() - since > 700 && GetTickCount() - lastTap > 1500) {
         lastTap = GetTickCount();
-        if (PressAccept(open)) LOG("UI: closing the pursuit result screen (%s)", open);
+        // Always the FE message addressed to that package (also when focused): a real Enter would go to
+        // whatever dialog is on top.
+        void* fe = nullptr;
+        if (Mem::Read(0x91CADC, fe) && fe) {
+            ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0x406415E3, open, 0xFF);
+            LOG("UI: closing the pursuit result screen (%s)", open);
+        }
     }
 }
 std::string Game::FEAccept(const char* pkg) {
@@ -270,6 +309,8 @@ bool Game::ShowChyron(const char* title, const char* line2, const char* line3) {
     if (!g_ok) return false;
     int flow = GameFlowState();
     if (flow != 6 && flow != 3) return false;                 // only where the game shows its own chyron
+    void* bootFlow = nullptr;
+    if (flow == 3 && (!Mem::Read(0x91CF48, bootFlow) || bootFlow)) return false;   // not over the boot screens
     static char t[3][64];
     __try {
         int blocked = 0; void* fe = nullptr;
@@ -285,8 +326,8 @@ bool Game::ShowChyron(const char* title, const char* line2, const char* line3) {
         if (Mem::Read(0x91D21C, reg) && reg && Mem::Read(0x925B14, now)) {
             uint8_t* pkg = ((uint8_t*(__thiscall*)(void*, const char*))0x585820)(reg, "EA_Trax.fng");
             uint8_t* scr = nullptr;
-            if (pkg && Mem::Read((uintptr_t)pkg + 0x1C, scr) && scr) { DWORD t0 = now - 20001; Mem::Write((uintptr_t)scr + 0x2C, t0); }
+            if (pkg && Mem::Read((uintptr_t)pkg + 0x1C, scr) && scr) { DWORD t0 = now - 20001; return Mem::Write((uintptr_t)scr + 0x2C, t0); }
         }
-        return true;
+        return false;     // not shown (yet): the caller uses the corner line
     } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Notice: exception in the game's chyron"); return false; }
 }

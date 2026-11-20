@@ -117,7 +117,7 @@ static int DebugKillCopsImpl(bool* inPursuit) {
         void** b = nullptr;
         for (int i = ListSize(VL_AICOPS, &b) - 1; i >= 0; --i) {
             void* c = ListGet(VL_AICOPS, i);
-            if (c && IsVehicle(c)) { KillVehicle(c); ++killed; }
+            if (c && IsVehicle(c) && c != g_ghost && !IsMirrorCar(c)) { KillVehicle(c); ++killed; }   // not the other player's cops
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
     return killed;

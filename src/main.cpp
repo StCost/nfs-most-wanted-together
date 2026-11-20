@@ -157,7 +157,16 @@ namespace {
             if (FILE* cf = _fsopen(cmdPath.c_str(), "r", _SH_DENYNO)) {
                 char line[128];
                 std::vector<std::string> cmds;
-                while (fgets(line, sizeof(line), cf)) { std::string s = line; while (!s.empty() && (s.back() == '\n' || s.back() == '\r' || s.back() == ' ')) s.pop_back(); if (!s.empty()) cmds.push_back(s); }
+                while (fgets(line, sizeof(line), cf)) {
+                    std::string s = line;
+                    if (s.empty() || (s.back() != '\n' && !feof(cf))) {     // longer than the buffer: skip the whole line
+                        int ch; while ((ch = fgetc(cf)) != EOF && ch != '\n') {}
+                        LOG("Command: line too long - ignored");
+                        continue;
+                    }
+                    while (!s.empty() && (s.back() == '\n' || s.back() == '\r' || s.back() == ' ')) s.pop_back();
+                    if (!s.empty()) cmds.push_back(s);
+                }
                 fclose(cf);
                 DeleteFileA(cmdPath.c_str());
                 for (const std::string& c : cmds) {
