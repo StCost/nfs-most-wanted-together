@@ -62,14 +62,19 @@ namespace NetUtil {
         return true;
     }
     constexpr float MAX_POS = 1.0e6f, MAX_VEL = 1.0e4f, MAX_SIMTIME_S = 1.0e9f;
-    inline bool ValidMotion(const float* pos, const float* rot, const float* linVel, const float* angVel) {
-        return FiniteWithin(pos, 3, MAX_POS) && FiniteWithin(rot, 4, 2.0f) &&
-               FiniteWithin(linVel, 3, MAX_VEL) && FiniteWithin(angVel, 3, MAX_VEL);
+    inline bool ValidMotion(const float* pos, const float* rot, const float* linVel, const float* angVel, bool realRotation = true) {
+        if (!FiniteWithin(pos, 3, MAX_POS) || !FiniteWithin(rot, 4, 2.0f) ||
+            !FiniteWithin(linVel, 3, MAX_VEL) || !FiniteWithin(angVel, 3, MAX_VEL)) return false;
+        float q = rot[0] * rot[0] + rot[1] * rot[1] + rot[2] * rot[2] + rot[3] * rot[3];
+        return !realRotation || (q > 0.5f && q < 1.5f);          // a real rotation (a zero quaternion would stay zero after nlerp)
     }
     inline bool ValidCarState(const CarState& s) {
-        return ValidMotion(s.pos, s.rot, s.linVel, s.angVel) &&
+        return ValidMotion(s.pos, s.rot, s.linVel, s.angVel, s.hasCar != 0) &&   // no car: all zeros is fine
                FiniteWithin(&s.speedMps, 1, MAX_VEL) && FiniteWithin(&s.simTime, 1, MAX_SIMTIME_S) &&
-               FiniteWithin(&s.steer, 1, 1.5f);
+               FiniteWithin(&s.steer, 1, 1.5f) &&
+               FiniteWithin(&s.racePct, 1, 101.f) && s.racePct >= -1.f &&
+               FiniteWithin(&s.lapPct, 1, 101.f) && s.lapPct >= -1.f &&
+               s.laps >= 0 && s.laps <= 200 && s.checkpoints >= 0 && s.checkpoints <= 2000;
     }
     inline bool ValidTrafficEntry(const TrafficEntry& e) {
         return ValidMotion(e.pos, e.rot, e.linVel, e.angVel);

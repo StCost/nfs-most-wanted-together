@@ -2,6 +2,7 @@
 #   tools\release.ps1 -Version 0.2.0            build, package, publish a pre-release on GitHub
 #   tools\release.ps1 -Version 0.2.0 -Final     publish as a normal (latest) release
 #   tools\release.ps1 -Version 0.2.0 -DryRun    only build and package (dist\MWTogether-0.2.0.zip)
+# A starter career save (prologue done, at the car lot) in starter-save\ is attached as a second zip.
 # Needs: Visual Studio 2022 C++ (x86), and the GitHub CLI (gh) logged in for publishing.
 param(
     [Parameter(Mandatory = $true)][string]$Version,
@@ -49,6 +50,14 @@ $zip = Join-Path $dist "MWTogether-$Version.zip"
 Remove-Item $zip -ErrorAction SilentlyContinue
 Compress-Archive -Path "$pkg\*" -DestinationPath $zip
 Write-Host "Packaged $zip"
+$assets = @($zip)
+$save = Join-Path $root 'starter-save'
+if (Test-Path (Join-Path $save 'NFS Most Wanted')) {
+    $szip = Join-Path $dist "MWTogether-$Version-StarterSave.zip"
+    Remove-Item $szip -ErrorAction SilentlyContinue
+    Compress-Archive -Path (Join-Path $save '*') -DestinationPath $szip
+    $assets += $szip; Write-Host "Packaged $szip"
+}
 if ($DryRun) { return }
 
 # 3. tag + GitHub release
@@ -56,5 +65,5 @@ git tag "v$Version"
 git push origin "v$Version"
 $flags = @('--generate-notes', '--title', "NFS MW Together $Version")
 if (-not $Final) { $flags += '--prerelease' }
-gh release create "v$Version" $zip @flags
+gh release create "v$Version" @assets @flags
 Write-Host "Released v$Version"

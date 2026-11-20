@@ -38,7 +38,8 @@ namespace {
         uint8_t fin = 0; int grank = 0;
         if (gri) { Mem::Read((uintptr_t)gri + 0x21, fin); Mem::Read((uintptr_t)gri + 0x10, grank); }
         if (p.s.finished == 1) g_peerWonEvent = Game::CurrentEventHash();   // remembered: they may leave the race before we finish
-        bool won = p.s.finished == 1 || (fin && grank == 1);     // they say they won / they won here
+        (void)fin; (void)grank;
+        bool won = p.s.finished == 1;             // their own result decides (our sort of their car may differ)
         if (won && !g_coopWinLogged) { g_coopWinLogged = true; g_coopWinNotice = true; LOG("Race: the other player won - counted as our win too"); }
         return won;
     }
@@ -92,18 +93,27 @@ uint8_t Game::LocalFinishRank(void* localRi) {
     uint8_t fin = 0; int rank = 0;
     if (!localRi || !Mem::Read((uintptr_t)localRi + 0x21, fin) || !fin) return 0;
     Mem::Read((uintptr_t)localRi + 0x10, rank);
-    return (uint8_t)(rank < 1 ? 1 : rank > 255 ? 255 : rank);
+    return (uint8_t)(rank < 1 || rank > 255 ? 255 : rank);   // an unreadable rank is never a win
+}
+
+// Forget the other player's win when the event changes, the race is restarted (here or there: their
+// "finished" drops back to 0) or we leave to the menus. Runs in every flow state.
+static void CoopWinLatchTick(bool connected, const Net::Snapshot& peer) {
+    static uint32_t lastEvent = 0; static uint8_t lastPeerFin = 0, lastRestart = 0;
+    uint32_t ev = Game::GameFlowState() == 6 ? Game::CurrentEventHash() : 0;
+    uint8_t restart = 0; Mem::Read(0x91CF28, restart);
+    bool sameEvent = peer.valid && peer.s.eventHash && peer.s.eventHash == ev;
+    uint8_t pfin = sameEvent ? peer.s.finished : 0;
+    if (ev != lastEvent || (restart && !lastRestart) || (lastPeerFin && !pfin && sameEvent && peer.s.inRace)) {
+        g_coopWinLogged = false; g_peerWonEvent = 0;
+    }
+    lastEvent = ev; lastRestart = restart; lastPeerFin = pfin;
+    if (ev && connected && sameEvent && peer.s.inRace && peer.s.finished == 1) g_peerWonEvent = ev;   // also without a ghost racer (rival races)
 }
 
 static void CoopWinTickImpl(bool connected, const Net::Snapshot& peer) {
     bool sameEvent = peer.valid && peer.s.eventHash && peer.s.eventHash == Game::CurrentEventHash();
     void* gri = (connected && sameEvent && peer.s.inRace) ? GhostRacerInfo() : nullptr;
-    {   // a new event (or none): forget the last one's result
-        static uint32_t lastEvent = 0;
-        uint32_t ev = Game::CurrentEventHash();
-        if (ev != lastEvent) { lastEvent = ev; g_coopWinLogged = false; g_peerWonEvent = 0; }
-        if (connected && peer.valid && sameEvent && peer.s.inRace && peer.s.finished == 1) g_peerWonEvent = ev;   // also without a ghost racer (rival races)
-    }
     if (!gri) return;
     uint8_t fin = 0;
     if (!peer.s.finished || !Mem::Read((uintptr_t)gri + 0x21, fin) || fin) return;
@@ -117,7 +127,9 @@ static void CoopWinTickImpl(bool connected, const Net::Snapshot& peer) {
 }
 
 void Game::CoopWinTick(bool connected, const Net::Snapshot& peer) {
-    if (!g_ok || GameFlowState() != 6) return;
+    if (!g_ok) return;
+    __try { CoopWinLatchTick(connected, peer); } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    if (GameFlowState() != 6) return;
     __try { CoopWinTickImpl(connected, peer); } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
@@ -231,7 +243,9 @@ namespace {
             if (!mine || !Mem::Read((uintptr_t)mine + 0x18, a)) return false;
             const Net::Snapshot& p = Net::Latest();
             void* gri = GhostRacerInfo();
-            bool peerRacing = Net::Stats().connected && p.valid && p.s.inRace && p.s.eventHash && p.s.eventHash == Game::CurrentEventHash();
+            // a partner who already finished is out of the race: the AI goes back to racing just us
+            bool peerRacing = Net::Stats().connected && g_coopLinked && p.valid && p.s.inRace && !p.s.finished &&
+                              p.s.eventHash && p.s.eventHash == Game::CurrentEventHash();
             if (peerRacing && gri && Mem::Read((uintptr_t)gri + 0x18, b)) { out = b > a ? b : a; return true; }
             if (peerRacing && !gri) { out = p.s.racePct > a ? p.s.racePct : a; return true; }   // rival races: their car isn't a racer here
             return false;                                                                      // solo: leave the game alone

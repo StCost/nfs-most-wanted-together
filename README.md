@@ -16,6 +16,10 @@ Free roam with traffic, races with AI opponents, Blacklist rivals, police, own c
 
 ATTENTION: Both players must finish the career prologue (the opening races). Reach free roam to see and interact with other players.
 
+Don't want to replay the prologue? Releases also have a **StarterSave** zip: a fresh career saved right after the prologue,
+at the car lot where you buy your first car. Unpack it into `Documents` (it holds the `NFS Most Wanted` folder; back up
+yours first if you have one), start the game and pick the `MWT` profile.
+
 ## You need
 
 - Need for Speed: Most Wanted (2005) for PC, patched to **v1.3**. Your own copy: no game files are included here.

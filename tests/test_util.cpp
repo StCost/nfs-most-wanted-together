@@ -136,6 +136,13 @@ TEST(util_validation_rejects_bad_floats) {
     b = s; b.simTime = inf;                CHECK(!ValidCarState(b));
     b = s; b.steer = nan;                  CHECK(!ValidCarState(b));
     b = s; b.steer = 40.0f;                CHECK(!ValidCarState(b));   // not a steering value
+    b = s; b.rot[0] = b.rot[1] = b.rot[2] = b.rot[3] = 0; CHECK(!ValidCarState(b));   // a car with no rotation
+    b = s; b.racePct = nan;                CHECK(!ValidCarState(b));
+    b = s; b.racePct = 1.0e30f;            CHECK(!ValidCarState(b));
+    b = s; b.lapPct = -50.0f;              CHECK(!ValidCarState(b));
+    b = s; b.laps = -3;                    CHECK(!ValidCarState(b));
+    b = s; b.checkpoints = 30000;          CHECK(!ValidCarState(b));
+    b = s; b.racePct = 100.0f; b.laps = 3; CHECK(ValidCarState(b));    // a finished race
 
     TrafficEntry e = th::MakeTrafficEntry(1, 100.0f);
     CHECK(ValidTrafficEntry(e));

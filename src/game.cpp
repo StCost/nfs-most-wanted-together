@@ -548,6 +548,9 @@ bool Game::ReadLocalCar(CarState& out) {
                 Mem::Read((uintptr_t)ri + 0x28, laps);
                 Mem::Read((uintptr_t)ri + 0x2C, cps);
                 Mem::Read((uintptr_t)ri + 0x21, fin);
+                auto clampf = [](float v) { return (v == v && v > 0.f) ? (v < 100.f ? v : 100.f) : 0.f; };   // the receiver rejects values outside 0..100
+                out.racePct = clampf(out.racePct); out.lapPct = clampf(out.lapPct);
+                laps = laps < 0 ? 0 : laps > 200 ? 200 : laps; cps = cps < 0 ? 0 : cps > 2000 ? 2000 : cps;
                 out.laps = (int16_t)laps; out.checkpoints = (int16_t)cps; out.finished = fin ? Game::LocalFinishRank(ri) : 0;   // our rank at the finish
                 { static uint8_t lastFin = 0; if (out.finished && !lastFin) LOG("Race: we finished (rank %d)", (int)out.finished); lastFin = out.finished; }
                 // our own name in the standings: the co-op player name (both games may share one

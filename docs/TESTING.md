@@ -78,6 +78,7 @@ tools\coop-test.ps1 -Scenario solo -Solo
 | `pursuit` | The PC that is NOT chased logs `Cops: showing the other player's police car` and `Pursuit: mine no ... theirs heat 1.x, 1 of their cops shown here`. A parked car is busted in ~30 s: that player lands in the garage, the other keeps playing. |
 | `ram` (client parked, `AutoPilot=0`) | H `hit the other player, lost ~60 km/h - sent to them`, C `hit by the other player, pushed by ~35 km/h`, C's `pos` moves ~4 m. No hit line the other way round. |
 | `together` (client has `ReadyDelayMs=6000`) | H `on the grid first - waiting for <name> to load...` then `go (both ready, waited 6.x s)`. |
+| `results` | C stays on its results screen after 15.1.1; H leaves its own and starts 15.1.2. C logs `invited while we're on the results screen - leaving it to join`, then `starting 15.1.2`; both race 15.1.2 together. |
 | `kinds` | All four events run 70 s with no `CRASH` on either PC; C logs `Traffic: in a race - keeping our own traffic`. Drag (12.7.3) used to crash at ~28 s. |
 | `solo` | Race alone: no `Start: on the grid` hold, no `Collision` lines, the win pays out as in the unmodded game. |
 
@@ -125,7 +126,7 @@ A pass looks like this:
 ## Before a release
 
 1. `tests\build_tests.bat` passes.
-2. `solo`, `smoke`, `race`, `boss`, `restart`, `cutscene`, `pursuit`, `ram`, `together`, `kinds` pass on two PCs.
+2. `solo`, `smoke`, `race`, `results`, `boss`, `restart`, `cutscene`, `pursuit`, `ram`, `together`, `kinds` pass on two PCs.
 3. Save backup and restore pass.
 4. One real session by two people with `TestKeys=0`: free roam, a race started from the game's own menus
    (not `event`), a pursuit, a rival race.

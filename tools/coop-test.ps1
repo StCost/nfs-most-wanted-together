@@ -29,6 +29,7 @@ $scenarios = [ordered]@{
     pursuit  = 'Start a pursuit on this PC in free roam. Pass: other PC logs "Cops: showing the other player''s police car".'
     ram      = 'Park 25 m from the other car, then hit it at 90 km/h. Pass: this PC logs "hit the other player, lost N km/h", the other "pushed by N km/h" and its car moves several metres.'
     together = 'Start an event; set [Debug] ReadyDelayMs=6000 on the OTHER PC first. Pass: this PC logs "on the grid first - waiting" then "go (both ready, waited 6.x s)".'
+    results  = 'Race 15.1.1 (this PC wins), leave the results screen here, start 15.1.2 while the other PC still shows its results. Pass: other PC logs "invited while we''re on the results screen - leaving it to join" and joins 15.1.2.'
     kinds    = 'Smoke-run tollbooth 14.4.1, speedtrap 13.5.1, drag 12.7.3, knockout 15.3.1 (70 s each, game restarted in between; the other PC must restart and reconnect each time). Pass: no CRASH on either PC.'
     solo     = 'Race alone (use -Solo). Pass: the win pays out and nothing about co-op shows up.'
 }
@@ -36,8 +37,11 @@ if ($Scenario -eq 'list' -or -not $scenarios.Contains($Scenario)) {
     'Scenarios:'; $scenarios.GetEnumerator() | ForEach-Object { '  {0,-9} {1}' -f $_.Key, $_.Value }; return
 }
 
-function Read-Log { $fs = [IO.File]::Open($log, 'Open', 'Read', 'ReadWrite'); $sr = New-Object IO.StreamReader($fs); $t = $sr.ReadToEnd(); $sr.Close(); $t }
-function Send-Cmd([string]$c) { Set-Content $cmdFile $c; Start-Sleep -Milliseconds 900 }
+function Read-Log { if (-not (Test-Path $log)) { return '' }; $fs = [IO.File]::Open($log, 'Open', 'Read', 'ReadWrite'); $sr = New-Object IO.StreamReader($fs); $t = $sr.ReadToEnd(); $sr.Close(); $t }
+function Send-Cmd([string]$c) {   # waits until the mod took the previous command, so none is overwritten
+    $end = (Get-Date).AddSeconds(10); while ((Test-Path $cmdFile) -and (Get-Date) -lt $end) { Start-Sleep -Milliseconds 200 }
+    Add-Content $cmdFile $c; Start-Sleep -Milliseconds 900
+}
 function Wait-Log([string]$pattern, [int]$sec) {
     $end = (Get-Date).AddSeconds($sec)
     do { Start-Sleep 2; $t = Read-Log } until ($t -match $pattern -or (Get-Date) -gt $end)
@@ -45,6 +49,7 @@ function Wait-Log([string]$pattern, [int]$sec) {
 }
 function Start-Game {
     Stop-Process -Name speed -Force -ErrorAction SilentlyContinue; Start-Sleep 4
+    Remove-Item $log -ErrorAction SilentlyContinue   # never match the previous run's lines
     Start-Process (Join-Path $Game 'speed.exe') -WorkingDirectory $Game -WindowStyle Minimized
     if (-not (Wait-Log 'flow state 5 -> 6' 120)) { throw 'The game did not reach free roam (check [Start] options and the log).' }
     if (-not $Solo) { if (-not (Wait-Log 'Ghost acquired' $PeerTimeoutSec)) { throw 'The other player did not show up.' } }
@@ -76,6 +81,10 @@ try {
                      Show-Log "$always|Collision:|protection" }
         'together' { if (-not $Event) { $Event = '15.1.1' }; Start-Game; Start-Sleep 20; Send-Cmd "event $Event"; Start-Sleep 50
                      Show-Log "$always|Start: (on|go)|Event: starting|FE screens: \[HUD" }
+        'results'  { Start-Game; Start-Sleep 20; Send-Cmd 'event 15.1.1'; Wait-Log 'peer racer info|HUD_SingleRace' 60 | Out-Null; Start-Sleep 20; Send-Cmd 'slowai'
+                     Wait-Log 'Race: we finished|FE screens: \[PostRace' 420 | Out-Null; Start-Sleep 8; Send-Cmd 'accept PostRace_Results.fng'; Start-Sleep 25
+                     Send-Cmd 'event 15.1.2'; Start-Sleep 60
+                     Show-Log "$always|Event: |FE screens|Race: (we|the)" 16 }
         'kinds'    { foreach ($ev in '14.4.1', '13.5.1', '12.7.3', '15.3.1') {
                          Start-Game; Start-Sleep 20; Send-Cmd "event $ev"; Start-Sleep 75
                          "== $ev (game still running: $([bool](Get-Process speed -ErrorAction SilentlyContinue)))"

@@ -168,7 +168,7 @@ struct TrafficPacket {
 #pragma pack(pop)
 
 constexpr uint32_t COOP_MAGIC   = 0x4F43574D; // "MWCO"
-constexpr uint16_t COOP_VERSION = 15;
+constexpr uint16_t COOP_VERSION = 16;
 
 struct NetStats {
     bool        connected = false;

@@ -61,6 +61,9 @@ namespace {
         int mode = 0;
         void* cur = CurrentParms(&mode);
         if (cur && mode == 1 && fromPeer && EventHashOf(cur) != eventHash && FEScreens::IsPushed("PostRace_Results.fng")) {
+            void* db0 = nullptr; Mem::Read(0x91E004, db0);
+            void* next = db0 ? ((void*(__thiscall*)(void*, uint32_t))0x5FB710)(db0, eventHash) : nullptr;
+            if (!next || IsChallengeEvent(next)) return;   // one we'd refuse in free roam anyway: stay on the results
             static DWORD lastExit = 0;
             void* fe = nullptr;
             if (GetTickCount() - lastExit > 2500 && Mem::Read(0x91CADC, fe) && fe) {
@@ -178,7 +181,8 @@ static void EventTickImpl(bool connected) {
     if (g_inviteHash) {
         DWORD now = GetTickCount();
         const Net::Snapshot& pr = Net::Latest();
-        if (!connected || (int)(now - g_inviteUntil) > 0 || (pr.valid && pr.s.inRace)) g_inviteHash = 0;
+        // a partner still on the results of the previous race reports inRace too: only being in OUR event counts
+        if (!connected || (int)(now - g_inviteUntil) > 0 || (pr.valid && pr.s.inRace && pr.s.eventHash == g_inviteHash)) g_inviteHash = 0;
         else if ((int)(now - g_inviteNext) >= 0) { g_inviteNext = now + 1500; SendInvite(); }
     }
     if (g_joiningEvent && GetTickCount() - g_joinStartedAt > 20000) {
@@ -369,8 +373,9 @@ static void StartSyncTickImpl(bool connected) {
         g_stage = 2;
         // coming = already in this event, or still on the way to it (no event yet and we invited them /
         // they invited us). A peer in ANOTHER event, or roaming and ignoring us, is not waited for.
-        bool peerComing = pr.valid && (pr.s.eventHash == hash ||
-                                       (pr.s.eventHash == 0 && (g_inviteHash == hash || g_handledHash == hash)));
+        // (while our invitation is still being repeated the peer may be leaving the previous race's results)
+        bool peerComing = pr.valid && (pr.s.eventHash == hash || g_inviteHash == hash ||
+                                       (pr.s.eventHash == 0 && g_handledHash == hash));
         bool peerReady = pr.valid && pr.s.eventHash == hash && pr.s.pad[0] >= 2;
         if (connected && g_cfg.startTogether && peerComing && !peerReady && !g_holding) {
             int req = 0;
