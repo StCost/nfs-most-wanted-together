@@ -16,6 +16,7 @@
 // ---------------------------------------------------------------------------
 namespace {
     int g_mapMode = 0;
+    bool g_mapHooked = false;
     uint8_t g_mapStore = 0;                       // value for the caller's [esp+13] (flag 8 as the game had it)
     struct MapExtra { uint32_t hash; void* trigger; };
     MapExtra g_mapExtra[96]; int g_mapExtraN = 0;
@@ -125,6 +126,7 @@ namespace {
                 g_me[0] = u[2]; g_me[1] = -u[0];            // UMath -> map space: b.x = u.z, b.y = -u.x
             }
             g_candN = 0; memset(g_nativeByType, 0, sizeof(g_nativeByType));
+            g_mapExtraN = 0;                                 // re-recorded below: no trigger pointers from an older world
             g_collecting = true;
             ((void(__thiscall*)(void*))0x602840)(gm);        // with the current set: nothing changes on screen
             g_collecting = false;
@@ -136,7 +138,11 @@ namespace {
                     for (int i = 0; i < g_candN; ++i) {
                         if (g_cand[i].type != ty) continue;
                         bool taken = false; for (int k = 0; k < nextN; ++k) if (next[k] == g_cand[i].hash) taken = true;
-                        if (!taken && (best < 0 || g_cand[i].dist < g_cand[best].dist)) best = i;
+                        // an event already shown keeps its place unless another is clearly closer (no flicker)
+                        if (taken) continue;
+                        float di = g_cand[i].dist * (Allowed(g_cand[i].hash) ? 0.72f : 1.0f);
+                        float db = best < 0 ? 0 : g_cand[best].dist * (Allowed(g_cand[best].hash) ? 0.72f : 1.0f);
+                        if (best < 0 || di < db) best = i;
                     }
                     if (best < 0) break;
                     next[nextN++] = g_cand[best].hash;
@@ -156,7 +162,9 @@ namespace {
 // Every few seconds while roaming: keep the closest not-won events on the map.
 void Game::MapEventsTick() {
     static DWORD next = 0;
-    if (!g_ok || !g_mapMode || GameFlowState() != 6 || GetTickCount() < next) return;
+    if (!g_ok || !g_mapHooked) return;
+    if (GameFlowState() != 6) { g_allowedN = 0; g_mapExtraN = 0; return; }   // menus / loading: another career may come next
+    if (!g_mapMode || GetTickCount() < next) return;
     next = GetTickCount() + 4000;
     if (RefreshRaceIconsSafe(false)) LOG("Map: %d not-won event(s) shown besides the game's own", g_allowedN);
 }
@@ -164,6 +172,7 @@ bool Game::InstallMapEvents() {
     g_mapMode = g_cfg.mapEvents;
     const uint8_t expect[18] = { 0x8B, 0x41, 0x04, 0xC1, 0xE8, 0x03, 0x24, 0x01, 0x88, 0x44, 0x24, 0x13, 0x74, 0x1E, 0x84, 0xDB, 0x75, 0x1A };
     bool ok = PatchJmp(0x602914, expect, 18, (void*)&hk_RaceIcon);
+    g_mapHooked = ok;
     LOG("Map: event icons hook %s (MapEvents=%d)", ok ? "installed" : "NOT installed (code differs)", g_mapMode);
     return ok;
 }
@@ -183,7 +192,7 @@ static void MapListSafe(char* out, size_t n) {
     } __except (EXCEPTION_EXECUTE_HANDLER) { strcat_s(out, n, " (exception)"); }
 }
 std::string Game::DebugMapEvents(const char* arg) {
-    if (!g_ok) return "not in game";
+    if (!g_ok || !g_mapHooked) return "not in game or hook not installed";
     if (arg && *arg) {
         int m = atoi(arg);
         if (m < 0 || m > 2) return "mode must be 0, 1 or 2";
@@ -219,6 +228,7 @@ static int GotoEventSafe(const char* want, char* out, size_t n) {
 }
 std::string Game::DebugGotoEvent(const char* id) {
     if (!g_ok || GameFlowState() != 6) return "not in game";
+    RefreshRaceIconsSafe(false);                     // fresh trigger pointers
     char b[200] = "";
     int r = GotoEventSafe(id, b, sizeof(b));
     return r > 0 ? std::string(b) : r < 0 ? "exception" : "no extra marker for that event (run mapevents first)";

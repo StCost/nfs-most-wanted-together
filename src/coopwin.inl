@@ -83,7 +83,8 @@ namespace {
     }
 
     bool PatchJmp(uintptr_t at, const uint8_t* expect, size_t len, void* to) {
-        uint8_t patch[16];
+        uint8_t patch[32];
+        if (len < 5 || len > sizeof(patch)) return false;
         memset(patch, 0x90, sizeof(patch));
         patch[0] = 0xE9;
         *(int32_t*)(patch + 1) = (int32_t)((uintptr_t)to - (at + 5));
