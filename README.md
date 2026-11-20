@@ -51,7 +51,7 @@ Coming from the old CoopMod? Delete `scripts\CoopMod.asi`; your settings carry o
 - [x] A short notice in the corner when the other player joins or leaves, even with the overlay hidden.
 - [x] Notifications use game's own UI: the EA Trax banner (where songs are announced) shows "<name> joined / left";
 - [x] Joining while the other player is in a race: you roam freely, get a notice, and go together into the next event (?)
-- [x] Each side only listens to its partner's address
+- [x] Strangers can't interfere: each game ignores network packets from anyone except the player it connected to
 - [x] Event starts and restarts are repeated for a few seconds, so a lost packet can't leave you in different races (?)
 - [ ] Up to 4 players
 
@@ -86,8 +86,9 @@ Coming from the old CoopMod? Delete `scripts\CoopMod.asi`; your settings carry o
 - [x] A win by either player counts for both: cash, unlocks and career progress in each player's own career (`SharedWins`)
 - [x] The other player's finish is shown in your standings
 - [x] Blacklist rival races: you both race the rival in the same event (your partner's car drives alongside, outside the standings), and each of you gets the normal rival flow after winning
-- [ ] Rival rewards (markers, pink slips) picked in co-op: not played through yet
-- [x] Bounty and pursuit milestones count for each player's own career (seen on escape); speed-trap and other milestones not checked in co-op yet (?)
+- [ ] Rival rewards: after beating a rival, each player picks their own markers and gets their own rewards (pink slip, cash, parts) in their own career. Nothing is shared or synced here on purpose; it just hasn't been played through in co-op yet
+- [x] Bounty counts for each player's own career (seen after an escape)
+- [ ] Milestones in co-op (speed traps, pursuit length, cost to state, infractions and the rest): each player should earn their own while playing together. Not checked yet
 - [x] Challenge Series events: when you both start from the main menu, both load the event with its preset car. A player who is roaming in career isn't pulled in (?)
 
 ### Career
