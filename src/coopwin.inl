@@ -173,7 +173,16 @@ static void RamSafe(char* out, size_t n) {
         float dx = hp[0] - mp[0], dz = hp[2] - mp[2], len = sqrtf(dx * dx + dz * dz);
         if (len < 0.5f) { dx = 1; dz = 0; len = 1; }
         dx /= len; dz /= len;
-        float pos[3] = { hp[0] - dx * 12.f, hp[1] + 0.3f, hp[2] - dz * 12.f }, vel[3] = { dx * 25.f, 0, dz * 25.f }, zero[3] = { 0, 0, 0 };
+        // A jump of more than 30 m re-arms spawn protection on both PCs (collisions off for 3 s), so from
+        // far away first park 25 m from the other car; the second `ram` (5 s later) then does the hit.
+        float zero[3] = { 0, 0, 0 };
+        if (len > 30.f) {
+            float park[3] = { hp[0] - dx * 25.f, hp[1] + 0.3f, hp[2] - dz * 25.f };
+            RB_SetVec(me, RB_SetPosition, park); RB_SetVec(me, RB_SetLinearVelocity, zero); RB_SetVec(me, RB_SetAngularVelocity, zero);
+            sprintf_s(out, n, "parked 25 m from the other player - send ram again in 5 s");
+            return;
+        }
+        float pos[3] = { hp[0] - dx * 12.f, hp[1] + 0.3f, hp[2] - dz * 12.f }, vel[3] = { dx * 25.f, 0, dz * 25.f };
         RB_SetVec(me, RB_SetPosition, pos); RB_SetVec(me, RB_SetLinearVelocity, vel); RB_SetVec(me, RB_SetAngularVelocity, zero);
         sprintf_s(out, n, "ramming the other player from 12 m at 90 km/h");
     } __except (EXCEPTION_EXECUTE_HANDLER) { strcpy_s(out, n, "exception"); }
