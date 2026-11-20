@@ -203,6 +203,7 @@ namespace {
         if (g_gameOk) Game::AutopilotTick();
         if (g_netOk && g_gameOk) Game::NisTick(st.connected);
         if (g_netOk && g_gameOk) Game::SaveTick(st.connected);
+        if (g_netOk && g_gameOk) Game::CoopWinTick(st.connected, Net::Latest());
         Macro::Tick();
         }
 

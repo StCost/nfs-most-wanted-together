@@ -437,7 +437,7 @@ bool Game::ReadLocalCar(CarState& out) {
                 Mem::Read((uintptr_t)ri + 0x28, laps);
                 Mem::Read((uintptr_t)ri + 0x2C, cps);
                 Mem::Read((uintptr_t)ri + 0x21, fin);
-                out.laps = (int16_t)laps; out.checkpoints = (int16_t)cps; out.finished = fin;
+                out.laps = (int16_t)laps; out.checkpoints = (int16_t)cps; out.finished = fin ? Game::LocalFinishRank(ri) : 0;   // our rank at the finish
                 // our own name in the standings: the co-op player name (both games may share one
                 // save profile, so the profile name would be the same on both)
                 static char myName[32];
@@ -642,6 +642,7 @@ bool Game::InstallVehicleFactoryHook() {
     InstallStreamHook();
     InstallNisHook();
     InstallSaveSync();
+    InstallCoopWin();
     InstallMinimapHook();
     InstallWorldMapHook();
     LOG("Hooked vehicle factory (races: AI racer -> peer car)");
@@ -703,6 +704,7 @@ void Game::SetDataDir(const char* dir) { strncpy_s(g_dataDir, dir, _TRUNCATE); }
 #include "boot.inl"
 #include "nis.inl"
 #include "save.inl"
+#include "coopwin.inl"
 
 void Game::ReleaseGhost() {
     g_streamPeer = false;

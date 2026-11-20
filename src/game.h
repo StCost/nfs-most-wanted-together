@@ -48,6 +48,9 @@ namespace Game {
     void NisTick(bool connected);
     uint32_t NisSceneHash();
     uint32_t NisVoteHash();
+    bool InstallCoopWin();              // shared wins
+    void CoopWinTick(bool connected, const Net::Snapshot& peer);
+    uint8_t LocalFinishRank(void* localRacerInfo);
     void InstallSaveSync();             // career save kept by the host
     void SaveTick(bool connected);
     const char* SaveStatus();

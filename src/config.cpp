@@ -37,6 +37,7 @@ void Config::Load(const char* ini) {
     autoPilot = ReadInt(ini, "Debug", "AutoPilot", 0) != 0;
     perf = ReadInt(ini, "Debug", "Perf", 0) != 0;
     saveSync = ReadInt(ini, "Career", "SaveSync", 1) != 0;
+    sharedWins = ReadInt(ini, "Career", "SharedWins", 1) != 0;
     startInBackground = ReadInt(ini, "Window", "StartInBackground", 0) != 0;
     skipPursuitResults = ReadInt(ini, "UI", "SkipPursuitResults", 0) != 0;
     skipIntro = ReadInt(ini, "Start", "SkipIntro", 1) != 0;

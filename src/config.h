@@ -25,6 +25,7 @@ struct Config {
     bool        skipLeaveSafeHouseDialog = true; // [Start] SkipLeaveSafeHouseDialog
     bool        skipPursuitResults = false; // [UI] SkipPursuitResults - close the pursuit result screen in free roam
     bool        startInBackground = false; // [Window] StartInBackground - give focus back on start, game muted until clicked
+    bool        sharedWins = true;       // [Career] SharedWins - a win by either player counts for both
     bool        saveSync = true;         // [Career] SaveSync - the host keeps a copy of the client's save
     bool        perf = false;            // [Debug] Perf - log fps / frame times / mod cost every 5 s
     bool        autoPilot = false;       // [Debug] AutoPilot - the AI drives the local car in free roam and races (F5 toggles)
