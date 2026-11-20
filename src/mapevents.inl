@@ -54,8 +54,10 @@ namespace {
         void* parms = db ? ((void*(__thiscall*)(void*, uint32_t))0x5FB710)(db, hash) : nullptr;
         return parms ? ((int(__thiscall*)(void*))0x5FAA20)(parms) : -1;
     }
+    int g_seen = 0, g_seenWon = 0, g_seenOut = 0;      // diagnostics of the last collect pass
     bool MapDecideImpl(uint32_t* entry, int won, void* trigger) {
         uint32_t flags = entry[1];
+        if (g_collecting) { ++g_seen; if (won) ++g_seenWon; }
         bool avail = (flags >> 3) & 1;
         g_mapStore = avail ? 1 : 0;
         if (avail && !won) {                      // the game's own choice
@@ -65,8 +67,7 @@ namespace {
         if (!g_mapMode || won) return false;
         bool boss = false; const char* id = nullptr;
         int bin = BinOfHash(entry[0], boss, id);
-        if (boss || bin < 1 || bin > 15) return false;          // career rivals only: no prologue (16), no Challenge Series (19)
-        if (g_mapMode == 1 && bin != CurrentBin()) return false;
+        if (boss || bin < 1 || bin > 15 || (g_mapMode == 1 && bin != CurrentBin())) { if (g_collecting) ++g_seenOut; return false; }   // career rivals only: no prologue (16), no Challenge Series (19)
         if (g_collecting && g_candN < 200) {
             int ty = RaceTypeOf(entry[0]);
             void* icon = nullptr;
@@ -126,6 +127,7 @@ namespace {
                 g_me[0] = u[2]; g_me[1] = -u[0];            // UMath -> map space: b.x = u.z, b.y = -u.x
             }
             g_candN = 0; memset(g_nativeByType, 0, sizeof(g_nativeByType));
+            g_seen = g_seenWon = g_seenOut = 0;
             g_mapExtraN = 0;                                 // re-recorded below: no trigger pointers from an older world
             g_collecting = true;
             ((void(__thiscall*)(void*))0x602840)(gm);        // with the current set: nothing changes on screen
@@ -200,7 +202,8 @@ std::string Game::DebugMapEvents(const char* arg) {
         if (!m) g_allowedN = 0;
         if (!RefreshRaceIconsSafe(true)) return "mode set - icons update when you are back in free roam";
     }
-    char b[480]; sprintf_s(b, "mode %d, %d extra event(s):", g_mapMode, g_mapExtraN);
+    char b[480]; sprintf_s(b, "mode %d (race triggers %d, won %d, out of scope %d, candidates %d, rival %d), %d extra event(s):",
+                           g_mapMode, g_seen, g_seenWon, g_seenOut, g_candN, CurrentBin(), g_mapExtraN);
     MapListSafe(b, sizeof(b));
     return b;
 }
