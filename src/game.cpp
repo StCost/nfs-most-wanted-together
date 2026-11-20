@@ -832,7 +832,8 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
         void* iv = nullptr;
         // 1) in a race: the racer the factory hook built as the peer's car, else any racer
         if (g_replacedRacer && ListContains(VL_AIRACERS, g_replacedRacer) && RigidBodyOf(g_replacedRacer)) iv = g_replacedRacer;
-        else if (void* r0 = ListGet(VL_AIRACERS, 0); r0 && RigidBodyOf(r0)) iv = r0;
+        // (no "any AI racer" fallback any more: it would take over the rival in a boss race, or an
+        //  opponent of a race the other player isn't even in. Without our racer, their car is spawned.)
         if (iv) {
             g_ghostList = VL_AIRACERS;
             g_ghostKind = GK_RACER;
