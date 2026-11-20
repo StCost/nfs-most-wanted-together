@@ -35,6 +35,7 @@ void Config::Load(const char* ini) {
     noPause = ReadInt(ini, "Coop", "NoPause", 1) != 0;
     runInBackground = ReadInt(ini, "Coop", "RunInBackground", 1) != 0;
     autoPilot = ReadInt(ini, "Debug", "AutoPilot", 0) != 0;
+    autoPilotNos = ReadInt(ini, "Debug", "AutoPilotNos", 1) != 0;
     perf = ReadInt(ini, "Debug", "Perf", 0) != 0;
     bootTrace = ReadInt(ini, "Debug", "BootTrace", 0) != 0;
     saveSync = ReadInt(ini, "Career", "SaveSync", 1) != 0;

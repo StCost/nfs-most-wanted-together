@@ -31,6 +31,7 @@ struct Config {
     bool        bootTrace = false;       // [Debug] BootTrace - log memory-card / controller state changes while booting
     bool        perf = false;            // [Debug] Perf - log fps / frame times / mod cost every 5 s
     bool        autoPilot = false;       // [Debug] AutoPilot - the AI drives the local car in free roam and races (F5 toggles)
+    bool        autoPilotNos = true;     // [Debug] AutoPilotNos - the autopilot uses nitrous on straights
     bool        runInBackground = true;  // [Coop] RunInBackground - keep running when the window loses focus
     bool        uiIntroInput = true;  // [UI] IntroInput - menus accept input while their intro animation plays
     int         uiMenuSpeed = 2;      // [UI] MenuSpeed - 1 = normal, 2 = 2x, 3 = 3x menu animations

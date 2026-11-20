@@ -100,7 +100,7 @@ Unticked items are still to do.
 
 ### Test tools (`[Debug] TestKeys=1`)
 - [x] **F5** autopilot: the game's AI drives your car, cruising in free roam and following the route in races. `AutoPilot=1` turns it on by itself
-- [ ] Autopilot uses nitrous (nice to have)
+- [x] Autopilot uses nitrous on straights (`[Debug] AutoPilotNos`, default on)
 - [x] `[Window] StartInBackground=1`: the game starts without taking the focus, loads the profile and goes into free roam in the background, and stays muted until you click it
 - [x] Performance diagnostics: `[Debug] Perf=1` logs fps, 1% lows, worst frame and how many milliseconds each part of the mod takes, every 5 seconds (it's also shown in the F8 overlay)
 - [x] **F7** starts the test event (`TestEvent`) for both players
