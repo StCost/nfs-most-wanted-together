@@ -2,13 +2,9 @@
 
 ![NFS MW Together](docs/banner.png)
 
-Play the Most Wanted career with a friend. You share one Rockport: free roam, races, Blacklist rivals and
-police chases, each of you in your own car with your own tuning. When either of you wins an event, you both
-get the cash, the unlocks and the career progress. The host also keeps a copy of your partner's save, so
-nobody loses their career.
-
-**Two players, early alpha.** It works on a LAN or a VPN and it has rough edges; the checklist further
-down says exactly what's tested.
+Play the Most Wanted career with a friend! (2 players, LAN)
+Free roam with traffic, races with AI opponents, Blacklist rivals, police, own car and tuning. 
+Any of players must win race. All players get rewards.
 
 ## Install
 
@@ -18,13 +14,13 @@ down says exactly what's tested.
 3. Do the same on the other PC. The game skips the intro, loads your career into free roam and the two of
    you connect by yourselves.
 
-Both players should have finished the career prologue (the opening races) on their own first.
+ATTENTION: Both players must finish the career prologue (the opening races). Reach free roam to see other players.
 
 ## You need
 
 - Need for Speed: Most Wanted (2005) for PC, patched to **v1.3**. Your own copy: no game files are included here.
 - The same version of the mod on both PCs.
-- A way for the two PCs to reach each other: the same home network, a VPN like Radmin VPN or ZeroTier,
+- A way for the two PCs to reach each other: the same home LAN network, a VPN like Hamachi, Radmin VPN or ZeroTier,
   or UDP port 47555 forwarded to the host.
 
 Already have an ASI loader? Keep your `dinput8.dll` and copy only the `scripts` folder and the launcher.
@@ -32,30 +28,28 @@ Coming from the old CoopMod? Delete `scripts\CoopMod.asi`; your settings carry o
 
 ## What to expect
 
-- **Your own cars.** Each player drives their own car, with all its tuning and visuals, everywhere.
+- **Your own cars.** Each player drives their own car, with all its tuning and visuals, everywhere. Including damage and brake lights.
 - **Events together.** Start any career event and your partner is taken along. You get the same opponents,
-  start at the same moment and see each other in the standings.
-- **Shared wins.** If either of you finishes first, it counts for both careers.
+  start at the same moment and see each other.
+- **Shared wins.** If either of you finishes first, it counts for both players.
 - **Police.** Each of you has your own heat and your own pursuit, and you see the cops chasing your partner.
   Getting busted only takes out the player who was caught.
-- **One world.** Shared traffic when you're close, collisions between your cars, blips on the minimap and map.
+- **One world.** Shared traffic when you're near by, collisions between your cars, blips on the minimap and map.
 - **Saves.** Everyone keeps their own career save. The host stores a copy of the partner's save after every
   autosave and hands it back if theirs is ever missing or older.
-- **Not yet:** more than two players, and playing the prologue together.
-## Features and progress
+- **Not yet:** 4 players, and prologue together.
 
-Ticked means it's in the mod. A **(?)** means it's built but hasn't been properly tested in a real co-op session yet[^1].
-Unticked items are still to do.
+## Features and progress
 
 ### Connecting
 - [x] Direct connection between two PCs (one hosts, one joins), with ping shown in the overlay
 - [x] Clean "bye" when someone quits, Alt+F4 included, and a timeout if a game just disappears
 - [x] Stays connected when a game is paused, minimized or alt-tabbed
-- [x] Game keeps running in the background when alt-tabbed
+- [x] Game keeps running in the background when alt-tabbed or paused
 - [x] Status overlay on F8, and it remembers whether you hid it
 - [x] Launcher (`MWTogetherLauncher.exe` next to `speed.exe`) in the game's style: name, host or join, the host's IP, start options under Settings, then Play
-- [x] A short notice in the corner when the other player joins or leaves, even with the overlay hidden
-- [x] Those notices in the game's own UI: the EA Trax banner (where songs are announced) shows "<name> joined / left"; the corner line stays as the fallback (`[UI] GameNotices`)
+- [x] A short notice in the corner when the other player joins or leaves, even with the overlay hidden.
+- [x] Notifications use game's own UI: the EA Trax banner (where songs are announced) shows "<name> joined / left";
 - [x] Joining while the other player is in a race: you roam freely, get a notice, and go together into the next event (?)
 - [x] Each side only listens to its partner's address
 - [x] Event starts and restarts are repeated for a few seconds, so a lost packet can't leave you in different races (?)
@@ -64,7 +58,7 @@ Unticked items are still to do.
 ### Your cars
 - [x] Each player drives their own car, with their full tuning, in free roam and in races
 - [x] Smooth movement of the other player's car (about 1-10 mm of jitter)
-- [x] Spawn protection, so two cars appearing on the same spot don't launch each other
+- [x] Spawn protection, so two cars appearing on the same spot don't collider or launch each other
 - [x] Other player's blip on the minimap
 - [x] Other player on the world map, coloured like your own arrow and moving while the map is open
 - [x] Car-to-car collisions between players, with the impact passed on: ram your partner and their car is thrown on their screen too
@@ -75,9 +69,9 @@ Unticked items are still to do.
 - [x] Cops of the other player show up for you, light bars included
 - [x] Each player keeps their own heat and pursuit, and sees the cops chasing the other player
 - [x] Cops may switch to chasing the other player when you're both being chased (?)
-- [x] Cars near the other player keep full physics instead of floating along the road (?)
+- [x] Traffic cars near the other player keep full physics instead of moving at reducing quality
 - [x] Hitting the other player's traffic, cops or race opponents pushes the real car on their PC (?)
-- [x] Pause menu and world map don't freeze the world while you're connected
+- [x] Pause menu and world map don't pause the time while you're connected
 - [x] No speedbreaker in co-op (slow motion can't work for two people)
 
 ### Events and races
@@ -101,26 +95,26 @@ Unticked items are still to do.
 - [x] The host keeps a copy of the other player's career save, updated after every autosave. If that player's own save is missing or older when they connect, it's restored from the host (their old file is kept as a backup)
 - [x] Cutscene skip voting: a cutscene you both watch is skipped only when both press skip
 - [ ] Story cutscenes outside events started for both players at the same time
-- [x] Getting busted or escaping only affects the player being chased; the other one keeps playing
+- [x] Getting busted or escaping only affects the player being chased
 
 ### Quality of life (settings in `[Start]` and `[UI]`)
 - [x] Skip the intro logos and movie and load straight into career free roam after the profile (`SkipIntro`, `DirectFreeRoam`)
 - [x] The "load complete" screen after the title confirms itself (`SkipLoadComplete`, on by default)
 - [x] No "leave the safe house?" question (`SkipLeaveSafeHouseDialog`)
-- [x] Menus react while their opening animation plays, and animate 2x faster (`IntroInput`, `MenuSpeed`)
+- [x] Menus react while their opening animation plays, and animate 2x faster (`IntroInput`, `MenuSpeed`) to improve UI responsivness
 - [x] Optional: close the pursuit result screens in free roam by itself ("Bounty achieved" and the pursuit summary), off by default (`SkipPursuitResults`). Getting busted still shows the fine screen
 
 ### Test tools (`[Debug] TestKeys=1`)
-- [x] **F5** autopilot: the game's AI drives your car, cruising in free roam and following the route in races. `AutoPilot=1` turns it on by itself
+- [x] **F5** autopilot: the game's AI drives your car, cruising in free roam and following the route in races. `AutoPilot=1` turns it on by itself. For testing purposes
 - [x] Autopilot uses nitrous on straights (`[Debug] AutoPilotNos`, default on)
-- [x] `[Window] StartInBackground=1`: the game starts without taking the focus, loads the profile and goes into free roam in the background, and stays muted until you click it
-- [x] Performance diagnostics: `[Debug] Perf=1` logs fps, 1% lows, worst frame and how many milliseconds each part of the mod takes, every 5 seconds (it's also shown in the F8 overlay)
-- [x] **F7** starts the test event (`TestEvent`) for both players
-- [x] **F10 / F11** spawn or remove a test copy of the other player's car, **F12** spawns a test cop
-- [x] Test commands in `scripts\MWTogether.cmd` also include `pursuit` (the cops start a pursuit on you) and `uncop` (remove every police car, so the pursuit ends in an escape)
+- [x] `[Window] StartInBackground=1`: the game starts without taking the focus, loads the profile and goes into free roam in the background, and stays muted until you click it. For testing purposes
+- [x] Performance diagnostics: `[Debug] Perf=1` logs fps, 1% lows, worst frame and how many milliseconds each part of the mod takes, every 5 seconds (it's also shown in the F8 overlay). For testing purposes
+- [x] **F7** starts the test event (`TestEvent`) for both players. For testing purposes
+- [x] **F10 / F11** spawn or remove a test copy of the other player's car, **F12** spawns a test cop. For testing purposes
+- [x] Test commands in `scripts\MWTogether.cmd` also include `pursuit` (the cops start a pursuit on you) and `uncop` (remove every police car, so the pursuit ends in an escape). For testing purposes
 
-[^1]: (?) means we wrote it and it ran without errors, but nobody has played through it properly on two PCs yet,
-    so it may still misbehave. If you try one of these, tell us how it went.
+[^1]: (?) means feature is implemented, unit tested, but not playtested 100%. If you try one of these, tell us how it went.
+
 ## Configuration
 Every option is in `scripts\MWTogether.ini`, which comments each one. Main sections:
 `[Network]`, `[Player]`, `[Ghost]`, `[Traffic]`, `[Coop]`, `[Start]`, `[AutoStart]`, `[UI]`, `[Window]`, `[Debug]`.
@@ -143,7 +137,7 @@ tests\build_tests.bat
 ```
 
 It builds `build\tests.exe` and runs it, then runs the same tests again under AddressSanitizer when your
-MSVC supports it. About 80 tests: packet layouts and protocol version, connecting / leaving / timeouts,
+MSVC supports it. Tests include: packet layouts and protocol version, connecting / leaving / timeouts,
 snapshot interpolation and extrapolation, clock sync, traffic / event / roster / restart packets, `MWTogether.ini`
 parsing, and fuzz tests that throw several hundred thousand random and damaged datagrams at the packet
 handler to make sure nothing a network can deliver crashes the game. Exit code 0 means everything passed.
