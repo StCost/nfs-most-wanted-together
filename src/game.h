@@ -51,6 +51,7 @@ namespace Game {
     void NisTick(bool connected);
     uint32_t NisSceneHash();
     uint32_t NisVoteHash();
+    bool TakeCoopWinNotice();           // true once after a shared win was counted
     bool InstallCoopWin();              // shared wins
     void CoopWinTick(bool connected, const Net::Snapshot& peer);
     uint8_t LocalFinishRank(void* localRacerInfo);

@@ -16,6 +16,7 @@
 // ---------------------------------------------------------------------------
 namespace {
     bool g_coopWinLogged = false;
+    bool g_coopWinNotice = false;   // main.cpp shows a notice once
 
     void* GhostRacerInfo() { return (g_ghost && g_ghostKind == GK_RACER) ? RacerInfoOf(g_ghost) : nullptr; }
 
@@ -30,7 +31,7 @@ namespace {
         uint8_t fin = 0; int grank = 0;
         Mem::Read((uintptr_t)gri + 0x21, fin); Mem::Read((uintptr_t)gri + 0x10, grank);
         bool won = p.s.finished == 1 || (fin && grank == 1);     // they say they won / they won here
-        if (won && !g_coopWinLogged) { g_coopWinLogged = true; LOG("Race: the other player won - counted as our win too"); }
+        if (won && !g_coopWinLogged) { g_coopWinLogged = true; g_coopWinNotice = true; LOG("Race: the other player won - counted as our win too"); }
         return won;
     }
     bool __cdecl CoopWinCheck(void* localRi) {
@@ -115,7 +116,10 @@ bool Game::InstallCoopWin() {
     }
     bool a = PatchJmp(0x611B11, gate, 9, (void*)&hk_WinGate);
     bool b = PatchJmp(0x5EB4E0, who, 5, (void*)&hk_WhoWon);
-    bool c = PatchJmp(0x60E230, lose, 9, (void*)&hk_ShowLosing);
+    // The losing post-race screen is NOT swapped for the winning one: the race script that asked for it
+    // then waits for the losing screen's Continue and the player is stuck at the finish (seen on two PCs).
+    // The win is still paid and recorded; the standings table shows who finished first.
+    bool c = true; (void)&hk_ShowLosing;
     LOG("Career: shared wins %s/%s/%s", a ? "ok" : "FAIL", b ? "ok" : "FAIL", c ? "ok" : "FAIL");
     return a && b && c;
 }
@@ -152,3 +156,4 @@ static void CashSafe(char* out, size_t n) {
     } __except (EXCEPTION_EXECUTE_HANDLER) { strcpy_s(out, n, "exception"); }
 }
 std::string Game::DebugCash() { char b[96]; CashSafe(b, sizeof(b)); return b; }
+bool Game::TakeCoopWinNotice() { bool v = g_coopWinNotice; g_coopWinNotice = false; return v; }

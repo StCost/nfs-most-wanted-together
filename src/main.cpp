@@ -267,6 +267,7 @@ namespace {
                 }
             }
         }
+        if (g_gameOk && Game::TakeCoopWinNotice()) Toast((st.peerName.empty() ? std::string("Your partner") : st.peerName) + " won - it counts as your win too");
         {   // cutscene skip votes
             static std::string lastNis;
             std::string ns = g_gameOk ? Game::NisStatus() : "";
