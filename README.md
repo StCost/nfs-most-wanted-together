@@ -76,6 +76,7 @@ Unticked items are still to do.
 - [x] Opponents on the client follow the host's opponents, so the race looks the same on both screens
 - [x] Opponent names match on both PCs
 - [x] Race positions use each player's real progress
+- [x] Start together: whoever loads first waits on the grid until the other is ready (`StartTogether`)
 - [x] Restarting a race restarts it for both of you
 - [x] Race intro cutscenes play normally for both
 - [x] A win by either player counts for both: cash, unlocks and career progress in each player's own career (`SharedWins`)
