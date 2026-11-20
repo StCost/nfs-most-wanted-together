@@ -133,9 +133,6 @@ class LauncherForm : Form {
              introInput = Check("Menus respond during animations"), overlay = Check("Show status overlay (F8)");
     GameButton[] speedBtns = { new GameButton(), new GameButton(), new GameButton() };
     int menuSpeed = 2;
-    GameButton[] mapBtns = { new GameButton(), new GameButton(), new GameButton() };
-    static readonly string[] mapNames = { "Game", "Rival", "All" };
-    int mapEvents = 0;
     Label status = new Label { AutoSize = false, ForeColor = Theme.Accent, Font = Theme.Small };
 
     static CheckBox Check(string t) {
@@ -232,17 +229,6 @@ class LauncherForm : Form {
             msRow.Controls.Add(speedBtns[i]);
         }
         sp.Controls.Add(msRow);
-        var mapRow = new BgPanel { Size = new Size(W - 24, 32), Margin = new Padding(0, 2, 0, 0) };
-        var mapLbl = new Label { Text = "Events on the map", AutoSize = true, Location = new Point(0, 6), ForeColor = Theme.Text, BackColor = Color.Transparent, Font = Theme.Label };
-        mapRow.Controls.Add(mapLbl);
-        tip.SetToolTip(mapLbl, "Which career events you see on the map and as markers on the road. Game: as in the game. Rival: also every event of your current Blacklist rival you haven't won yet. All: also the not-won events of every rival (the closest ones, as many as the map has room for).");
-        for (int i = 0; i < 3; ++i) {
-            int v = i;
-            mapBtns[i].SetBounds(200 + i * 62, 0, 58, 28);
-            mapBtns[i].Click += (s, e) => SetMapEvents(v);
-            mapRow.Controls.Add(mapBtns[i]);
-        }
-        sp.Controls.Add(mapRow);
         var portRow = new BgPanel { Size = new Size(W - 24, 32), Margin = new Padding(0, 2, 0, 0) };
         portRow.Controls.Add(new Label { Text = "UDP port", AutoSize = true, Location = new Point(0, 6), ForeColor = Theme.Text, BackColor = Color.Transparent, Font = Theme.Label });
         StyleField(port); port.SetBounds(200, 2, 120, 26); portRow.Controls.Add(port);
@@ -265,10 +251,6 @@ class LauncherForm : Form {
         for (int i = 0; i < 3; ++i) StyleButton(speedBtns[i], (i + 1) + "x", i + 1 == v);
     }
 
-    void SetMapEvents(int v) {
-        mapEvents = v;
-        for (int i = 0; i < 3; ++i) StyleButton(mapBtns[i], mapNames[i], i == v);
-    }
 
     public void ForceMode(bool host) { SetMode(host); }
     public void ShowSettings() { settings.Visible = true; settingsBtn.Arrow = 2; }
@@ -304,8 +286,6 @@ class LauncherForm : Form {
         overlay.Checked = Ini.GetB("Debug", "Overlay", false);
         int ms; if (!int.TryParse(Ini.Get("UI", "MenuSpeed", "2"), out ms)) ms = 2;
         SetSpeed(Math.Max(1, Math.Min(3, ms)));
-        int me; if (!int.TryParse(Ini.Get("UI", "MapEvents", "0"), out me)) me = 0;
-        SetMapEvents(Math.Max(0, Math.Min(2, me)));
         SetMode(!Ini.Get("Network", "Mode", "host").Trim().Equals("client", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -325,7 +305,6 @@ class LauncherForm : Form {
         Ini.SetB("UI", "SkipPursuitResults", pursuitRes.Checked);
         Ini.SetB("UI", "IntroInput", introInput.Checked);
         Ini.Set("UI", "MenuSpeed", menuSpeed.ToString());
-        Ini.Set("UI", "MapEvents", mapEvents.ToString());
         Ini.SetB("Debug", "Overlay", overlay.Checked);
         return true;
     }

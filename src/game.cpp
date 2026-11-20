@@ -791,7 +791,6 @@ bool Game::InstallVehicleFactoryHook() {
     };
     InstallCoopWin();
     InstallCatchUp();
-    InstallMapEvents();
     InstallMinimapHook();
     InstallWorldMapHook();
     LOG("Hooked vehicle factory (races: AI racer -> peer car)");
@@ -855,7 +854,6 @@ void Game::SetDataDir(const char* dir) { strncpy_s(g_dataDir, dir, _TRUNCATE); }
 #include "story.inl"
 #include "save.inl"
 #include "coopwin.inl"
-#include "mapevents.inl"
 
 void Game::ReleaseGhost() {
     g_streamPeer = false;

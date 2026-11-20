@@ -184,9 +184,6 @@ namespace {
                     else if (c == "ram") r = Game::DebugRam();
                     else if (c == "pos") r = Game::DebugPos();
                     else if (c.rfind("tp ", 0) == 0) r = Game::DebugTeleport(c.substr(3).c_str());
-                    else if (c == "mapevents") r = Game::DebugMapEvents("");
-                    else if (c.rfind("mapevents ", 0) == 0) r = Game::DebugMapEvents(c.substr(10).c_str());
-                    else if (c.rfind("goto ", 0) == 0) r = Game::DebugGotoEvent(c.substr(5).c_str());
                     else if (c == "skipnis") r = Game::DebugNisSkip();
                     else if (c == "story") r = Game::DebugStory("");
                     else if (c.rfind("story ", 0) == 0) r = Game::DebugStory(c.substr(6).c_str());
@@ -271,7 +268,6 @@ namespace {
         if (g_netOk && g_gameOk) Game::StoryTick(linked);
         if (g_netOk && g_gameOk) Game::SaveTick(linked);
         if (g_netOk && g_gameOk) Game::CoopWinTick(linked, Net::Latest());
-        if (g_gameOk) Game::MapEventsTick();
         Macro::Tick();
         }
 

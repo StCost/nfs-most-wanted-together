@@ -123,7 +123,6 @@ The percentage is a simple count of this list: a ticked line counts fully, a lin
 - [x] No "leave the safe house?" question (`SkipLeaveSafeHouseDialog`)
 - [x] Menus react while their opening animation plays, and animate 2x faster (`IntroInput`, `MenuSpeed`) to improve UI responsivness
 - [x] Optional: close the pursuit result screens in free roam by itself ("Bounty achieved" and the pursuit summary), off by default (`SkipPursuitResults`). Getting busted still shows the fine screen
-- [x] Optional: see career events you haven't won yet on the map, minimap and as markers on the road, for your current Blacklist rival or for all of them, so you can finish the whole career together (`MapEvents`, launcher: Events on the map). The closest ones are shown, as many as the map has room for (?)
 
 ### Test tools (`[Debug] TestKeys=1`)
 - [x] **F5** autopilot: the game's AI drives your car, cruising in free roam and following the route in races. `AutoPilot=1` turns it on by itself. For testing purposes
