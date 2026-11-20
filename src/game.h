@@ -69,4 +69,6 @@ namespace Game {
     std::string DebugSpawnClone();
     std::string DebugKillClone();
     std::string DebugSpawnCop();   // F12 (TestKeys=1): spawn a patrol cop
+    std::string DebugForcePursuit(); // test command 'pursuit': the cops start a pursuit on us (heat 1)
+    std::string DebugKillCops();   // test command 'uncop': remove every police car (lets a pursuit end in an escape)
 }

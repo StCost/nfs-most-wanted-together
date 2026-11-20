@@ -149,7 +149,7 @@ namespace {
 
         // Test commands ([Debug] TestKeys=1): one command per line in scripts\MWTogether.cmd, the file is
         // deleted once read. Lets tests drive the game while it runs in the background.
-        //   event <id> | restart | autopilot | cop | clone | unclone | notice <text> | shot <file> | accept <package>
+        //   event <id> | restart | autopilot | cop | uncop | pursuit | clone | unclone | notice <text> | shot <file> | accept <package>
         static DWORD lastCmdCheck = 0;
         if (g_cfg.testKeys && g_gameOk && GetTickCount() - lastCmdCheck >= 500) {
             lastCmdCheck = GetTickCount();
@@ -167,6 +167,8 @@ namespace {
                     else if (c == "restart") r = Game::DebugRestart();
                     else if (c == "autopilot") r = Game::ToggleAutopilot();
                     else if (c == "cop") r = Game::DebugSpawnCop();
+                    else if (c == "uncop") r = Game::DebugKillCops();
+                    else if (c == "pursuit") r = Game::DebugForcePursuit();
                     else if (c == "clone") r = Game::DebugSpawnClone();
                     else if (c == "unclone") r = Game::DebugKillClone();
                     else if (c.rfind("shot ", 0) == 0) { Overlay::Screenshot(c.substr(5)); r = "screenshot"; }

@@ -235,19 +235,23 @@ void Game::BootTick() {
     } __except (EXCEPTION_EXECUTE_HANDLER) { g_boot = Boot::Done; LOG("Start: exception in direct free roam"); }
 }
 
-// [UI] SkipPursuitResults: after a pursuit in free roam (escaped / busted) the game shows
-// PostRace_Pursuit.fng and waits for a key. Close it by itself (only this player's game).
+// [UI] SkipPursuitResults: after a pursuit in free roam the game shows a result screen and waits for a
+// key: PostRace_MilestoneRewards.fng ("Bounty achieved", after an escape - seen on the laptop) or
+// PostRace_Pursuit.fng. Close it by itself (only this player's game). The busted screen is different
+// (GarageMain "Payment for infractions" - costs money) and is left alone.
 void Game::PursuitResultTick() {
     if (!g_ok || !g_cfg.skipPursuitResults || GameFlowState() != 6) return;
     static DWORD since = 0, lastTap = 0;
-    bool open = FEScreens::IsPushed("PostRace_Pursuit.fng");
+    static const char* const kResult[] = { "PostRace_MilestoneRewards.fng", "PostRace_Pursuit.fng" };
+    const char* open = nullptr;
+    for (const char* p : kResult) if (FEScreens::IsPushed(p)) { open = p; break; }
     int mode = 0; void* rs = nullptr;
     if (Mem::Read(0x91E000, rs) && rs) Mem::Read((uintptr_t)rs + 0x1960, mode);
     if (!open || mode == 1) { since = 0; return; }        // not open, or it belongs to a race
     if (!since) since = GetTickCount();
     if (GetTickCount() - since > 700 && GetTickCount() - lastTap > 1500) {
         lastTap = GetTickCount();
-        if (PressAccept("PostRace_Pursuit.fng")) LOG("UI: closing the pursuit result screen");
+        if (PressAccept(open)) LOG("UI: closing the pursuit result screen (%s)", open);
     }
 }
 std::string Game::FEAccept(const char* pkg) {

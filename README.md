@@ -96,7 +96,7 @@ Unticked items are still to do.
 - [x] The "load complete" screen after the title confirms itself (`SkipLoadComplete`, on by default)
 - [x] No "leave the safe house?" question (`SkipLeaveSafeHouseDialog`)
 - [x] Menus react while their opening animation plays, and animate 2x faster (`IntroInput`, `MenuSpeed`)
-- [x] Optional: close the pursuit result screen in free roam by itself, off by default (`SkipPursuitResults`) (?)
+- [x] Optional: close the pursuit result screens in free roam by itself ("Bounty achieved" and the pursuit summary), off by default (`SkipPursuitResults`). Getting busted still shows the fine screen
 
 ### Test tools (`[Debug] TestKeys=1`)
 - [x] **F5** autopilot: the game's AI drives your car, cruising in free roam and following the route in races. `AutoPilot=1` turns it on by itself
@@ -105,6 +105,7 @@ Unticked items are still to do.
 - [x] Performance diagnostics: `[Debug] Perf=1` logs fps, 1% lows, worst frame and how many milliseconds each part of the mod takes, every 5 seconds (it's also shown in the F8 overlay)
 - [x] **F7** starts the test event (`TestEvent`) for both players
 - [x] **F10 / F11** spawn or remove a test copy of the other player's car, **F12** spawns a test cop
+- [x] Test commands in `scripts\MWTogether.cmd` also include `pursuit` (the cops start a pursuit on you) and `uncop` (remove every police car, so the pursuit ends in an escape)
 
 [^1]: (?) means we wrote it and it ran without errors, but nobody has played through it properly on two PCs yet,
     so it may still misbehave. If you try one of these, tell us how it went.
