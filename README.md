@@ -3,8 +3,8 @@
 ![NFS MW Together](docs/banner.png)
 
 Play the Most Wanted career with a friend! (2 players, LAN)
+
 Free roam with traffic, races with AI opponents, Blacklist rivals, police, own car and tuning. 
-Any of players must win race. All players get rewards.
 
 ## Install
 
@@ -14,7 +14,7 @@ Any of players must win race. All players get rewards.
 3. Do the same on the other PC. The game skips the intro, loads your career into free roam and the two of
    you connect by yourselves.
 
-ATTENTION: Both players must finish the career prologue (the opening races). Reach free roam to see other players.
+ATTENTION: Both players must finish the career prologue (the opening races). Reach free roam to see and interact with other players.
 
 ## You need
 
