@@ -47,7 +47,8 @@ struct PingPacket {
 struct CarState {
     int32_t  gameFlowState; // sender's game flow state (6 = in game)
     uint8_t  hasCar;        // 0 if sender is in menus / loading
-    uint8_t  pad[3];
+    uint8_t  pad[3];        // [0] race stage (0 none, 1 loading / intro, 2 on the grid), [1] co-op allowed
+                            // (past the prologue), [2] career rival number (15 .. 1; 16 prologue, 0 unknown)
     float    pos[3];
     float    rot[4];        // orientation quaternion (x,y,z,w)
     float    linVel[3];
@@ -62,7 +63,8 @@ struct CarState {
     int16_t  pursuitHeat;   // heat x10 of the sender's pursuit, 0 = not in a pursuit
     float    racePct;
     float    lapPct;
-    uint32_t nisHash;       // cutscene the sender is in (scene name hash), 0 = none
+    uint32_t nisHash;       // cutscene the sender is in (scene name hash) or story movie it watches
+                            // (bStringHash of the lower-case movie name, e.g. "blacklist_05"), 0 = none
     uint32_t nisVote;       // cutscene the sender wants skipped, 0 = no vote
     uint32_t eventHash;     // event the sender is in (race parameters set), 0 = free roam
     // what the sender's car is doing, so the other PC can show it (brake lights, front wheels, smoke,
@@ -168,7 +170,7 @@ struct TrafficPacket {
 #pragma pack(pop)
 
 constexpr uint32_t COOP_MAGIC   = 0x4F43574D; // "MWCO"
-constexpr uint16_t COOP_VERSION = 16;
+constexpr uint16_t COOP_VERSION = 17;   // 17: story scenes (nisHash also carries story movies, pad[2] = rival number)
 
 struct NetStats {
     bool        connected = false;

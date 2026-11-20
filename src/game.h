@@ -63,6 +63,14 @@ namespace Game {
     void NisTick(bool connected);
     uint32_t NisSceneHash();
     uint32_t NisVoteHash();
+    // Story scenes outside events ([Coop] SyncStoryScenes, story.inl)
+    uint32_t SceneHash();               // for the state packet: the story movie we watch, else NisSceneHash()
+    uint8_t  CareerBin();               // career rival number (15 .. 1, 16 = prologue, 0 = no profile)
+    bool InstallStoryHooks();           // skip voting on story movies
+    void StoryTick(bool connected);     // the other player's story scene: wait / watch along
+    bool StoryPauseWanted();            // the world must pause now (the co-op "no pause" rule steps aside)
+    const char* StoryStatus();
+    std::string DebugStory(const char* arg);   // test: "story" state / "story <movie>" play a movie here
     bool TakeCoopWinNotice();           // true once after a shared win was counted
     bool InstallCatchUp();              // AI catch-up measured against the leading human
     bool InstallCoopWin();              // shared wins
