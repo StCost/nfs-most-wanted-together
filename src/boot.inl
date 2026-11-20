@@ -267,14 +267,20 @@ void Game::BootTick() {
         if (GameFlowState() != 3) { if (GameFlowState() == 6) g_boot = Boot::Done; return; }
         uint8_t* fedb = nullptr; void* bfm = (void*)1; void* fe = nullptr;
         Mem::Read(0x91CF90, fedb); Mem::Read(0x91CF48, bfm); Mem::Read(0x91CADC, fe);
-        // "Press START" (splash) and "load complete" (MC_Main) wait for a key: press it
-        if (g_cfg.directFreeRoam && fe && bfm && ((bool(__thiscall*)(void*, const char*))0x516B50)(fe, "WS_MW_LS_Splash.fng")) {
+        // "Press START" (splash) and "load complete" (MC_Main) wait for a key: press it. The title screen
+        // is WS_MW_LS_Splash.fng with a widescreen fix installed and MW_LS_Splash.fng in the plain game.
+        const char* splash = nullptr;
+        if (g_cfg.directFreeRoam && fe && bfm) {
+            for (const char* s : { "WS_MW_LS_Splash.fng", "MW_LS_Splash.fng" })
+                if (((bool(__thiscall*)(void*, const char*))0x516B50)(fe, s)) { splash = s; break; }
+        }
+        if (splash) {
             static DWORD since = 0, lastTap = 0;
             if (SaveSyncHoldsBoot()) return;      // the host's copy of our save may still arrive
             if (!since) since = GetTickCount();
             if (GetTickCount() - since > 1500 && GetTickCount() - lastTap > 2500) {
                 lastTap = GetTickCount();
-                if (PressAccept("WS_MW_LS_Splash.fng")) LOG("Start: pressing START on the title screen");
+                if (PressAccept(splash)) LOG("Start: pressing START on the title screen (%s)", splash);
             }
             return;
         }

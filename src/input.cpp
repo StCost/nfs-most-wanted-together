@@ -275,6 +275,15 @@ namespace {
     }
 }
 
+// A sequence step's screen: the title screen is WS_MW_LS_Splash.fng with a widescreen fix and
+// MW_LS_Splash.fng in the plain game - a step for either matches both.
+static bool StepScreenOpen(const char* screen) {
+    if (FEScreens::IsPushed(screen)) return true;
+    if (!_stricmp(screen, "WS_MW_LS_Splash.fng")) return FEScreens::IsPushed("MW_LS_Splash.fng");
+    if (!_stricmp(screen, "MW_LS_Splash.fng")) return FEScreens::IsPushed("WS_MW_LS_Splash.fng");
+    return false;
+}
+
 void AutoStart::Tick(int flow) {
     if (!g_cfg.autoStart) { g_as = AS::Off; strcpy_s(g_status, "off"); return; }
     if (g_as == AS::Done || g_as == AS::GaveUp || g_as == AS::Off) return;
@@ -325,7 +334,7 @@ void AutoStart::Tick(int flow) {
             // Already further along (a screen was skipped, or retries advanced the menus)? Jump ahead to
             // the latest later step whose screen is open.
             for (int j = g_seqLen - 1; j > g_presses; --j) {
-                if (g_steps[j].screen[0] && FEScreens::IsPushed(g_steps[j].screen)) {
+                if (g_steps[j].screen[0] && StepScreenOpen(g_steps[j].screen)) {
                     LOG("AutoStart: %s already open - skipping ahead from step %d to %d", g_steps[j].screen, g_presses + 1, j + 1);
                     g_presses = j;
                     g_stepSince = g_screenSeenAt = 0;
@@ -333,7 +342,7 @@ void AutoStart::Tick(int flow) {
                     return;
                 }
             }
-            if (FEScreens::IsPushed(st.screen)) {
+            if (StepScreenOpen(st.screen)) {
                 if (!g_screenSeenAt) g_screenSeenAt = now;
                 if (now - g_screenSeenAt < 1500) return;         // let it finish animating in (dialogs ignore early keys)
                 LOG("AutoStart: step %d/%d %s reached", g_presses + 1, g_seqLen, st.name);
