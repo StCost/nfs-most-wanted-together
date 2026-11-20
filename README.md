@@ -148,6 +148,8 @@ snapshot interpolation and extrapolation, clock sync, traffic / event / roster /
 parsing, and fuzz tests that throw several hundred thousand random and damaged datagrams at the packet
 handler to make sure nothing a network can deliver crashes the game. Exit code 0 means everything passed.
 
+Everything that needs the game - the test commands, the two-PC scenarios (`tools\coop-test.ps1`) and what a pass looks like - is in [docs/TESTING.md](docs/TESTING.md).
+
 What the tests can't cover is everything inside the game itself (spawning cars, races, cops): that still needs
 two PCs. See [CONTRIBUTING.md](CONTRIBUTING.md) for the details and for adding tests.
 

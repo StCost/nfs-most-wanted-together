@@ -1,0 +1,111 @@
+# Testing NFS MW Together
+
+There are three layers. Use all three before a release, and the first one before every commit.
+
+| Layer | What it covers | Needs |
+|---|---|---|
+| 1. Automated tests | network code, packets, config, save transfer, maths | nothing but the compiler |
+| 2. One PC | start-up, solo racing, test tools, performance | the game |
+| 3. Two PCs | everything co-op | the game on two PCs on the same network |
+
+## 1. Automated tests (no game)
+
+```
+tests\build_tests.bat            build and run (also an AddressSanitizer pass if your MSVC has it)
+tests\build_tests.bat noasan     faster
+```
+
+Exit code 0 and `N test(s) run, 0 failed` is a pass. Protocol changes must update `tests\test_protocol.cpp`
+(struct sizes, offsets, `COOP_VERSION`) in the same commit: the tests fail on purpose until you do.
+
+## 2. Test tools inside the mod
+
+Set `[Debug] TestKeys=1` in `scripts\MWTogether.ini`. Nothing below works without it.
+
+**Keys** (only while the game window is focused): `F5` autopilot on/off, `F7` start the test event
+(`[Debug] TestEvent`), `F10`/`F11` spawn/remove a copy of the other player's car, `F12` spawn a cop.
+
+**Command file.** Write one command per line into `scripts\MWTogether.cmd`; the mod reads it within half a
+second, deletes it and logs `Command '<text>': <result>`. This works with the game in the background.
+
+| Command | What it does |
+|---|---|
+| `event <id>` | start a career event for both players, e.g. `event 15.1.1` |
+| `events` | list every event in the log: id, type, `BOSS`, preset car |
+| `restart` | restart the current race |
+| `slowai` | AI opponents stop driving (so a player wins) |
+| `cash` | log career cash and whether the current event counts as won |
+| `autopilot` | toggle the autopilot |
+| `skipnis` | press "skip" on the current cutscene |
+| `pursuit` / `uncop` | start a pursuit on you / remove all police cars |
+| `ram` | first call: park 25 m from the other car. Second call (5 s later): hit it at 90 km/h |
+| `pos` | log own position, speed and damage |
+| `clone` / `unclone` / `cop` | spawn/remove a copy of the other player's car, spawn a cop |
+| `notice <text>` | show a notice in the game's banner |
+| `shot <file.bmp>` | save the next frame (without the overlay) |
+| `accept <Screen.fng>` | send "accept" to a menu screen |
+
+**Useful ini switches:** `[Debug] AutoPilot=1` (the AI drives in free roam and races), `[Window]
+StartInBackground=1` (start without taking focus, muted), `[Debug] Perf=1` (fps and the mod's cost every
+5 s), `[Debug] ReadyDelayMs=6000` (pretend to load slowly), `[Debug] BootTrace=1` (log the boot screens).
+
+**Useful event ids:** `15.1.1` circuit, `15.1.2` rival race (Razor), `14.4.1` tollbooth, `13.5.1` speedtrap,
+`12.7.3` drag, `15.3.1` lap knockout, `19.8.32` Challenge Series tollbooth (preset car). `events` lists all 208.
+
+**The log** is `scripts\MWTogether.log`, rewritten on every start. The game keeps it open, so read it with
+shared access (plain `Get-Content` works; some tools need "open for read, allow read/write").
+
+## 3. Scenarios (`tools\coop-test.ps1`)
+
+Run on the **host**. On the other PC just start the game and let it connect; for scenarios that restart
+the host, restart the client too when it sees the host leave. Both PCs: same build, `TestKeys=1`,
+`AutoPilot=1` unless the scenario says "parked".
+
+```
+tools\coop-test.ps1 -Scenario list
+tools\coop-test.ps1 -Scenario race
+tools\coop-test.ps1 -Scenario boss -Event 15.1.2
+tools\coop-test.ps1 -Scenario solo -Solo
+```
+
+| Scenario | Pass looks like (H = host log, C = client log) |
+|---|---|
+| `smoke` | H+C `Connected to peer`, `Ghost acquired: spawned peer car`, a `joined` notice. No `CRASH`. |
+| `race` | C `Event: using the peer's opponents`, `our racer ... follows the host's opponent`. After the finish C `the other player finished (rank 1 there, 1 here)`, `the other player won - counted as our win too`; C's `cash` goes up; C returns to free roam and its save file is rewritten. |
+| `boss` | H `sent 1 opponent(s)`; C `opponent 1 built as the peer's opponent`, `Ghost acquired: spawned peer car` (the partner is not a racer here). Standings on each PC: that player + the rival. |
+| `restart` | H `restarted here - telling the peer`, C `peer restarted the race - restarting here too`; C is back on the grid with a new countdown. |
+| `cutscene` | One vote: H `voted to skip ... waiting`, intro runs its full ~7.7 s on both. Both vote (`skipnis` on C too): `both voted - skipping`, intro ~3 s. |
+| `pursuit` | The PC that is NOT chased logs `Cops: showing the other player's police car` and `Pursuit: mine no ... theirs heat 1.x, 1 of their cops shown here`. A parked car is busted in ~30 s: that player lands in the garage, the other keeps playing. |
+| `ram` (client parked, `AutoPilot=0`) | H `hit the other player, lost ~60 km/h - sent to them`, C `hit by the other player, pushed by ~35 km/h`, C's `pos` moves ~4 m. No hit line the other way round. |
+| `together` (client has `ReadyDelayMs=6000`) | H `on the grid first - waiting for <name> to load...` then `go (both ready, waited 6.x s)`. |
+| `kinds` | All four events run 70 s with no `CRASH` on either PC; C logs `Traffic: in a race - keeping our own traffic`. Drag (12.7.3) used to crash at ~28 s. |
+| `solo` | Race alone: no `Start: on the grid` hold, no `Collision` lines, the win pays out as in the unmodded game. |
+
+## Checks without a script
+
+| Check | How | Pass |
+|---|---|---|
+| Save backup | client plays until an autosave | H `Career: stored <name>'s save`, file in `scripts\MWTogether-saves\<name>\` |
+| Save restore | client: close the game, move its save away, start again | C `restored save '<profile>' from the host (we had none)` before `pressing START`; the career loads |
+| Background start | `StartInBackground=1`, keep another window focused | free roam reached, `Window: in the world - muted until clicked` |
+| Launcher | run it, press PLAY | game starts; the ini keeps its comments |
+| Smoothness | one car parked, the other on autopilot | `Ghost stats ... jitter` mostly under 20 mm |
+| Performance | `Perf=1` | `mod` under about 0.2 ms/frame |
+| Visual state | watch the partner's car | brake lights when it stops; `Ghost: damage zones now X` after it crashes |
+| Join / leave | start and quit one game | banner `<name> joined` / `left` on the other |
+
+## Before a release
+
+1. `tests\build_tests.bat` passes.
+2. `solo`, `smoke`, `race`, `boss`, `restart`, `cutscene`, `pursuit`, `ram`, `together`, `kinds` pass on two PCs.
+3. Save backup and restore pass.
+4. One real session by two people with `TestKeys=0`: free roam, a race started from the game's own menus
+   (not `event`), a pursuit, a rival race.
+5. Update the checklist in `README.md`: a line loses its `(?)` only when it was seen working on two PCs.
+
+## Known limits of the test tools
+
+- The autopilot doesn't drive Challenge Series events (it stays on the start line).
+- `event` starts any event regardless of career progress; real play goes through the game's menus.
+- A parked car in a pursuit is busted in about 30 seconds, so pursuit scenarios are short.
+- Only one copy of the game can run per PC, so co-op always needs two PCs.

@@ -92,3 +92,6 @@ Open an issue and include:
 ## Good first areas
 See [ROADMAP.md](ROADMAP.md): career progress sharing, cutscene skip sync, connect/disconnect
 notifications in the game UI, a launcher, and up to 4 players.
+
+## Testing in the game
+See [docs/TESTING.md](docs/TESTING.md): the test commands, `tools\coop-test.ps1` scenarios for two PCs, and the release checklist. Add a scenario there when you add a co-op feature.
