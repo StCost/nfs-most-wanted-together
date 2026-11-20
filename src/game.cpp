@@ -604,11 +604,25 @@ namespace {
 // loads, build the first AI racer as the peer's car (model + tuning) so they race in their own car
 // and count in positions / results. (Same technique as MostWantedTimeTrialGhosts.)
 // ---------------------------------------------------------------------------
+// A Blacklist rival (boss) race has a single opponent: the rival. There the other player must not
+// take that racer's place, so their car is spawned next to the race instead (not in the standings).
+// The event being started is known either from the race status or from the invitation we act on.
+static uint32_t g_startingEventHash = 0;
+static bool BossRaceStarting() {
+    __try {
+        void* rs = nullptr; void* parms = nullptr; void* db = nullptr;
+        if (Mem::Read(0x91E000, rs) && rs) Mem::Read((uintptr_t)rs + 0x1968, parms);
+        if (!parms && g_startingEventHash && Mem::Read(0x91E004, db) && db)
+            parms = ((void*(__thiscall*)(void*, uint32_t))0x5FB710)(db, g_startingEventHash);
+        return parms && ((bool(__thiscall*)(void*))0x5FBD90)(parms);     // GRaceParameters::IsBossRace
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
 static void* __cdecl hk_VehicleConstruct(SimParam p) {
     using Fn = void* (__cdecl*)(SimParam);
     VehicleParams* vp = (VehicleParams*)p.mData;
     bool replaced = false;
-    if (vp && vp->carClass == DRV_RACER && !g_racerReplacedThisLoad && g_cfg.ghostEnabled) {
+    if (vp && vp->carClass == DRV_RACER && !g_racerReplacedThisLoad && g_cfg.ghostEnabled && Net::Stats().connected && !BossRaceStarting()) {
         if (const CarInfo* pc = Net::PeerCar()) {
             g_origRacer[0] = vp->carType; g_origRacerCustom = vp->customization; g_origRacerMatched = vp->matched;
             vp->carType = pc->carKey;

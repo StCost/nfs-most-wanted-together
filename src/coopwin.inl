@@ -27,9 +27,10 @@ namespace {
         const Net::Snapshot& p = Net::Latest();
         if (!p.valid || !p.s.inRace || !p.s.eventHash || p.s.eventHash != Game::CurrentEventHash()) return false;   // same event only
         void* gri = GhostRacerInfo();
-        if (!gri) return false;                                  // the peer isn't in our race
+        // (gri is null in rival races: there the other player's car isn't a racer in our game, and
+        // their own result - sent with their state - decides)
         uint8_t fin = 0; int grank = 0;
-        Mem::Read((uintptr_t)gri + 0x21, fin); Mem::Read((uintptr_t)gri + 0x10, grank);
+        if (gri) { Mem::Read((uintptr_t)gri + 0x21, fin); Mem::Read((uintptr_t)gri + 0x10, grank); }
         bool won = p.s.finished == 1 || (fin && grank == 1);     // they say they won / they won here
         if (won && !g_coopWinLogged) { g_coopWinLogged = true; g_coopWinNotice = true; LOG("Race: the other player won - counted as our win too"); }
         return won;

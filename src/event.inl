@@ -70,6 +70,7 @@ namespace {
         void* parms = db ? ((void*(__thiscall*)(void*, uint32_t))0x5FB710)(db, eventHash) : nullptr;
         if (!parms) { LOG("Event: unknown event %s (%08X)", eventId, eventHash); return; }
         g_joiningEvent = fromPeer ? eventHash : 0;   // a local test start is sent on to the peer
+        g_startingEventHash = eventHash;             // lets the car factory know which event is loading
         // build the same AI opponents as the peer (roster packets arrive just before the event)
         g_usePeerRoster = fromPeer && g_peerRosterN > 0 && GetTickCount() - g_peerRosterAt < 5000;
         g_peerRosterNext = 0;
