@@ -32,6 +32,28 @@ namespace NetUtil {
         return (id == 0 || id >= CLIENT_ID_BIT) ? (uint16_t)1 : id;
     }
 
+    // ---- shared traffic inside races -----------------------------------------------------------
+    // In a race the client never deletes its own traffic (the race scripts own some of those cars).
+    // Instead each host traffic car is bound to one of the client's own traffic cars, which then
+    // follows the host's car. A candidate is one of the client's own traffic cars; `skip` marks the
+    // ones that may not be taken (already bound, too close to a player, ...).
+    struct TrafficCandidate { uint32_t model; float pos[3]; bool skip; };
+    // Index of the best partner for a host car of `model` at `pos`: a car of the same model first
+    // (nearest of those), otherwise the nearest car of any model when `anyModel`. -1 if none.
+    inline int PickTrafficPartner(uint32_t model, const float* pos, const TrafficCandidate* c, int n, bool anyModel) {
+        int best = -1, bestAny = -1;
+        float bestD = 0, bestAnyD = 0;
+        for (int i = 0; i < n; ++i) {
+            if (c[i].skip) continue;
+            float dx = c[i].pos[0] - pos[0], dy = c[i].pos[1] - pos[1], dz = c[i].pos[2] - pos[2];
+            float d = dx * dx + dy * dy + dz * dz;
+            if (!(d == d)) continue;                                           // NaN position: never
+            if (c[i].model == model && (best < 0 || d < bestD)) { best = i; bestD = d; }
+            if (bestAny < 0 || d < bestAnyD) { bestAny = i; bestAnyD = d; }
+        }
+        return best >= 0 ? best : (anyModel ? bestAny : -1);
+    }
+
     // ---- interpolation math -----------------------------------------------------------------
     inline void Lerp3(const float* a, const float* b, float t, float* o) {
         for (int i = 0; i < 3; ++i) o[i] = a[i] + (b[i] - a[i]) * t;

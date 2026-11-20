@@ -44,6 +44,7 @@ struct Config {
     std::string autoStartTarget = "freeroam"; // [AutoStart] Target - freeroam | safehouse | race
     std::string testEvent = "15.1.1"; // [Debug] TestEvent - event F7 starts
     bool        trafficSync = true;   // [Traffic] Sync
+    bool        trafficSharedInRaces = true; // [Traffic] SharedInRaces - in races the client's own traffic cars follow the host's
     int         trafficMirrorClass = 4; // [Traffic] MirrorClass - driver class for mirror cars (4 = none, 6 = remote)     // [Debug] TestKeys - F10/F11 spawn/remove a test car
     int         toggleKey = 0x77;     // [Debug] ToggleKey (VK code, default F8)
     bool        ghostEnabled = true;  // [Ghost] Enabled

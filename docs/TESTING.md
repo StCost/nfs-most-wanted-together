@@ -81,7 +81,7 @@ tools\coop-test.ps1 -Scenario solo -Solo
 | `ram` (client parked, `AutoPilot=0`) | H `hit the other player, lost ~60 km/h - sent to them`, C `hit by the other player, pushed by ~35 km/h`, C's `pos` moves ~4 m. No hit line the other way round. |
 | `together` (client has `ReadyDelayMs=6000`) | H `on the grid first - waiting for <name> to load...` then `go (both ready, waited 6.x s)`. |
 | `results` | C stays on its results screen after 15.1.1; H leaves its own and starts 15.1.2. C logs `invited while we're on the results screen - leaving it to join`, then `starting 15.1.2`; both race 15.1.2 together. |
-| `kinds` | All four events run 70 s with no `CRASH` on either PC; C logs `Traffic: in a race - keeping our own traffic`. Drag (12.7.3) used to crash at ~28 s. |
+| `kinds` | All four events run 70 s with no `CRASH` on either PC. C logs `Traffic: in a race - mirroring the host's traffic with our own traffic cars` (with `SharedInRaces=0`: `in a race - keeping our own traffic`), then `mirroring the host's traffic (N cars, M of the host's without a car here)` with N > 0 in tollbooth / drag / knockout; after the `in a race` line C logs no `KillVehicle` until `race over` (only mirrors of the host's cops may go). Drag (12.7.3) used to crash at ~28 s when the client removed its own traffic. |
 | `solo` | Race alone: no `Start: on the grid` hold, no `Collision` lines, the win pays out as in the unmodded game. |
 
 ## Checks without a script
@@ -96,6 +96,7 @@ tools\coop-test.ps1 -Scenario solo -Solo
 | Performance | `Perf=1` | `mod` under about 0.2 ms/frame |
 | Visual state | watch the partner's car | brake lights when it stops; `Ghost: damage zones now X` after it crashes |
 | Join / leave | start and quit one game | banner `<name> joined` / `left` on the other |
+| Shared race traffic | both PCs `AutoPilot=1`, start 14.4.1 / 12.7.3 / 15.3.1 with `event`, cars close together | C `our traffic car ... now follows the host's car N (same model ...)`; traffic around you is in the same places and models on both screens (a few extra cars on C are its spare own traffic, they keep their own AI); hitting a traffic car on C logs `Collision: hit the other player's car` and pushes it on H. After the finish C `race over`, `released N of our traffic cars`, and 8 s later its own traffic is replaced by mirrors as in free roam |
 
 ## Prologue and new profiles
 

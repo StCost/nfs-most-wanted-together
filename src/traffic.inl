@@ -5,6 +5,9 @@
 //  Client: near the host (enter 350 m / leave 450 m) it zeroes its own traffic density (hook on the
 //  ComputeDensity call at 0x439BBD), removes its own traffic cars and spawns "mirror" cars that copy
 //  the host's traffic (no AI: hard-set, interpolated transforms). Far from the host it keeps its own.
+//  In a race the client keeps its own traffic (race scripts own some of it). With [Traffic]
+//  SharedInRaces=1 its own traffic cars are bound to the host's cars and moved like mirrors instead
+//  (nothing spawned, deleted or AI-disabled); with 0 each player sees their own traffic in races.
 // ---------------------------------------------------------------------------
 namespace {
     constexpr uintptr_t DensityCallSite  = 0x439BBD;   // call AITrafficManager::ComputeDensity (0x41EC20)
@@ -48,14 +51,19 @@ namespace {
         double   lastSeen = 0; // local ms
         int      fails = 0;
         bool     racer = false; // a race opponent of the host: drives one of our own racers (no spawn)
+        bool     bound = false; // in a race: iv is one of OUR OWN traffic cars following the host's car
+                                // (never killed, its AI is left alone: unbinding just lets it drive on)
         char     name[31] = {};  // its display name on the host (race opponents)
     };
     Mirror g_mirrors[48];
     bool   g_trafficNear = false;
-    // In a race the client keeps its own traffic and neither removes nor replaces it: race scripts own
-    // some of those cars (drag races), and removing one crashed the game (0x5FD94A). Cops and race
-    // opponents are still mirrored.
+    // In a race the client never removes or replaces its own traffic: race scripts own some of those
+    // cars (drag races), and removing one crashed the game (0x5FD94A). Cops and race opponents are
+    // still mirrored. With [Traffic] SharedInRaces the host's traffic cars are shown by binding each one
+    // to one of our own traffic cars (see BindRaceTraffic): no car is spawned, deleted or has its AI
+    // switched off; our spare traffic cars keep driving on their own.
     bool   g_clientRacing = false;
+    bool   SharedRaceTraffic() { return !g_cfg.isHost && g_clientRacing && g_cfg.trafficSharedInRaces; }
     DWORD  g_raceEndedTick = 0;        // the race scripts may still own cars for a moment: no culling for 8 s
     int    g_mirrorCount = 0, g_killedOwn = 0;
 
@@ -80,7 +88,7 @@ namespace {
             if (!NetUtil::TrafficIdAccepted(e[i].id, g_cfg.isHost)) continue;
             bool racer = (e[i].flags & 2) != 0;
             if (!g_cfg.isHost && !racer && !g_trafficNear) continue;   // far from the host: own traffic
-            if (!g_cfg.isHost && !racer && g_clientRacing && !(e[i].flags & 1)) continue;   // in a race: own traffic too
+            if (!g_cfg.isHost && !racer && g_clientRacing && !g_cfg.trafficSharedInRaces && !(e[i].flags & 1)) continue;   // in a race: own traffic too
             Mirror* m = FindMirror(e[i].id);
             if (!m) {
                 for (auto& slot : g_mirrors) if (!slot.used) { slot = Mirror{}; slot.used = true; slot.id = e[i].id; m = &slot; break; }
@@ -110,6 +118,7 @@ namespace {
 
     void RemoveMirror(Mirror& m) {
         if (m.racer) { if (m.iv) RestoreAI(m.iv); }          // our own racer: give it its AI back
+        else if (m.bound) {}                                  // our own traffic car: it just drives on
         else if (m.iv && ListContains(-1, m.iv)) KillVehicle(m.iv);
         m = Mirror{};
     }
@@ -196,11 +205,75 @@ bool Game::InstallTrafficHooks() {
     return true;
 }
 
+// A host traffic car shown during a race (client, SharedInRaces): not a cop, not a racer.
+static bool IsRaceTrafficMirror(const Mirror& m) {
+    return m.bound || (SharedRaceTraffic() && !m.racer && m.n && !(m.s[m.n - 1].e.flags & 1));
+}
+
+static int g_raceBindLogs = 0;   // binding lines logged in this race (only the first few)
+static int g_raceLastBound = -1, g_raceLastWaiting = -1;   // last logged status line
+
+// Client in a race (SharedInRaces): give every host traffic car without a car here one of OUR OWN
+// traffic cars to follow. Nothing is spawned or deleted and no AI is touched, so a car the race
+// script owns stays a valid car (it is only moved). A car of the same model first, then any model.
+static void BindRaceTraffic() {
+    bool want = false;   // only look at our cars when a host car is waiting for one
+    for (auto& m : g_mirrors) if (m.used && !m.iv && m.n && IsRaceTrafficMirror(m)) { want = true; break; }
+    if (!want) return;
+    void* cars[64];
+    NetUtil::TrafficCandidate cand[64];
+    int nc = 0;
+    void* me = LocalVehicle();
+    void* lrb = RigidBodyOf(me);
+    void* grb = RigidBodyOf(g_ghost);
+    float lp[3] = {}, gp[3] = {};
+    if (lrb) memcpy(lp, RB_GetVec(lrb, RB_GetPosition), 12);
+    if (grb) memcpy(gp, RB_GetVec(grb, RB_GetPosition), 12);
+    void** b = nullptr;
+    int cnt = ListSize(VL_AITRAFFIC, &b);
+    for (int i = 0; i < cnt && nc < 64; ++i) {
+        void* t = ListGet(VL_AITRAFFIC, i);
+        if (!t || t == g_ghost || t == me || !IsVehicle(t) || IsKeptCar(t)) continue;
+        void* rb = RigidBodyOf(t);
+        if (!rb) continue;
+        cars[nc] = t;
+        cand[nc].model = ModelKeyOf(t);
+        memcpy(cand[nc].pos, RB_GetVec(rb, RB_GetPosition), 12);
+        // already following a host car, or touching a player (moving it away would jolt them)
+        cand[nc].skip = IsMirrorCar(t) || (lrb && Dist(lp, cand[nc].pos) < 6.f) || (grb && Dist(gp, cand[nc].pos) < 6.f);
+        ++nc;
+    }
+    if (!nc) return;
+    for (int pass = 0; pass < 2; ++pass) {           // same model for everyone first, then any model
+        for (auto& m : g_mirrors) {
+            if (!m.used || m.iv || !m.n || !IsRaceTrafficMirror(m)) continue;
+            const TrafficEntry& e = m.s[m.n - 1].e;
+            // never put a car inside a player (it would fling them): wait until it has moved on
+            if ((lrb && Dist(lp, e.pos) < 6.f) || (grb && Dist(gp, e.pos) < 6.f)) continue;
+            int k = NetUtil::PickTrafficPartner(m.model, e.pos, cand, nc, pass == 1);
+            if (k < 0) continue;
+            cand[k].skip = true;
+            m.iv = cars[k];
+            m.bound = true;
+            if (g_raceBindLogs < 10) {
+                ++g_raceBindLogs;
+                LOG("Traffic: our traffic car %p (%s) now follows the host's car %u (%s model, %.0f m away)",
+                    cars[k], VehName(cars[k]), (unsigned)m.id, cand[k].model == m.model ? "same" : "other", Dist(cand[k].pos, e.pos));
+            }
+        }
+    }
+}
+
 // Spawn / drive / expire the mirror cars (both sides: the client mirrors the host's traffic and
 // cops, the host mirrors the client's own pursuit cops).
 static int MaintainMirrors(double now) {
     double renderSend = now - Net::PeerClockOffsetMs() - g_cfg.interpDelayMs;
     int spawned = 0, alive = 0, freed = 0;
+    if (SharedRaceTraffic()) {
+        for (auto& m : g_mirrors)   // the game removed a car we followed with: find another one
+            if (m.used && m.bound && m.iv && !ListContains(-1, m.iv)) { m.iv = nullptr; m.bound = false; }
+        BindRaceTraffic();
+    }
     // The other player's own car comes first: no mirror spawns until it exists, and when its spawn
     // failed (vehicle budget full) give back a couple of mirror cars.
     bool mayspawn = g_ghost && !g_ghostStarved;
@@ -209,7 +282,16 @@ static int MaintainMirrors(double now) {
         // the owner keeps sending, just not this car: it's gone there. (If the owner sends nothing at all,
         // its game is paused - alt-tab, map, loading: keep every mirror frozen where it is.)
         if (g_lastTrafficPkt - m.lastSeen > 1500) { RemoveMirror(m); continue; }
-        if (m.iv && !ListContains(-1, m.iv)) m.iv = nullptr;             // the game removed it
+        if (m.iv && !ListContains(-1, m.iv)) { m.iv = nullptr; m.bound = false; }   // the game removed it
+        if (IsRaceTrafficMirror(m)) {
+            // one of our own traffic cars follows the host's car (bound above): never spawn or kill here
+            if (m.iv && !NisActive()) {
+                DriveMirror(m, renderSend);
+                GlareBits(m.iv) = m.s[m.n - 1].e.glare;
+            }
+            if (m.iv) ++alive;
+            continue;
+        }
         if (m.racer) {
             // bind to one of our own AI racers of the same model, switch its AI off and drive it
             if (!m.iv && m.n) {
@@ -374,9 +456,20 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
         void* rs = nullptr; int mode = 0;
         bool racing = Mem::Read(0x91E000, rs) && rs && Mem::Read((uintptr_t)rs + 0x1960, mode) && mode == 1;
         if (racing != g_clientRacing) {
+            // our spawned traffic mirrors go (as before); cars bound to the host's are our own: just released
+            int released = 0;
+            for (auto& m : g_mirrors) {
+                if (!m.used || m.racer || !m.n || (m.s[m.n - 1].e.flags & 1)) continue;
+                if (m.bound) ++released;
+                RemoveMirror(m);
+            }
             g_clientRacing = racing;
-            LOG("Traffic: %s", racing ? "in a race - keeping our own traffic" : "race over - sharing the host's traffic again");
-            if (racing) for (auto& m : g_mirrors) if (m.used && !m.racer && m.n && !(m.s[m.n - 1].e.flags & 1)) RemoveMirror(m);
+            g_raceBindLogs = 0; g_raceLastBound = g_raceLastWaiting = -1;
+            if (racing && g_cfg.trafficSharedInRaces)
+                LOG("Traffic: in a race - mirroring the host's traffic with our own traffic cars (none removed, SharedInRaces=1)");
+            else
+                LOG("Traffic: %s", racing ? "in a race - keeping our own traffic" : "race over - sharing the host's traffic again");
+            if (released) LOG("Traffic: released %d of our traffic cars that followed the host's (they drive on by themselves)", released);
             if (!racing) g_raceEndedTick = GetTickCount();
         }
     }
@@ -388,6 +481,17 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
             Net::SendTraffic(out, g_sentCount, Game::SimTimeSec());
         }
         g_mirrorCount = MaintainMirrors(now);
+        if (g_cfg.trafficSharedInRaces) {
+            // status line whenever the numbers change (at most every 5 s)
+            int bound = 0, waiting = 0;
+            for (auto& m : g_mirrors) if (m.used && IsRaceTrafficMirror(m)) { if (m.iv) ++bound; else ++waiting; }
+            static double nextLog = 0;
+            if (nextLog - now > 10000) nextLog = now;   // the sim clock restarted (world reload)
+            if ((bound != g_raceLastBound || waiting != g_raceLastWaiting) && now >= nextLog) {
+                g_raceLastBound = bound; g_raceLastWaiting = waiting; nextLog = now + 5000;
+                LOG("Traffic: in a race - mirroring the host's traffic (%d cars, %d of the host's without a car here)", bound, waiting);
+            }
+        }
         return;
     }
     g_suppressTraffic = isNear;   // no own traffic / patrol spawns near the host (pursuit spawns stay)
