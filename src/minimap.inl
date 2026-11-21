@@ -79,6 +79,31 @@ namespace {
     }
 }
 
+// Test command 'icons': logs every minimap icon drawn in the next second (position, pinned to the edge,
+// call site), e.g. to find the GPS target of a story drive. The call sites of Minimap::DrawIcon are
+// patched on first use only.
+namespace {
+    constexpr uintptr_t kDrawIconSites[] = { 0x56787A, 0x579FA7, 0x579FC1, 0x57A012, 0x57A19C, 0x57A260, 0x57A2D4, 0x594EF4 };
+    DWORD g_iconsUntil = 0;
+    template <int I>
+    void __fastcall hk_DrawIconLog(void* mm, void*, float* pos, float* dir, void* icon, bool pin) {
+        if (GetTickCount() < g_iconsUntil && pos)
+            LOG("Icons: site %06X icon %p pos %.1f %.1f pin %d", (unsigned)kDrawIconSites[I], icon, pos[0], pos[1], (int)pin);
+        ((void(__thiscall*)(void*, float*, float*, void*, bool))0x5675D0)(mm, pos, dir, icon, pin);
+    }
+}
+std::string Game::DebugIcons() {
+    static bool installed = false, ok = true;
+    if (!installed) {
+        installed = true;
+        void* const hooks[] = { (void*)&hk_DrawIconLog<0>, (void*)&hk_DrawIconLog<1>, (void*)&hk_DrawIconLog<2>, (void*)&hk_DrawIconLog<3>,
+                                (void*)&hk_DrawIconLog<4>, (void*)&hk_DrawIconLog<5>, (void*)&hk_DrawIconLog<6>, (void*)&hk_DrawIconLog<7> };
+        for (int i = 0; i < 8; ++i) ok &= PatchCallChecked(kDrawIconSites[i], 0x5675D0, hooks[i]);
+    }
+    g_iconsUntil = GetTickCount() + 1000;
+    return ok ? "logging minimap icons for 1 s" : "logging minimap icons for 1 s (some call sites didn't match)";
+}
+
 bool Game::InstallMinimapHook() {
     bool ok = PatchCallChecked(MinimapRacersCall, MinimapRacersFn, (void*)&hk_MinimapRacers);
     LOG("Minimap: remote-player icons %s", ok ? "hooked" : "NOT hooked (call site mismatch)");

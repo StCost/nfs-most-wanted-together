@@ -77,6 +77,7 @@ namespace Game {
     void StoryTick(bool connected);     // the other player's story scene: wait / watch along
     bool StoryPauseWanted();            // the world must pause now (the co-op "no pause" rule steps aside)
     const char* StoryStatus();
+    std::string DebugIcons();                  // test: log the minimap icons drawn in the next second (GPS target etc.)
     std::string DebugStory(const char* arg);   // test: "story" state / "story <movie>" play a movie here
     bool TakeCoopWinNotice();           // true once after a shared win was counted
     bool InstallSharedMilestones();     // [Career] SharedMilestones (milestone.inl)
