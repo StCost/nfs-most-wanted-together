@@ -22,7 +22,7 @@ Wanted online free roam with a friend, Need for Speed Most Wanted two player mod
    you connect by yourselves.
 4. Updating: unpack the new zip over the old one. Your nickname and settings (`scripts\MWTogether.ini`) are kept; the zip only brings `MWTogether.default.ini` for new installs.
 
-The prologue (the opening races in the BMW) can be played together too: start a new career on both PCs. Each game runs its own prologue, and whoever is ahead waits on the grid of the next race until the other one is there (`[Coop] Prologue`). Co-op needs both players in the same part of the career: both in the prologue, or both past it.
+The prologue (the opening races in the BMW) can be played together too: start a new career on both PCs. Each game runs its own prologue, and whoever is ahead waits on the grid of the next race until the other one is there (`[Coop] Prologue`). After the car lot you both drive to Mia; whoever meets her first leaves the prologue a moment earlier, and co-op is back as soon as the other one meets her too. Co-op needs both players in the same part of the career: both in the prologue, or both past it.
 
 
 </details>
@@ -51,6 +51,7 @@ The prologue (the opening races in the BMW) can be played together too: start a 
 - **One world.** Shared traffic when you're near by, collisions between your cars, blips on the minimap and map.
 - **Saves.** Everyone keeps their own career save. The host stores a copy of the partner's save after every
   autosave and hands it back if theirs is ever missing. An existing save is never replaced, so everyone's own settings (camera, units, controls) stay theirs.
+- **Known issue:** the final pursuit (the last Blacklist event) stays on its "LOADING..." screen after the intro movie while both of you are connected. Until it's fixed, one of you quits the game for a moment: the pursuit then loads, and the other can join again.
 - **Not yet:** 4 players.
 
 
@@ -120,7 +121,7 @@ The prologue (the opening races in the BMW) can be played together too: start a 
 - [x] Joining an event from far away: the other player still gets their racer in the standings (in an AI car's body if their car model isn't loaded on your PC yet)
 - [x] At a race start you stand on different grid slots and see each other's car and name from the countdown on (`SeparateGridSlots`)
 - [x] Start together: whoever loads first waits on the grid until the other is ready (`StartTogether`)
-- [x] Restarting a race restarts it for both of you
+- [x] Restarting a race restarts it for both of you. If your own race is already over (results screen), you get a notice instead and press Restart yourself
 - [x] AI opponents' catch-up (rubber banding) follows whichever player is ahead, so they race the best of you (`CatchUpLeader`). Blacklist rivals too: in a rival race the rival follows whoever of you is ahead
 - [x] Race intro cutscenes play normally for both
 - [x] A win by either player counts for both: cash, unlocks and career progress in each player's own career (`SharedWins`)
@@ -129,7 +130,7 @@ The prologue (the opening races in the BMW) can be played together too: start a 
 - [x] Blacklist rival races: the rival on the client follows the host's rival, also in the second race of the series and when the two games built different cars for it
 - [x] Blacklist rival races: you both race the rival in the same event (your partner's car drives alongside, outside the standings), and each of you gets the normal rival flow after winning
 - [x] The prologue together: both of you start a new career; each game plays its own prologue races and movies, and whoever is ahead waits on the grid of the next race until the other one is there. Your partner's car races next to you (the prologue opponents stay as they are); the Razor race stays the story's loss for both (`[Coop] Prologue`)
-- [x] Rival races and story events (Razor's races, the final pursuit) are only joined by a partner whose career is at the same Blacklist rival, so nobody's career jumps ahead (?)
+- [x] Rival races and story events (Razor's races, the final pursuit) are only joined by a partner whose career is at the same Blacklist rival, so nobody's career jumps ahead. Pressing Continue on "race the rival" after a win takes your partner into the rival's next race too
 - [x] Blacklist rival races together have one more AI racer on the rival's side: one more car to beat, with the game's normal racing AI and normal catch-up (not the rival's). Its car is the partner the rival's race intro shows (Ming, #10, Big Lou), else the game's pick; both PCs build the same car (`[Coop] BossHelper`, 0 = the rival alone)
 - [x] Rival rewards: after beating a rival, each player picks their own markers and gets their own rewards (pink slip, cash, parts) in their own career. Nothing is shared or synced here on purpose
 - [x] Bounty counts for each player's own career (seen after an escape)
@@ -148,7 +149,7 @@ The prologue (the opening races in the BMW) can be played together too: start a 
 - [x] Shared pursuits in free roam (`[Coop] SharedPursuits`, on by default): when one of you gets heat the other gets the same, and the hotter of the two counts
 - [x] The other player's cops are on your minimap while they chase, and your radar detector beeps for them like for your own
 - [x] Ramming one of the other player's cops starts a pursuit on you, like hitting one of your own
-- [x] Busted together: if one of you gets busted, the other one is busted too, through the game's own arrest (?)
+- [x] Busted together: if one of you gets busted, the other one is busted too, through the game's own arrest
 - [x] Escape together: the cooldown only runs while neither of you is seen, starts over for both when either one is spotted, and you both get away at the same moment
 - [x] No pursuit-start camera in co-op: the camera stays on your car when a chase begins (`NoPursuitCams`, launcher: No pursuit start camera)
 - [x] With `SharedPursuits=0` it's like before: getting busted or escaping only affects the player being chased
