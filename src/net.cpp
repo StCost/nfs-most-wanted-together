@@ -327,6 +327,23 @@ namespace {
             if (Net::OnFollow) Net::OnFollow(f->pos, f->fwd, f->right, f->quat);
             break;
         }
+        case PKT_RACEPROG: {
+            const int head = (int)offsetof(RaceProgPacket, e);
+            if (len < head || g_cfg.isHost) return;
+            const RaceProgPacket* r = (const RaceProgPacket*)buf;
+            int n = r->count;
+            if (n > MAX_RACEPROG || len < head + n * (int)sizeof(RaceProgEntry)) return;
+            RaceProgEntry ok[MAX_RACEPROG]; int k = 0;
+            for (int i = 0; i < n; ++i) {
+                RaceProgEntry e; memcpy(&e, (const uint8_t*)buf + head + i * sizeof(RaceProgEntry), sizeof(e));
+                if (!std::isfinite(e.pct) || !std::isfinite(e.lapPct) || !std::isfinite(e.toNext) ||
+                    e.pct < -1.f || e.pct > 101.f || e.lapPct < -1.f || e.lapPct > 101.f || e.toNext < 0.f || e.toNext > 1e5f ||
+                    e.laps < 0 || e.laps > 200 || e.cps < 0 || e.cps > 2000) continue;
+                ok[k++] = e;
+            }
+            if (Net::OnRaceProg) Net::OnRaceProg(ok, k);
+            break;
+        }
         case PKT_WEATHER: {
             if (len < (int)sizeof(WeatherPacket) || g_cfg.isHost) return;
             const WeatherPacket* w = (const WeatherPacket*)buf;
@@ -607,6 +624,16 @@ void Net::SendNisSkip(uint32_t sceneHash) {
     for (int i = 0; i < 3; ++i) SendRaw(&p, sizeof(p));
 }
 
+void (*Net::OnRaceProg)(const RaceProgEntry*, int) = nullptr;
+void Net::SendRaceProg(const RaceProgEntry* e, int count) {
+    if (!g_stats.connected || count <= 0) return;
+    if (count > MAX_RACEPROG) count = MAX_RACEPROG;
+    RaceProgPacket p{};
+    FillHeader(p.h, PKT_RACEPROG);
+    p.count = (uint8_t)count;
+    memcpy(p.e, e, count * sizeof(RaceProgEntry));
+    SendRaw(&p, (int)(offsetof(RaceProgPacket, e) + count * sizeof(RaceProgEntry)));
+}
 void (*Net::OnFollow)(const float*, const float*, const float*, const float*) = nullptr;
 void Net::SendFollow(const float* pos, const float* fwd, const float* right, const float* quat) {
     if (!g_stats.connected) return;

@@ -87,6 +87,10 @@ TEST(protocol_struct_sizes) {
     CHECK_EQ(sizeof(TrailerEntry), 60);
     CHECK_EQ(sizeof(TrailerPacket), 504);
     CHECK_EQ((int)PKT_TRAILER, 23);
+    CHECK_EQ(sizeof(RaceProgEntry), 20);
+    CHECK_EQ(offsetof(RaceProgPacket, e), 20);
+    CHECK_EQ((int)PKT_RACEPROG, 24);
+    CHECK(sizeof(RaceProgPacket) <= MAX_DATAGRAM);
 }
 
 TEST(protocol_magic_and_version) {

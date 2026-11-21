@@ -396,3 +396,50 @@ TEST(packets_trailer_without_callback_is_safe) {
     Inject(p);
     CHECK_EQ(Net::Stats().packetsIn, in + 1);
 }
+
+// ---- opponents' race progress (PKT_RACEPROG) ---------------------------------------------------
+namespace {
+    struct RaceProgCapture { int calls = 0; int count = 0; RaceProgEntry e[MAX_RACEPROG]; } g_rp;
+    void HookRaceProg() {
+        g_rp = RaceProgCapture{};
+        Net::OnRaceProg = [](const RaceProgEntry* e, int n) { ++g_rp.calls; g_rp.count = n; memcpy(g_rp.e, e, n * sizeof(RaceProgEntry)); };
+    }
+    RaceProgEntry MakeProg(uint16_t id, float pct) {
+        RaceProgEntry e{}; e.id = id; e.pct = pct; e.lapPct = pct; e.toNext = 120.f; e.laps = 1; e.cps = 3; return e;
+    }
+}
+TEST(packets_raceprog_round_trip) {
+    NetFixture client(false);
+    Connect("Host");
+    HookRaceProg();
+    RaceProgPacket p{};
+    p.h = Hdr(PKT_RACEPROG, 5);
+    p.count = 2; p.e[0] = MakeProg(7, 12.5f); p.e[1] = MakeProg(9, 40.f);
+    InjectRaw(&p, (int)(offsetof(RaceProgPacket, e) + 2 * sizeof(RaceProgEntry)));
+    REQUIRE(g_rp.calls == 1);
+    CHECK_EQ(g_rp.count, 2);
+    CHECK_EQ(g_rp.e[1].id, 9);
+    CHECK_NEAR(g_rp.e[0].pct, 12.5f, 1e-4f);
+    CHECK_NEAR(g_rp.e[1].toNext, 120.f, 1e-4f);
+    Net::OnRaceProg = nullptr;
+}
+TEST(packets_raceprog_bad_packets) {
+    NetFixture client(false);
+    Connect("Host");
+    HookRaceProg();
+    RaceProgPacket p{};
+    p.h = Hdr(PKT_RACEPROG, 5);
+    p.count = 3; for (int i = 0; i < 3; ++i) p.e[i] = MakeProg((uint16_t)(i + 1), 10.f * i);
+    InjectRaw(&p, (int)(offsetof(RaceProgPacket, e) + 2 * sizeof(RaceProgEntry) + 4));   // claims 3, carries 2.2
+    InjectRaw(&p, (int)offsetof(RaceProgPacket, e) - 1);                                 // shorter than the header part
+    p.count = MAX_RACEPROG + 1; Inject(p);                                               // more than a packet holds
+    CHECK_EQ(g_rp.calls, 0);
+    p.count = 3;
+    p.e[1].pct = std::numeric_limits<float>::quiet_NaN();
+    p.e[2].toNext = -5.f;
+    Inject(p);                                                                           // bad entries are left out
+    REQUIRE(g_rp.calls == 1);
+    CHECK_EQ(g_rp.count, 1);
+    CHECK_EQ(g_rp.e[0].id, 1);
+    Net::OnRaceProg = nullptr;
+}

@@ -783,7 +783,10 @@ namespace {
 
     // a car we already destroyed must never be destroyed again (seen at a race start: the same car killed
     // twice in one frame, then the game called into the freed object - "pure virtual function call")
-    bool AlreadyKilled(void* iv) { for (void* k : g_killed) if (k == iv) return true; return false; }
+    // (for a few seconds only: later the game may build a new car at that address - one of our own traffic
+    //  cars then could never be removed, "skipped" every frame)
+    DWORD g_killedAt[32] = {};
+    bool AlreadyKilled(void* iv) { for (int i = 0; i < 32; ++i) if (g_killed[i] == iv && GetTickCount() - g_killedAt[i] < 3000) return true; return false; }
     void KillVehicle(void* iv) {
         if (!iv) return;
         if (AlreadyKilled(iv)) { LOG("KillVehicle %p skipped - already destroyed", iv); return; }
@@ -795,7 +798,7 @@ namespace {
         if (!sim || VTable(sim) != Addr::VT_PVehicle_ISimable) { LOG("KillVehicle: unexpected ISimable %p", sim); return; }
         using KillFn = void(__thiscall*)(void*);
         VCall<KillFn>(sim, 2)(sim);
-        g_killed[g_killedNext] = iv; g_killedNext = (g_killedNext + 1) % 32;
+        g_killed[g_killedNext] = iv; g_killedAt[g_killedNext] = GetTickCount(); g_killedNext = (g_killedNext + 1) % 32;
         LOG("KillVehicle %p", iv);
     }
 

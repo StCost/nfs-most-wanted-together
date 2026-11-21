@@ -29,6 +29,7 @@ enum PacketType : uint16_t {
     PKT_FOLLOW  = 22,   // "I was moved to a Blacklist pursuit (milestone / bounty) here - come along" (older builds ignore it)
     PKT_MILESTONE = 21, // "I completed this milestone / speed trap" ([Career] SharedMilestones; older builds ignore it)
     PKT_TRAILER = 23,   // the trailers of the trucks in the PKT_TRAFFIC sent just before (older builds ignore it)
+    PKT_RACEPROG = 24,  // host -> client: race progress of the host's AI opponents (older builds ignore it)
 };
 
 struct PacketHeader {
@@ -114,6 +115,25 @@ struct CarInfo {
     uint8_t  custom[CUSTOM_RECORD_SIZE];
 };
 
+// host -> client, in a race: the race progress of the host's AI opponents (their racer slots), by
+// TrafficEntry id. The client drives its own racers as copies of them with their AI off, so the game
+// can't work their progress out itself (their distance to the next checkpoint comes from the AI).
+struct RaceProgEntry {
+    uint16_t id;          // TrafficEntry id of the opponent
+    uint8_t  flags;       // bit0 = knocked out / out of the race, bit1 = finished
+    uint8_t  pad;
+    float    pct;         // race % (GRacerInfo +0x18)
+    float    lapPct;      // lap % (+0x24)
+    float    toNext;      // distance to the next checkpoint (+0xF8), m
+    int16_t  laps, cps;   // laps done (+0x28), checkpoints this lap (+0x2C)
+};
+constexpr int MAX_RACEPROG = 16;
+struct RaceProgPacket {
+    PacketHeader h;
+    uint8_t  count;
+    uint8_t  pad[3];
+    RaceProgEntry e[MAX_RACEPROG];
+};
 struct FollowPacket {
     PacketHeader h;
     uint32_t seq;
@@ -298,6 +318,8 @@ namespace Net {
     void SendCarHit(uint16_t id, const float* dv);
     extern void (*OnCarHit)(uint16_t id, const float* dv);
     extern void (*OnFollow)(const float* pos, const float* fwd, const float* right, const float* quat);
+    extern void (*OnRaceProg)(const RaceProgEntry* e, int count);
+    void SendRaceProg(const RaceProgEntry* e, int count);
     void SendFollow(const float* pos, const float* fwd, const float* right, const float* quat);
     void SendHit(const float* dv);
     extern void (*OnHit)(const float* dv);

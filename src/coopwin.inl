@@ -629,17 +629,52 @@ namespace {
         if (usedPct) *usedPct = pct;
         return true;
     }
+    // client: the host's opponents' progress (PKT_RACEPROG), by traffic id
+    struct HostRacerProg { uint16_t id; RaceProgEntry e; DWORD at; };
+    HostRacerProg g_hostProg[MAX_RACEPROG] = {};
+    void OnHostRaceProg(const RaceProgEntry* e, int n) {
+        DWORD now = GetTickCount();
+        for (int i = 0; i < n; ++i) {
+            HostRacerProg* slot = nullptr;
+            for (auto& h : g_hostProg) if (h.at && h.id == e[i].id) { slot = &h; break; }
+            if (!slot) for (auto& h : g_hostProg) if (!h.at || now - h.at > 5000) { slot = &h; break; }
+            if (slot) { slot->id = e[i].id; slot->e = e[i]; slot->at = now; }
+        }
+    }
+    // one of our racers that copies a host opponent: their progress into its slot (its AI is off, so the
+    // game's own distance - and with it the standings distance and %% - stood still)
+    void WriteHostOpponentProgress(void* ri) {
+        if (g_cfg.isHost || !g_coopLinked) return;
+        DWORD now = GetTickCount();
+        for (auto& m : g_mirrors) {
+            if (!m.used || !m.racer || !m.iv || RacerInfoOf(m.iv) != ri) continue;
+            for (auto& h : g_hostProg) {
+                if (!h.at || h.id != m.id || now - h.at > 2000) continue;
+                uint8_t fin = 0; uint32_t outs = 0;
+                Mem::Read((uintptr_t)ri + 0x21, fin); Mem::Read((uintptr_t)ri + 0x1C, outs);
+                if (fin || outs) return;                                   // over here: the game owns the slot
+                int laps = h.e.laps, cps = h.e.cps;
+                Mem::Write((uintptr_t)ri + 0x18, h.e.pct); Mem::Write((uintptr_t)ri + 0x24, h.e.lapPct);
+                Mem::Write((uintptr_t)ri + 0x28, laps); Mem::Write((uintptr_t)ri + 0x2C, cps);
+                Mem::Write((uintptr_t)ri + 0xF8, h.e.toNext);
+                return;
+            }
+            return;
+        }
+    }
     using RacerUpdateFn = void(__thiscall*)(void*, float);
     void __fastcall hk_RacerUpdate(void* ri, void*, float dt) {
         ((RacerUpdateFn)0x5E92E0)(ri, dt);
         __try {
             if (ri && g_ghost && g_ghostKind == GK_RACER && ri == GhostRacerInfo()) WritePeerProgress(ri);
+            else if (ri) WriteHostOpponentProgress(ri);
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
 }
 
 bool Game::InstallCatchUp() {
     bool st = PatchCallChecked(0x602D67, 0x5E92E0, (void*)&hk_RacerUpdate);
+    Net::OnRaceProg = [](const RaceProgEntry* e, int n) { OnHostRaceProg(e, n); };
     LOG("Race: standings use the other player's own progress %s", st ? "hooked" : "NOT hooked (call site differs)");
     bool ok = PatchCallChecked(0x42956F, 0x4255A0, (void*)&hk_PlayersPct);
     LOG("Race: catch-up follows the leading player %s", ok ? "hooked" : "NOT hooked (call site differs)");

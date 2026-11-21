@@ -176,6 +176,8 @@ namespace {
     double g_lastTrafficPkt = 0;   // local ms of the owner's last traffic packet
 
     void RemoveMirror(Mirror& m);   // below
+    int  HandToTrafficAI(void* iv); // below
+    void Retire(void* iv, bool ai); // below
     void OnTrafficPacket(const TrafficEntry* e, int count, double sendMs) {
         double now = Net::LocalClockMs();
         g_lastTrafficPkt = now;
@@ -192,6 +194,14 @@ namespace {
             if (m && m->n && m->bound && m->model != e[i].model) m->model = e[i].model;   // shown by our own car (race traffic): it just shows the new one
             else if (m && m->n && !m->racer && !racer && m->model != e[i].model) {
                 LOG("Traffic: the other player's car %u is another car now (model %08X -> %08X) - building it again", (unsigned)e[i].id, m->model, e[i].model);
+                // the old copy (not a cop) drives on as our traffic and goes once out of sight - it vanished
+                // in front of the player otherwise; the new car appears only where it can't be seen pop in
+                bool wasCop = (m->s[m->n - 1].e.flags & 1) != 0;
+                if (m->iv && !wasCop && IsVehicle(m->iv)) {
+                    int h = HandToTrafficAI(m->iv);
+                    if (h != 2 /*HAND_AI_MANAGED*/) Retire(m->iv, h == 1 /*HAND_AI*/);
+                    m->iv = nullptr;
+                }
                 RemoveMirror(*m);
                 m = nullptr;
             }
@@ -1101,6 +1111,25 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
             TrailerEntry trl[MAX_TRAILERS_PER_PACKET];
             int nt = CollectTrailers(outIv, out, g_sentCount, trl, MAX_TRAILERS_PER_PACKET);
             Net::SendTrailers(trl, nt, simT);
+            if (inRace) {   // our opponents' race progress (the client's copies of them have no AI to work it out)
+                RaceProgEntry rp[MAX_RACEPROG]; int np = 0;
+                for (int i = 0; i < g_sentCount && np < MAX_RACEPROG; ++i) {
+                    if (!(out[i].flags & 2) || !outIv[i]) continue;
+                    void* ri = RacerInfoOf(outIv[i]);
+                    if (!ri) continue;
+                    RaceProgEntry& e = rp[np];
+                    e = RaceProgEntry{};
+                    e.id = out[i].id;
+                    int laps = 0, cps = 0; uint32_t outs = 0; uint8_t fin = 0;
+                    Mem::Read((uintptr_t)ri + 0x18, e.pct); Mem::Read((uintptr_t)ri + 0x24, e.lapPct); Mem::Read((uintptr_t)ri + 0xF8, e.toNext);
+                    Mem::Read((uintptr_t)ri + 0x28, laps); Mem::Read((uintptr_t)ri + 0x2C, cps);
+                    Mem::Read((uintptr_t)ri + 0x1C, outs); Mem::Read((uintptr_t)ri + 0x21, fin);
+                    e.laps = (int16_t)(laps < 0 ? 0 : laps > 200 ? 200 : laps); e.cps = (int16_t)(cps < 0 ? 0 : cps > 2000 ? 2000 : cps);
+                    e.flags = (outs ? 1 : 0) | (fin ? 2 : 0);
+                    ++np;
+                }
+                Net::SendRaceProg(rp, np);
+            }
             static int lastTrailers = -1;
             if ((nt > 0) != (lastTrailers > 0) || lastTrailers < 0) {
                 lastTrailers = nt;
