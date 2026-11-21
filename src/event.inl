@@ -46,6 +46,9 @@ namespace {
     // player car (GRaceParameters::GetPlayerCarType 0x5FC5C0 returns a non-empty name).
     bool IsChallengeEvent(void* parms) {
         if (!parms) return false;
+        // a Blacklist rival's career event with a preset car (the final pursuit 1.8.1 in the returned BMW)
+        // is not a Challenge Series event: it's joined from free roam like any rival event
+        if (((bool(__thiscall*)(void*))0x5FBD90)(parms)) return false;
         const char* car = ((const char*(__thiscall*)(void*))0x5FC5C0)(parms);
         return car && Mem::IsReadable(car, 2) && (unsigned char)car[0] >= 0x20 && (unsigned char)car[0] < 0x7F;   // a printable name
     }
