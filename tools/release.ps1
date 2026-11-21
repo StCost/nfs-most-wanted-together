@@ -2,7 +2,6 @@
 #   tools\release.ps1 -Version 0.2.0            build, package, publish a pre-release on GitHub
 #   tools\release.ps1 -Version 0.2.0 -Final     publish as a normal (latest) release
 #   tools\release.ps1 -Version 0.2.0 -DryRun    only build and package (dist\MWTogether-0.2.0.zip)
-# A starter career save (end of the prologue: the last race against Razor, then the car lot) in starter-save\ is attached as a second zip.
 # Needs: Visual Studio 2022 C++ (x86), and the GitHub CLI (gh) logged in for publishing.
 param(
     [Parameter(Mandatory = $true)][string]$Version,
@@ -53,13 +52,6 @@ Remove-Item $zip -ErrorAction SilentlyContinue
 Compress-Archive -Path "$pkg\*" -DestinationPath $zip
 Write-Host "Packaged $zip"
 $assets = @($zip)
-$save = Join-Path $root 'starter-save'
-if (Test-Path (Join-Path $save 'NFS Most Wanted')) {
-    $szip = Join-Path $dist "MWTogether-$Version-StarterSave.zip"
-    Remove-Item $szip -ErrorAction SilentlyContinue
-    Compress-Archive -Path (Join-Path $save '*') -DestinationPath $szip
-    $assets += $szip; Write-Host "Packaged $szip"
-}
 if ($DryRun) { return }
 
 # 3. tag + GitHub release
