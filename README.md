@@ -2,12 +2,11 @@
 
 ![NFS MW Together](docs/banner.png)
 
-Play the Most Wanted career with a friend! (2 players, LAN)
+Play the Most Wanted career with a friend. 2 players, LAN or VPN.
 
-A **co-op / multiplayer mod for Need for Speed: Most Wanted 2005** (PC, v1.3): two players play the
-single-player **career campaign together** - free roam with traffic, races against AI opponents, the
-Blacklist rivals, police pursuits, each with their own car and tuning. Works over LAN or a VPN
-(Hamachi, Radmin VPN, ZeroTier).
+A **co-op mod for Need for Speed: Most Wanted 2005** (PC, v1.3). Two players go through the
+**career together**: free roam with traffic, races against the AI, the Blacklist, police chases,
+each in their own car. Works over LAN or a VPN (Hamachi, Radmin VPN, ZeroTier).
 
 *A.K.A.: NFS MW co-op, NFSMW multiplayer career, Most Wanted 2005 coop campaign, NFS Most
 Wanted online free roam with a friend, Need for Speed Most Wanted two player mod.*
@@ -18,11 +17,10 @@ Wanted online free roam with a friend, Need for Speed Most Wanted two player mod
 1. Download **[MWTogether.zip](https://github.com/StCost/nfs-most-wanted-together/releases/latest/download/MWTogether.zip)** (the latest release) and unpack it into your game folder, next to `speed.exe`.
 2. Run `MWTogetherLauncher.exe`. Type a nickname, pick **Host LAN** or **Join LAN** (to join, enter the
    host's IP address) and press **PLAY**.
-3. Do the same on the other PC. The game skips the intro, loads your career into free roam and the two of
-   you connect by yourselves.
-4. Updating: unpack the new zip over the old one. Your nickname and settings (`scripts\MWTogether.ini`) are kept; the zip only brings `MWTogether.default.ini` for new installs.
+3. Do the same on the other PC. The game loads your career into free roam and connects you on its own.
+4. To update, unpack the new zip over the old one. Your nickname and settings (`scripts\MWTogether.ini`) stay.
 
-The prologue (the opening races in the BMW) can be played together too: start a new career on both PCs. Each game runs its own prologue, and whoever is ahead waits on the grid of the next race until the other one is there (`[Coop] Prologue`). After the car lot you both drive to Mia; whoever meets her first leaves the prologue a moment earlier, and co-op is back as soon as the other one meets her too. Co-op needs both players in the same part of the career: both in the prologue, or both past it.
+You can play the prologue (the opening BMW races) together too: start a new career on both PCs. Whoever is ahead waits on the next race's grid (`[Coop] Prologue`). After the car lot you both drive to Mia, and co-op picks up again once you've both met her. You both need to be in the same part of the career: both in the prologue, or both past it.
 
 
 </details>
@@ -30,11 +28,10 @@ The prologue (the opening races in the BMW) can be played together too: start a 
 <details open><summary><h2>You need</h2></summary>
 
 
-- Need for Speed: Most Wanted (2005) for PC, patched to **v1.3**. Your own copy: no game files are included here.
+- Need for Speed: Most Wanted (2005) for PC, patched to **v1.3**. No game files are included, bring your own copy.
 - The same version of the mod on both PCs.
-- LAN network, or a VPN like Hamachi, Radmin VPN or ZeroTier,
-  or UDP port 47555 forwarded to the host.
-- If one of you can't see the other, a firewall or another VPN (e.g. Surfshark) blocks it: allow UDP 47555 for `speed.exe` on that PC, or pause the other VPN. The game shows a notice when only one side receives the other.
+- A LAN, a VPN (Hamachi, Radmin VPN, ZeroTier), or UDP port 47555 forwarded to the host.
+- If one of you can't see the other, a firewall or another VPN (Surfshark, say) is blocking it. Allow UDP 47555 for `speed.exe` on that PC or pause the VPN. The game tells you when only one side gets through.
 
 
 </details>
@@ -42,156 +39,140 @@ The prologue (the opening races in the BMW) can be played together too: start a 
 <details open><summary><h2>What to expect</h2></summary>
 
 
-- **Your own cars.** Each player drives their own car, with all its tuning and visuals, everywhere. Including damage and brake lights.
-- **Events together.** Start any career event and your partner is taken along. You get the same opponents,
-  start at the same moment and see each other.
-- **Shared wins.** If either of you finishes first, it counts for both players: the one still driving is finished as the winner on the spot and gets the same winner's screen.
-- **Police.** In free roam the cops are shared: you get the same heat, you lose them together and you get
-  busted together. Your partner's cops show on your minimap and set off your radar detector.
-- **One world.** Shared traffic when you're near by, collisions between your cars, blips on the minimap and map.
-- **Saves.** Everyone keeps their own career save. The host stores a copy of the partner's save after every
-  autosave and hands it back if theirs is ever missing. An existing save is never replaced, so everyone's own settings (camera, units, controls) stay theirs.
-- **Final pursuit:** it used to sit on its "LOADING..." screen for 2 minutes after the intro movie (solo too, when started the way co-op joins it): the game blocked its own police for 120 s while the start waited for them. Fixed in 1.6.2 (?): it now loads in about a second.
-- **Not yet:** 4 players.
+- **Your own cars.** You both drive your own car with your tuning and visuals, damage and brake lights included.
+- **Events together.** Start any career event and your partner comes along: same opponents, same start, and you see each other.
+- **Shared wins.** If one of you wins, you both win. Whoever is still driving gets finished as the winner right there.
+- **Police.** In free roam you share the cops: same heat, you lose them together, you get busted together. Your partner's cops show on your minimap and set off your radar.
+- **One world.** Shared traffic when you're close, collisions between your cars, blips on the minimap and the map.
+- **Saves.** Each of you keeps your own career save. The host also keeps a backup of the partner's save and gives it back if theirs goes missing. It never overwrites a save that exists, so your settings stay yours.
 
 
 </details>
 
 <details><summary><h2>Features and progress (98%)</h2></summary>
 
+(?) = built, but not fully playtested yet.
 
 <details><summary><b>Connecting</b></summary>
 
-- [x] Direct connection between two PCs (one hosts, one joins), with ping shown in the overlay
-- [x] Clean "bye" when someone quits, Alt+F4 included, and a timeout if a game just disappears
-- [x] Stays connected when a game is paused, minimized or alt-tabbed
-- [x] Game keeps running in the background when alt-tabbed or paused
-- [x] Status overlay on F8, and it remembers whether you hid it
-- [x] Launcher (`MWTogetherLauncher.exe` next to `speed.exe`) in the game's style: name, host or join, the host's IP, start options under Settings, then Play
-- [x] A short notice in the corner when the other player joins or leaves, even with the overlay hidden.
-- [x] Notifications use game's own UI: the message line in the centre of the screen (where races show hints and split times) shows "<name> joined / left" in green, problems (lost connection, firewall, prologue) in orange; a long notice is shown in parts. In cutscenes and menus, where there is no HUD, the EA Trax song banner shows it instead
-- [x] Notices stay on screen for 10 seconds (a notice in parts shares them, at least 3 s a part), the game's banner included, without sliding in again (`[UI] NoticeSeconds`)
-- [x] Joining while the other player is in a race: you roam freely, get a notice, and go together into the next event
-- [x] Strangers can't interfere: each game ignores network packets from anyone except the player it connected to
-- [x] Event starts and restarts are repeated for a few seconds, so a lost packet can't leave you in different races
-- [ ] Up to 4 players
+- [x] Direct connection between two PCs (one hosts, one joins), ping in the overlay
+- [x] Quitting (Alt+F4 too) tells the other side right away; a game that just disappears times out
+- [x] Stays connected while paused, minimized or alt-tabbed, and the game keeps running in the background
+- [x] Status overlay on F8 (remembers if you hid it)
+- [x] Launcher (`MWTogetherLauncher.exe`, next to `speed.exe`) styled like the game: name, host or join, host IP, settings, Play
+- [x] Join / leave notices, even with the overlay hidden
+- [x] Notices use the game's own message line in the middle of the screen: joins and leaves in green, problems (connection, firewall, prologue) in orange. Long ones come in parts. In cutscenes and menus the EA Trax song banner shows them
+- [x] Notices stay up for 10 seconds (`[UI] NoticeSeconds`)
+- [x] Joining while the other player is in a race: you drive around freely and join the next event together
+- [x] Only the player you connected to can talk to your game; packets from anyone else are ignored
+- [x] Event starts and restarts are sent several times, so one lost packet can't split you into different races
 
 
 </details>
 <details><summary><b>Your cars</b></summary>
 
-- [x] Each player drives their own car, with their full tuning, in free roam and in races
-- [x] Smooth movement of the other player's car (about 1-10 mm of jitter)
-- [x] Spawn protection, so two cars appearing on the same spot don't collider or launch each other
-- [x] Other player's blip on the minimap
-- [x] Other player on the world map, coloured like your own arrow and moving while the map is open
-- [x] Pick your own blip colour (launcher: My colour on the map, `[Player] Color`): the other player sees you in it on the minimap and the world map
-- [x] Car-to-car collisions between players, with the impact passed on: ram your partner and their car is thrown on their screen too
-- [x] Your names in the race standings instead of the shared save name
-- [x] Your partner's car shows brake lights and damage from crashes (dents, broken parts)
-- [x] Your partner's car shows steering and nitrous
+- [x] Your own car with your full tuning, in free roam and in races
+- [x] The other player's car moves smoothly (1-10 mm of jitter)
+- [x] Spawn protection: two cars appearing on the same spot don't launch each other
+- [x] The other player on the minimap and on the world map, in a colour they pick (launcher: My colour on the map, `[Player] Color`)
+- [x] Car-to-car collisions with real impact: ram your partner and their car gets thrown on their screen too
+- [x] Your own names in the race standings
+- [x] Your partner's car shows brake lights, damage (dents, broken parts), steering and nitrous
 
 
 </details>
 <details><summary><b>The world</b></summary>
 
 - [x] Shared traffic when you're near each other
-- [x] Cops of the other player show up for you, light bars included
-- [x] You see the cops chasing the other player
-- [x] Cops may switch to chasing the other player when you're both being chased
-- [x] Traffic cars near the other player keep full physics instead of moving at reducing quality
-- [x] The other player's traffic, cops and race opponents no longer float above the road (or sink into it) on your screen: a car their game runs in its cheap physics mode (no world loaded under it there) is put on your road surface, smoothly
-- [x] Semi trucks of the other player's traffic keep their trailers on your screen: the trailer follows the truck exactly as on their PC instead of falling off and lying on the road
-- [x] Hitting the other player's traffic, cops or race opponents pushes the real car on their PC
-- [x] Pause menu and world map don't pause the time while you're connected
-- [x] No speedbreaker in co-op (slow motion can't work for two people). The game's own short slow-motion moments (speed traps, the finish, crash cameras) play as in the plain game (`[Coop] NoSlowMotion=1` turns them off)
-- [x] Smooth traffic handover: when you drive away from the other player, their traffic cars around you don't vanish - they drive on as your own traffic. When you come back, your own cars stay until they're out of sight and the other player's cars only appear where you can't see them pop in (behind you or far away), or one of your nearby cars quietly takes their place (`[Traffic] SmoothHandover`, 0 = the old instant switch)
-- [x] Shared traffic inside races: the host's traffic cars are shown by the client's own traffic cars, so race scripts keep every car they own. Cars are in the same places on both screens, but may be a different model when no matching one is free (`[Traffic] SharedInRaces`, 0 = each player keeps their own traffic in races)
-- [x] No cars popping up in front of you: the game never puts a new traffic car or cop right in front of the other player (within ~60 m, it picks another spot), and the other player's cars only appear on your screen outside your view or farther than ~60 m (`[Traffic] NoSpawnNearPlayers`, 0 = as before)
+- [x] You see the other player's cops (light bars too) and the cops chasing them
+- [x] When you're both chased, cops can switch to the other player
+- [x] Traffic near the other player keeps full physics
+- [x] The other player's traffic, cops and opponents stay on the road on your screen, even where their game has no road loaded under them
+- [x] Semi trucks keep their trailers
+- [x] Hitting the other player's traffic, cops or opponents pushes the real car on their PC
+- [x] The pause menu and world map don't stop time while you're connected
+- [x] No speedbreaker in co-op (slow motion can't work for two). The short slow-motion shots (speed traps, finish line, crash cams) play like in the normal game (`[Coop] NoSlowMotion=1` turns them off)
+- [x] Smooth traffic handover: drive away from the other player and their traffic around you keeps going as your own. Come back, and their cars only show up where you can't see them appear, or quietly replace one of yours (`[Traffic] SmoothHandover`)
+- [x] Shared traffic in races: the client shows the host's traffic with its own cars, so the race scripts keep working. Same positions on both screens, though the model can differ (`[Traffic] SharedInRaces`)
+- [x] No cars popping up in front of you: new traffic and cops never appear within ~60 m in front of either player (`[Traffic] NoSpawnNearPlayers`)
 
 
 </details>
 <details><summary><b>Events and races</b></summary>
 
-- [x] Starting an event takes the other player into it too, even from the results screen of the last race
-- [x] Both games build the same AI opponents (car models and tuning)
-- [x] Opponents on the client follow the host's opponents, so the race looks the same on both screens
-- [x] Opponent names match on both PCs
-- [x] Race positions use each player's real progress, and the order changes as soon as one passes the other
-- [x] Joining an event from far away: the other player still gets their racer in the standings (in an AI car's body if their car model isn't loaded on your PC yet)
-- [x] At a race start you stand on different grid slots and see each other's car and name from the countdown on (`SeparateGridSlots`)
-- [x] Start together: whoever loads first waits on the grid until the other is ready (`StartTogether`)
-- [x] Restarting a race restarts it for both of you. If your own race is already over (results screen), you get a notice instead and press Restart yourself
-- [x] AI opponents' catch-up (rubber banding) follows whichever player is ahead, so they race the best of you (`CatchUpLeader`). Blacklist rivals too: in a rival race the rival follows whoever of you is ahead
-- [x] Race intro cutscenes play normally for both
-- [x] A win by either player counts for both: cash, unlocks and career progress in each player's own career (`SharedWins`)
-- [x] The other player's finish is shown in your standings
-- [x] When one of you finishes first, the other is finished as the winner right away, even while still driving: 1st place, the winner's screen, the payout, and in rival races the rival's progress, each in their own career (`SharedWins`)
-- [x] Blacklist rival races: the rival on the client follows the host's rival, also in the second race of the series and when the two games built different cars for it
-- [x] Blacklist rival races: you both race the rival in the same event, and each of you gets the normal rival flow after winning. Your partner has a racer slot of their own there, with a grid slot and a row in the standings (`[Coop] PartnerInRivalRaces`) (?)
-- [x] The prologue together: both of you start a new career; each game plays its own prologue races and movies, and whoever is ahead waits on the grid of the next race until the other one is there. Your partner's car races next to you (the prologue opponents stay as they are); the Razor race stays the story's loss for both (`[Coop] Prologue`)
-- [x] Rival races and story events (Razor's races, the final pursuit) are only joined by a partner whose career is at the same Blacklist rival, so nobody's career jumps ahead. Pressing Continue on "race the rival" after a win takes your partner into the rival's next race too
-- [x] Blacklist rival races together have one more AI racer on the rival's side: one more car to beat, with the game's normal racing AI and normal catch-up (not the rival's). Its car is the partner the rival's race intro shows (Ming, #10, Big Lou), else the game's pick; both PCs build the same car (`[Coop] BossHelper`, 0 = the rival alone)
-- [x] Rival rewards: after beating a rival, each player picks their own markers and gets their own rewards (pink slip, cash, parts) in their own career. Nothing is shared or synced here on purpose
-- [x] Bounty counts for each player's own career (seen after an escape)
-- [x] Shared milestones: when one of you completes a milestone or a speed trap of your Blacklist rival, the other player gets it too, with its bounty, if their career is at the same rival (`[Career] SharedMilestones`)
-- [x] Challenge Series events: when you both start from the main menu, both load the event with its preset car. A player who is roaming in career isn't pulled in
+- [x] Starting an event takes the other player along, even from the results screen of the last race
+- [x] Same AI opponents on both PCs (cars, tuning, names), and on the client they follow the host's, so the race looks the same on both screens
+- [x] Race positions use each player's real progress and update the moment one passes the other
+- [x] Joining from far away still gives the other player a spot in the standings (in an AI car's body if their car isn't loaded on your PC yet)
+- [x] Separate grid slots, and you see each other from the countdown on (`SeparateGridSlots`)
+- [x] Whoever loads first waits on the grid for the other (`StartTogether`)
+- [x] Restart restarts the race for both of you, from the results screen too
+- [x] AI catch-up (rubber banding) follows whoever of you is ahead, Blacklist rivals included (`CatchUpLeader`)
+- [x] Race intro cutscenes play for both
+- [x] A win by either of you counts for both: cash, unlocks and progress in each own career. The one still driving is finished as the winner on the spot, with the winner's screen, the payout and the rival's progress (`SharedWins`)
+- [x] You see the other player's finish in your standings
+- [x] Blacklist rival races: you both race the rival, the client's rival follows the host's (second race of the series too), and you each get the normal rival flow after winning
+- [x] In rival races your partner has their own racer slot: a grid slot and a row in the standings (`[Coop] PartnerInRivalRaces`) (?)
+- [x] Rival races also get one extra AI racer on the rival's side, with normal AI and catch-up. It drives the car the race intro shows (Ming, #10, Big Lou) when there is one (`[Coop] BossHelper`)
+- [x] Rival races and story events (Razor's races, the final pursuit) only take along a partner who's at the same Blacklist rival, so nobody skips ahead. Continue on "race the rival" takes your partner to the next race too
+- [x] The final pursuit loads in about a second (?)
+- [x] The prologue together: start a new career on both PCs. Each game plays its own prologue, and whoever is ahead waits on the next grid. Your partner races next to you, and the Razor race is still lost for both (`[Coop] Prologue`)
+- [x] After beating a rival, each of you picks your own markers and gets your own rewards (pink slip, cash, parts)
+- [x] Bounty goes to each player's own career
+- [x] Shared milestones and speed traps: when one of you completes one for your current rival, the other gets it too, with the bounty, if they're at the same rival (`[Career] SharedMilestones`)
+- [x] Challenge Series: start from the main menu on both PCs and you both load the event with its car. Someone roaming in career isn't pulled in
 
 
 </details>
 <details><summary><b>Career</b></summary>
 
-- [x] Each player keeps their own career; wins are shared, so both careers move forward together
-- [x] The host keeps a copy of the other player's career save, updated after every autosave. If that player's own save is missing when they connect, it's restored from the host. An existing save is never replaced, so each player's settings stay their own (`[Career] RestoreOnlyMissing`)
-- [x] Cutscene skip voting: a cutscene you both watch is skipped only when both press skip
-- [x] Story scenes outside events: when one of you gets a story movie (Blacklist rival movie, story FMV, also in the Safe House) or a story cutscene in the world, the other gets a notice and their game waits in free roam until it's over (`SyncStoryScenes`)
-- [x] With `SyncStoryScenes=2` the same story movie also plays on the other PC if their career has got that far, and a movie you both watch is skipped only when both press skip (in-world cutscenes are never started on the other PC)
-- [x] Shared pursuits in free roam (`[Coop] SharedPursuits`, on by default): when one of you gets heat the other gets the same, and the hotter of the two counts
-- [x] The other player's cops are on your minimap while they chase, and your radar detector beeps for them like for your own
-- [x] Ramming one of the other player's cops starts a pursuit on you, like hitting one of your own
-- [x] Busted together: if one of you gets busted, the other one is busted too, through the game's own arrest
-- [x] Escape together: the cooldown only runs while neither of you is seen, starts over for both when either one is spotted, and you both get away at the same moment
-- [x] No pursuit-start camera in co-op: the camera stays on your car when a chase begins (`NoPursuitCams`, launcher: No pursuit start camera)
-- [x] With `SharedPursuits=0` it's like before: getting busted or escaping only affects the player being chased
+- [x] Each of you keeps your own career; wins are shared, so both move forward together
+- [x] The host keeps a copy of the partner's save, updated on every autosave, and restores it if theirs is missing. It never replaces a save that exists (`[Career] RestoreOnlyMissing`)
+- [x] A cutscene you both watch is skipped only when both of you press skip
+- [x] Story movies and cutscenes outside events: the other player gets a notice and waits in free roam until it's done (`SyncStoryScenes`). With `SyncStoryScenes=2` the movie plays on their PC too if their career is that far
+- [x] Shared pursuits (`[Coop] SharedPursuits`): you get the same heat, the higher one counts
+- [x] The other player's cops show on your minimap and trigger your radar
+- [x] Ramming their cop starts a pursuit on you
+- [x] One of you gets busted, you both get busted
+- [x] Escaping: the cooldown only runs while neither of you is seen, restarts when either one is spotted, and you both escape at the same moment
+- [x] No pursuit-start camera: the camera stays on your car when a chase starts (`NoPursuitCams`)
+- [x] `SharedPursuits=0`: busted and escape only affect the player being chased
 
 
 </details>
 <details><summary><b>Quality of life (settings in <code>[Start]</code>, <code>[UI]</code> and <code>[Input]</code>)</b></summary>
 
-- [x] Load straight into career free roam after the profile (`DirectFreeRoam`); optionally skip the intro logos and movie (`SkipIntro`, off by default)
-- [x] Several profiles: the quick start picks the profile you loaded last in the game's profile list by itself (remembered as `[Start] LastProfile`); the first time, or with the quick start off, you pick it yourself (?)
-- [x] **F1** hides the minimap (with the heat meter) and the speedometer; the rear-view mirror stays. F1 again shows them (`[UI] HideHudKey`) (?)
-- [x] The "load complete" screen after the title confirms itself (`SkipLoadComplete`, on by default)
+- [x] Goes straight into career free roam after the profile loads (`DirectFreeRoam`); can skip the intro logos and movie (`SkipIntro`, off by default)
+- [x] Several profiles: the quick start loads the one you used last (`[Start] LastProfile`); the first time you pick it yourself (?)
+- [x] **F1** hides the minimap, heat meter and speedometer, keeping the rear-view mirror. F1 again brings them back (`[UI] HideHudKey`) (?)
+- [x] Confirms the "load complete" screen for you (`SkipLoadComplete`)
 - [x] No "leave the safe house?" question (`SkipLeaveSafeHouseDialog`)
-- [x] Menus react while their opening animation plays, and animate 2x faster (`IntroInput`, `MenuSpeed`) to improve UI responsivness
-- [x] Optional: close the pursuit result screens in free roam by itself ("Bounty achieved" and the pursuit summary), off by default (`SkipPursuitResults`). Getting busted still shows the fine screen
-- [x] A gamepad or wheel plugged in while the game is running (USB or Bluetooth) works right away, and so does one that dropped out and came back; your bindings stay as they were (`[Input] GamepadHotplug`, launcher: Detect gamepads connected while playing)
-- [x] Starting the game without your pad no longer resets its controller bindings to the defaults (`[Input] KeepPadBindings`)
+- [x] Menus react during their opening animation and animate twice as fast (`IntroInput`, `MenuSpeed`)
+- [x] Can close the pursuit result screens in free roam for you, off by default (`SkipPursuitResults`). The busted fine screen still shows
+- [x] Pads and wheels plugged in mid-game (USB or Bluetooth) work right away, reconnects too, and keep your bindings (`[Input] GamepadHotplug`)
+- [x] Your pad keeps its bindings even when the game starts without it (`[Input] KeepPadBindings`)
 
 
 </details>
 <details><summary><b>Test tools (<code>[Debug] TestKeys=1</code>)</b></summary>
 
-- [x] **F5** autopilot: the game's AI drives your car, cruising in free roam and following the route in races. `AutoPilot=1` turns it on by itself. For testing purposes
-- [x] Autopilot uses nitrous on straights (`[Debug] AutoPilotNos`, default on)
-- [x] `[Window] StartInBackground=1`: the game starts without taking the focus, loads the profile and goes into free roam in the background, and stays muted until you click it. For testing purposes
-- [x] Car budget in the log: the game allows 20 cars in the world (yours, your partner's, traffic, cops); when a new car needs room, the log says which cars were removed for it or that it was refused, with the count and car memory, plus a summary every 30 s. For troubleshooting
-- [x] Performance diagnostics: `[Debug] Perf=1` logs fps, 1% lows, worst frame and how many milliseconds each part of the mod takes, every 5 seconds (it's also shown in the F8 overlay). For testing purposes
-- [x] **F7** starts the test event (`TestEvent`) for both players. For testing purposes
-- [x] **F10 / F11** spawn or remove a test copy of the other player's car, **F12** spawns a test cop. For testing purposes
-- [x] Test commands in `scripts\MWTogether.cmd` also include `pursuit` (the cops start a pursuit on you), `uncop` (remove every police car, so the pursuit ends in an escape), `ram cop` (drive into the other player's nearest cop) and `tp x y z` (move your car). Full list in `docs/TESTING.md`. For testing purposes
+- [x] **F5** autopilot: the game's AI drives your car around free roam or along the race route, using nitrous on straights (`AutoPilot`, `AutoPilotNos`)
+- [x] `[Window] StartInBackground=1`: the game starts without stealing focus, goes into free roam in the background and stays muted until you click it
+- [x] Car budget log: the game fits 20 cars in the world (both players, traffic, cops). The log says which cars got removed or refused to make room, plus a summary every 30 s
+- [x] `[Debug] Perf=1` logs fps, 1% lows, the worst frame and the mod's own cost every 5 seconds (also in the F8 overlay)
+- [x] **F7** starts the test event (`TestEvent`) for both players
+- [x] **F10 / F11** spawn or remove a copy of the other player's car, **F12** spawns a cop
+- [x] Test commands in `scripts\MWTogether.cmd`, like `pursuit`, `uncop`, `ram cop` and `tp x y z`. Full list in `docs/TESTING.md`
 
 
 </details>
-
-[^1]: (?) means feature is implemented, unit tested, but not playtested 100%.
 
 
 </details>
 
 <details><summary><h2>Configuration</h2></summary>
 
-Every option is in `scripts\MWTogether.ini`, which comments each one. Main sections:
+All options are in `scripts\MWTogether.ini`, with a comment on each. Sections:
 `[Network]`, `[Player]`, `[Ghost]`, `[Traffic]`, `[Coop]`, `[Start]`, `[AutoStart]`, `[UI]`, `[Window]`, `[Debug]`.
 
 
@@ -213,7 +194,7 @@ Every option is in `scripts\MWTogether.ini`, which comments each one. Main secti
 
 <details><summary><h2>Testing</h2></summary>
 
-The network code, the config reader and the maths behind the remote cars have tests that run without the game:
+The network code, the config reader and the remote-car maths have tests that run without the game:
 
 ```
 tests\build_tests.bat
@@ -262,7 +243,7 @@ The code is in `src/`:
 
 <details><summary><h2>Contributing</h2></summary>
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Pull requests welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 
 </details>
