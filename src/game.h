@@ -63,6 +63,8 @@ namespace Game {
     void LoadStateTick();
     void PursuitLoadFixTick();
     void BudgetTick();
+    std::string ToggleHud();             // F1 ([UI] HideHudKey) / test command "hud": hide the minimap and the speedometer
+    void HudTick();
     std::string DebugFixedLists();       // test: "fixedlists" - every fixed-capacity table in the exe's data, capacity and fill                   // car budget summary (evicted / refused cars) every 30 s           // the final pursuit's 2-minute loading wait: clear the cop manager's timer
     std::string DebugResultsRestart();            // test: "resultsrestart" - press Restart on the results / winner's screen
     std::string DebugFreeRoam();                  // test: "freeroam" - leave the front end (safe house) into career free roam

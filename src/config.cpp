@@ -69,6 +69,7 @@ void Config::Load(const char* ini) {
     startInBackground = ReadInt(ini, "Window", "StartInBackground", 0) != 0;
     skipPursuitResults = ReadInt(ini, "UI", "SkipPursuitResults", 0) != 0;
     gameNotices = ReadInt(ini, "UI", "GameNotices", 1) != 0;
+    hideHudKey = ReadInt(ini, "UI", "HideHudKey", 0x70);
     noticeSeconds = ReadInt(ini, "UI", "NoticeSeconds", 10);
     if (noticeSeconds < 2) noticeSeconds = 2;
     if (noticeSeconds > 60) noticeSeconds = 60;

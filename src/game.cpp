@@ -1058,6 +1058,7 @@ bool Game::ReadLocalCarInfo(CarInfo& out) {
 #include "event.inl"
 #include "minimap.inl"
 #include "worldmap.inl"
+#include "hud.inl"
 #include "pursuit.inl"
 #include "stream.inl"
 static bool SaveSyncHoldsBoot();

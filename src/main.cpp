@@ -123,7 +123,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
 
         if (g_forceActive) { int one = 1; Mem::Write(0x982BEC, one); }   // test command "active 1": the game runs as if focused
         Perf::FrameStart();
-        if (g_gameOk) { Game::LoadStateTick(); Game::PursuitLoadFixTick(); Game::BudgetTick(); }
+        if (g_gameOk) { Game::LoadStateTick(); Game::PursuitLoadFixTick(); Game::BudgetTick(); Game::HudTick(); }
         { Perf::Scope perfMenus(Perf::Menus);
         static int lastFlow = -2;
         int flowNow = Game::GameFlowState();
@@ -172,6 +172,12 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         bool d10 = (fg && GetAsyncKeyState(VK_F10) & 0x8000) != 0, d11 = (fg && GetAsyncKeyState(VK_F11) & 0x8000) != 0;
         if (g_cfg.testKeys && d10 && !f10) g_spawnMsg = Game::DebugSpawnClone();
         if (g_cfg.testKeys && d11 && !f11) g_spawnMsg = Game::DebugKillClone();
+        {   // [UI] HideHudKey (F1): hide / show the minimap and the speedometer
+            static bool hudWas = false;
+            bool hd = (fg && g_cfg.hideHudKey && GetAsyncKeyState(g_cfg.hideHudKey) & 0x8000) != 0;
+            if (g_gameOk && hd && !hudWas) g_spawnMsg = Game::ToggleHud();
+            hudWas = hd;
+        }
         static bool f7 = false;
         bool d7 = (fg && GetAsyncKeyState(VK_F7) & 0x8000) != 0;
         if (g_cfg.testKeys && d7 && !f7) g_spawnMsg = Game::DebugStartEvent(g_cfg.testEvent.c_str());
@@ -245,6 +251,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                     else if (c == "stack") { Overlay::RequestStack(); r = "stack at the next frame"; }
                     else if (c == "screens") r = FEScreens::ListAll();
                     else if (c == "resultsrestart") r = Game::DebugResultsRestart();
+                    else if (c == "hud") r = Game::ToggleHud();
                     else if (c == "freeroam") r = Game::DebugFreeRoam();
                     else if (c.rfind("fe ", 0) == 0) r = Game::FEPad(c.substr(3).c_str());
                     else if (c.rfind("accept ", 0) == 0) r = Game::FEAccept(c.substr(7).c_str());
