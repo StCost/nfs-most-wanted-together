@@ -144,7 +144,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 
 - [x] Goes straight into career free roam after the profile loads (`DirectFreeRoam`); can skip the intro logos and movie (`SkipIntro`, off by default)
 - [x] Several profiles: the quick start loads the one you used last (`[Start] LastProfile`); the first time you pick it yourself (?)
-- [x] **F1** hides the minimap, heat meter and speedometer, keeping the rear-view mirror. F1 again brings them back (`[UI] HideHudKey`) (?)
+- [x] **F1** hides the minimap, heat meter and speedometer, keeping the rear-view mirror. F1 again brings them back (`[UI] HideHudKey`)
 - [x] Confirms the "load complete" screen for you (`SkipLoadComplete`)
 - [x] No "leave the safe house?" question (`SkipLeaveSafeHouseDialog`)
 - [x] Menus react during their opening animation and animate twice as fast (`IntroInput`, `MenuSpeed`)
