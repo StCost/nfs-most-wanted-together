@@ -49,7 +49,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 
 </details>
 
-<details><summary><h2>Features and progress (98%)</h2></summary>
+<details><summary><h2>Features and progress (100%)</h2></summary>
 
 (?) = built, but not fully playtested yet.
 
