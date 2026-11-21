@@ -257,52 +257,76 @@ static void CoopFinishTickImpl() {
 }
 
 // ---- lap knockout: knocked out while the other player still races ----
-//  stategraph_basicrace_racing_handler_notifyknockedout: a human racer knocked out, and
-//  Game.AllHumanPlayersDone() (native 0x60E0A0: every human racer finished or out) -> ChangeState("raceover"),
-//  the results screen with Restart / Quit. In co-op the other player is an AI racer in our game, so the
-//  results came up at once and a Restart there restarted the race for them too, mid-race. While they still
-//  race, AllHumanPlayersDone answers "no": the game shows "knocked out" and goes on. When they are done we
-//  post our racer's placement (racing_handler_notifyraceplacement_3: a human racer, all humans done ->
-//  Placing 1 ? "postrace" : "raceover") - 1 if they won (shared win), else our own place.
+//  The race script knocks a racer out with the native KnockoutRacer (0x611440, cdecl(racer)): the racer's
+//  "knocked out" flag (0x600210), MNotifyKnockedOut, its AI told (+0x84), and the race status takes the car
+//  out of the world (0x5FF2E0(3, ...)). Then stategraph_basicrace_racing_handler_notifyknockedout: a human
+//  racer, all humans done -> ChangeState("raceover"). raceover shows "knocked out" (ShowRaceOverSummary)
+//  and, RaceOverMessageDuration later, ShowLosingPostRaceScreen (0x60E230 = ShowPostRace(false)): the
+//  results with Restart / Quit.
+//  Co-op:
+//   - the other player's car is a racer in our game, and our script knocked it out when it was last at a
+//     lap's end - their car vanished from our world while they still raced. Their own game decides that:
+//     KnockoutRacer skips their racer here.
+//   - knocked out while they still race: the "knocked out" message as usual, but the results screen (and
+//     its Restart, which restarted their race too) only once they are done (finished or knocked out).
 namespace {
-    bool     g_koHeld = false;        // AllHumanPlayersDone answered "no" for the other player
+    bool     g_koHeld = false;        // our results screen waits for the other player
     uint32_t g_koEvent = 0;
     DWORD    g_koSince = 0;
 
-    // the first instruction (mov ecx, [0x91E000], 6 bytes) moved here, then on at 0x60E0A6
-    __declspec(naked) bool __cdecl AllHumanDoneOrig() {
-        __asm {
-            mov ecx, dword ptr ds:[0x91E000]
-            push 0x60E0A6
-            ret
-        }
-    }
     bool PeerStillRacing() {
         if (!g_cfg.sharedWins || !g_coopLinked || !Net::Stats().connected) return false;
         const Net::Snapshot& p = Net::Latest();
         uint32_t ev = Game::CurrentEventHash();
         return ev && p.valid && p.s.eventHash == ev && p.s.inRace && !p.s.finished && p.s.pad[0] != 3 && g_peerRacedHere;
     }
+    // knocked out (not finished, not first) in a lap knockout while the other player still races
     bool KnockoutHoldWanted() {
         void* parms = CurrentParms();
         if (!parms || ((int(__thiscall*)(void*))0x5FAA20)(parms) != 3) return false;   // lap knockout only
-        if (!LocalRacerOut() || !PeerStillRacing()) return false;
-        if (g_koHeld && g_koEvent == Game::CurrentEventHash() && GetTickCount() - g_koSince > 15u * 60u * 1000u) return false;   // safety
-        return true;
+        void* ri = RacerInfoOfLocal();
+        uint32_t outs = 0; int rank = 0;
+        if (!ri || !Mem::Read((uintptr_t)ri + 0x1C, outs) || !outs) return false;
+        Mem::Read((uintptr_t)ri + 0x10, rank);
+        if (rank == 1) return false;
+        return PeerStillRacing();
     }
-    bool __cdecl hk_AllHumanDone() {
-        bool r = AllHumanDoneOrig();
-        if (!r) return false;
+    void __cdecl hk_ShowLosingKO() {
         __try {
             if (KnockoutHoldWanted()) {
-                if (!g_koHeld || g_koEvent != Game::CurrentEventHash()) {
-                    g_koHeld = true; g_koEvent = Game::CurrentEventHash(); g_koSince = GetTickCount();
-                    LOG("Race: knocked out while the other player still races - no results screen until they are done");
-                }
-                return false;
+                g_koHeld = true; g_koEvent = Game::CurrentEventHash(); g_koSince = GetTickCount();
+                LOG("Race: knocked out while the other player still races - the results screen waits for them");
+                return;
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
-        return r;
+        ((void(__cdecl*)(bool))0x60AC20)(false);                 // ShowPostRace(false), as the game does
+    }
+
+    // KnockoutRacer: the original's first two instructions (7 bytes), then on at 0x611447
+    __declspec(naked) void __cdecl KnockoutRacerOrig(void*) {
+        __asm {
+            mov eax, dword ptr [esp + 4]
+            sub esp, 0x14
+            push 0x611447
+            ret
+        }
+    }
+    void* RacerInfoOfScriptRacer(void* racer) {
+        if (!racer) return nullptr;
+        int idx = ((int(__cdecl*)(void*))0x60DAE0)(racer);
+        void* rs = nullptr;
+        if (idx < 1 || !Mem::Read(0x91E000, rs) || !rs) return nullptr;
+        return ((void*(__thiscall*)(void*, int))0x5DBED0)(rs, idx - 1);
+    }
+    void __cdecl hk_KnockoutRacer(void* racer) {
+        __try {
+            void* gri = GhostRacerInfo();
+            if (gri && g_coopLinked && Net::Stats().connected && RacerInfoOfScriptRacer(racer) == gri) {
+                LOG("Race: the race knocked out the other player's racer here - skipped (their own game decides)");
+                return;
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        KnockoutRacerOrig(racer);
     }
 }
 static void KnockoutReleaseTickImpl() {
@@ -311,21 +335,15 @@ static void KnockoutReleaseTickImpl() {
     if (ev != g_koEvent || Game::GameFlowState() != 6) { g_koHeld = false; return; }   // restarted / left
     if (PeerStillRacing() && GetTickCount() - g_koSince <= 15u * 60u * 1000u) return;
     g_koHeld = false;
-    void* rs = nullptr; void* parms = nullptr;
-    if (!Mem::Read(0x91E000, rs) || !rs || !Mem::Read((uintptr_t)rs + 0x1968, parms) || !parms) return;
-    void* sim = LocalSimable(); void* ri = RacerInfoOfLocal();
-    if (!sim || !ri) return;
-    bool won = PeerWonThisEvent();
-    int placing = 1;
-    if (won) {
-        g_forcedFinishTried = true; g_forcedFinishEvent = ev;   // (the shared-win finish must not post a second time)
-        ((void(__cdecl*)(void*))0x6119F0)(sim);                 // NotifyRaceFinished: the payout of the shared win
-    } else {
-        Mem::Read((uintptr_t)ri + 0x10, placing);
-        if (placing < 2) placing = 2;
+    if (PeerWonThisEvent()) {                                     // they won: the shared win is paid to us too
+        if (void* sim = LocalSimable()) {
+            g_forcedFinishTried = true; g_forcedFinishEvent = ev;
+            ((void(__cdecl*)(void*))0x6119F0)(sim);               // NotifyRaceFinished (the win gate counts their win)
+            LOG("Race: the other player won the knockout - counted as our win too");
+        }
     }
-    bool posted = PostRacePlacement(parms, sim, placing);
-    LOG("Race: the other player is done - our knocked-out racer's place %d %s", placing, posted ? "posted (results screen next)" : "NOT posted");
+    LOG("Race: the other player is done - our results screen now");
+    ((void(__cdecl*)(bool))0x60AC20)(false);                     // the screen the game held back
 }
 
 static void CoopWinTickImpl(bool connected, const Net::Snapshot& peer) {
@@ -373,8 +391,11 @@ bool Game::InstallCoopWin() {
     // won, and is finished as the winner when their win arrives while we drive (CoopFinishTickImpl).
     const uint8_t calc[5] = { 0xE8, 0x3B, 0x35, 0x0E, 0x00 };   // call 0x6E8DF0
     bool d = PatchJmp(0x6058B0, calc, 5, (void*)&hk_CalcRanking);
-    const uint8_t allHuman[6] = { 0x8B, 0x0D, 0x00, 0xE0, 0x91, 0x00 };   // mov ecx, [0x91E000]
-    bool e = PatchJmp(0x60E0A0, allHuman, 6, (void*)&hk_AllHumanDone);
+    // (lose = the bytes of ShowLosingPostRaceScreen 0x60E230)
+    bool e1 = PatchJmp(0x60E230, lose, 9, (void*)&hk_ShowLosingKO);
+    const uint8_t koStart[7] = { 0x8B, 0x44, 0x24, 0x04, 0x83, 0xEC, 0x14 };   // mov eax, [esp+4]; sub esp, 0x14
+    bool e2 = PatchJmp(0x611440, koStart, 7, (void*)&hk_KnockoutRacer);
+    bool e = e1 && e2;
     LOG("Career: shared wins %s/%s/%s, winner's place for the race script %s, knockout waits for the other player %s", a ? "ok" : "FAIL", b ? "ok" : "FAIL", c ? "ok" : "FAIL", d ? "ok" : "FAIL (code differs)", e ? "ok" : "FAIL (code differs)");
     return a && b && c;
 }
@@ -583,6 +604,28 @@ namespace {
         Mem::Write((uintptr_t)ri + 0x24, lapPct);
         Mem::Write((uintptr_t)ri + 0x28, laps);
         Mem::Write((uintptr_t)ri + 0x2C, cps);
+        // +0xF8: distance to their next checkpoint. The game takes it from the racer's AI, which is off for
+        // their car (we drive it): it stayed at a value from where the car stood (the standings showed them
+        // ~5 km away all race). Worked back from their % the way 0x5E92E0 builds the %: covered = lap base
+        // + the checkpoint legs passed + (this leg - distance to the next) ; % = covered / race length.
+        char* rs = nullptr;
+        if (Mem::Read(0x91E000, rs) && rs && laps >= 0 && cps >= 0 && cps < 64) {
+            using LenFn = float(__thiscall*)(void*, int);
+            using LegFn = float(__thiscall*)(void*, int, int);
+            float total = ((LenFn)0x5DB420)(rs, laps);
+            float base = 0, lapFirst = 0, lapOther = 0;
+            Mem::Read((uintptr_t)rs + 0x4488, lapFirst); Mem::Read((uintptr_t)rs + 0x448C, lapOther);
+            if (laps > 0) base = lapFirst;
+            if (laps > 1) base += (laps - 1) * lapOther;
+            float passed = 0;
+            for (int i = 0; i < cps; ++i) passed += ((LegFn)0x5DC720)(rs, i, laps);
+            float leg = ((LegFn)0x5DC720)(rs, cps, laps);
+            float dist = leg - (pct * 0.01f * total - base - passed);
+            if (dist == dist && total > 0 && leg > 0) {
+                if (dist < 0) dist = 0; if (dist > leg) dist = leg;
+                Mem::Write((uintptr_t)ri + 0xF8, dist);
+            }
+        }
         if (usedPct) *usedPct = pct;
         return true;
     }
