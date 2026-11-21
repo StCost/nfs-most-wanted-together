@@ -99,6 +99,15 @@ namespace {
                 float speed = m.value > 0.f && m.value < 200.f ? m.value : *(const float*)(e + 0xC);
                 ((void(__thiscall*)(void*, float))SpeedTrapComplete)(e, speed);
                 *stateAfter = *(const uint16_t*)e;
+                // the camera photo, as if we had been caught too: what the trap trigger (0x60A7B0) does in
+                // free roam after completing it - 0x605730(speed m/s, the trap's 0x5E56C0 value) sets the
+                // photo's numbers and pushes InGamePhotoMaster.fng, then 0x605140 posts its message
+                if (SM::SpeedTrapDone((uint16_t)*stateAfter)) {
+                    float x = ((float(__thiscall*)(void*))0x5E56C0)(e);
+                    ((void(__cdecl*)(float, float))0x605730)(speed, x);
+                    ((void(__cdecl*)())0x605140)();
+                    LOG("Milestones: the speed trap photo shown for the other player's trap (%.0f km/h)", speed * 3.6f);
+                }
             }
             return v;
         } __except (EXCEPTION_EXECUTE_HANDLER) { *stateAfter = -2; return SM::V_NOT_FOUND; }

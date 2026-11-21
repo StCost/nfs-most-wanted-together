@@ -542,21 +542,29 @@ static void InstallNosHooks() {
     LOG("Ghost: nitrous flames for the other player's car hooked %d/3", n);
 }
 static void ApplyCarControls(void* iv, const CarState& s) {
+    // nitrous only while their state is fresh and their car moves: after a race their game stops sending
+    // input changes (results screen, the AI has the car) and the last "NOS held" kept the flames on a parked car
+    bool nos;
+    {
+        const Net::Snapshot& L = Net::Latest();
+        bool fresh = L.valid && GetTickCount() - L.recvTick < 400;
+        nos = s.nos != 0 && fresh && s.speedMps > 3.f && s.finished == 0;
+    }
     void* in = Find(iv, 0x403F90 /*IInput*/);
     if (in) {
         // gas / brake / handbrake are not fed in: they act on the physics and fought the hard-set motion
         // (50-80 mm jitter spikes on a car driving fast). The brake lights come from the glare bits.
         float steer = s.steer < -1.f ? -1.f : s.steer > 1.f ? 1.f : s.steer;
         VCall<void(__thiscall*)(void*, float)>(in, 5)(in, steer);
-        VCall<void(__thiscall*)(void*, bool)>(in, 8)(in, s.nos != 0);
+        VCall<void(__thiscall*)(void*, bool)>(in, 8)(in, nos);
     }
     // Nitrous flames: the press alone shows nothing - the engine only engages NOS (and draws the flames)
     // while its tank has some left, and the copy of their car here never refills. IEngine (handle 0x404020):
     // slot 7 nitrous left (0..1), slot 8 engaged, slot 11 has nitrous, slot 12 ChargeNOS(amount). While they
     // hold NOS, keep the tank of their car here topped up.
     g_ghostEngine = Find(iv, 0x404020);
-    g_ghostNos = s.nos != 0;
-    if (s.nos) {
+    g_ghostNos = nos;
+    if (nos) {
         if (void* eng = g_ghostEngine) {
             bool has = VCall<bool(__thiscall*)(void*)>(eng, 11)(eng);
             static void* loggedFor = nullptr;
@@ -1557,6 +1565,14 @@ static void GhostModelCheck() {
 
 std::string Game::UpdateGhost(const Net::Snapshot& latest, const Net::Snapshot& prev, bool enabled) {
     if (!g_ok) return "game not recognised";
+    {   // an event is over: the next one (started from free roam, no world load) builds their racer again.
+        // (Only reset on a world load, the next event kept "already built" and raced a plain AI in their
+        //  slot - an extra opponent - while their car was spawned beside the race.)
+        static uint32_t lastEv = 0;
+        uint32_t ev = CurrentEventHash();
+        if (lastEv && !ev) g_racerReplacedThisLoad = false;
+        lastEv = ev;
+    }
     char buf[256] = "";
     if (!UpdateGhostSafe(latest, prev, enabled, buf, sizeof(buf))) {
         LOG("UpdateGhost: exception - releasing ghost");
