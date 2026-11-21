@@ -310,8 +310,21 @@ namespace {
 
 // test command "freeroam": from the front end with a career profile loaded (main menu, the safe house after a
 // story movie) load career free roam, as the quick start does. No focus needed.
+// In the safe house (the career is running: after the Mia movie, after a Blacklist movie) Resume Career
+// would load the career back from the last save (before the movie): there only the free roam start runs.
 static const char* FreeRoamSafe() {
-    __try { return DirectFreeRoamNow(); } __except (EXCEPTION_EXECUTE_HANDLER) { return "exception"; }
+    __try {
+        uint8_t* fedb = nullptr; uint8_t* up = nullptr;
+        if (!Mem::Read(0x91CF90, fedb) || !fedb || !Mem::Read((uintptr_t)fedb + 0x10, up) || !up) return "no profile";
+        void* db = nullptr;
+        bool inSafeHouse = Mem::Read(0x91E004, db) && db && (up[0xAC] & 1) && up[0xB0] != 0x10 && RaceDone("16.2.1");
+        if (!inSafeHouse) return DirectFreeRoamNow();
+        uint8_t* gm = nullptr;
+        if (Mem::Read(0x91E00C, gm) && gm) gm[0x110] = 1;                 // start from the safe house
+        ((void(__cdecl*)())0x56C5B0)();                                   // start career free roam
+        *(uint32_t*)(fedb + 0x12C) |= 1;
+        return "safe house: loading career free roam (career kept)";
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return "exception"; }
 }
 std::string Game::DebugFreeRoam() {
     if (!g_ok || GameFlowState() != 3) return "only in the front end";

@@ -1,4 +1,5 @@
 #pragma once
+#include <string>
 
 // DirectInput hooks: lets the mod press keys inside the game (the game reads the keyboard through
 // DirectInput, so synthetic Windows key events are ignored). Used by AutoStart to get from the
@@ -17,7 +18,8 @@ namespace Input {
 
 // Front-end screens (FEng packages). Lets AutoStart wait for the right menu before pressing keys.
 namespace FEScreens {
-    bool IsPushed(const char* package);  // cFEng::IsPackagePushed (0x516B50) on cFEng::mInstance (0x91CADC)
+    bool IsPushed(const char* package);
+    std::string ListAll();               // test command "screens": every pushed screen whose name is in the exe  // cFEng::IsPackagePushed (0x516B50) on cFEng::mInstance (0x91CADC)
     void Tick();                          // ~2x/s: logs when the set of open screens changes
     const char* Current();                // comma-separated open screens (from a known list)
 }

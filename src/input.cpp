@@ -1,4 +1,7 @@
 #define DIRECTINPUT_VERSION 0x0800
+#include <vector>
+#include <algorithm>
+#include <string>
 #include <windows.h>
 #include <dinput.h>
 #include <cstring>
@@ -216,6 +219,34 @@ static bool IsPushedRaw(const char* package) {
 }
 
 bool FEScreens::IsPushed(const char* package) { return IsPushedRaw(package); }
+
+// test command "screens": every "*.fng" name in the exe's data that is pushed right now (finds screens the
+// list above doesn't know, e.g. the safe house's rival screens)
+std::string FEScreens::ListAll() {
+    static std::vector<std::string> names;
+    if (names.empty()) {
+        auto* base = (const uint8_t*)GetModuleHandleA(nullptr);
+        auto* nt = (const IMAGE_NT_HEADERS*)(base + ((const IMAGE_DOS_HEADER*)base)->e_lfanew);
+        const IMAGE_SECTION_HEADER* sec = IMAGE_FIRST_SECTION(nt);
+        for (int i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++sec) {
+            if (sec->Characteristics & IMAGE_SCN_MEM_EXECUTE) continue;
+            const char* p = (const char*)base + sec->VirtualAddress;
+            const char* end = p + sec->Misc.VirtualSize;
+            for (const char* q = p; q + 4 < end; ++q) {
+                if (q[0] != '.' || q[1] != 'f' || q[2] != 'n' || q[3] != 'g') continue;
+                const char* s = q;
+                while (s > p && (isalnum((uint8_t)s[-1]) || s[-1] == '_') && q - s < 48) --s;
+                if (q - s >= 3 && (s == p || s[-1] == 0)) {
+                    std::string n(s, q + 4);
+                    if (std::find(names.begin(), names.end(), n) == names.end()) names.push_back(n);
+                }
+            }
+        }
+    }
+    std::string out;
+    for (const std::string& n : names) if (IsPushedRaw(n.c_str())) { if (!out.empty()) out += ", "; out += n; }
+    return "pushed: [" + out + "] of " + std::to_string(names.size()) + " known";
+}
 
 void FEScreens::Tick() {
     DWORD now = GetTickCount();

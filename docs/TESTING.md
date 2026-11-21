@@ -52,6 +52,7 @@ second, deletes it and logs `Command '<text>': <result>`. This works with the ga
 | `shot <file.bmp>` | save the next frame (without the overlay) |
 | `accept <Screen.fng>` | send "accept" to a menu screen |
 | `fe <pad> <Screen.fng>` | send a pad message (accept, back, left, right, up, down) to a menu screen without focus. Doesn't reach Yes/No dialogs (Dialog.fng) |
+| `screens` | log every menu screen that is open now (all screen names in the exe, not only the known ones) |
 | `freeroam` | from the front end (main menu, or the safe house after a story movie) load career free roam, no focus needed |
 | `icons` | log every minimap icon drawn in the next second (position, pinned to the edge, call site): finds the GPS target of a story drive, e.g. Mia's meeting point after the car lot |
 
