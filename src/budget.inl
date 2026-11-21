@@ -56,9 +56,10 @@ void Game::BudgetTick() {
     DWORD now = GetTickCount();
     if (!g_budgetSince) g_budgetSince = now;
     if (now - g_budgetSince < 30000) return;
-    if (g_budget.evictions || g_budget.refused)
-        LOG("Budget: last 30 s - %d car spawn(s), %d over the 20-car limit, %d car(s) evicted, %d refused; up to %d cars in the world, %d now",
-            g_budget.checks, g_budget.overCount, g_budget.evictions, g_budget.refused, g_budget.peak, CarCount());
+    if (g_budget.evictions || g_budget.refused || g_budgetWaits)
+        LOG("Budget: last 30 s - %d car spawn(s), %d over the 20-car limit, %d car(s) evicted, %d refused, %d wait(s) of the other player's cars for room; up to %d cars in the world, %d now",
+            g_budget.checks, g_budget.overCount, g_budget.evictions, g_budget.refused, g_budgetWaits, g_budget.peak, CarCount());
+    g_budgetWaits = 0;
     g_budget = BudgetStats{};
     g_budgetSince = now;
 }

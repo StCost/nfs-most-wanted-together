@@ -652,6 +652,7 @@ namespace {
     void* g_removedCars[16] = {}; int g_removedNext = 0;   // ours the game deleted: the address may hold another car now
     void (*g_onCarRemoved)(void*) = nullptr;
     void (*g_onMirrorRemoved)(void*) = nullptr;     // traffic.inl: drop any mirror that used this car
+    bool (*g_keepMirror)(void*) = nullptr;          // traffic.inl: a copy of the other player's car (traffic / cop) the game must not take for room
 
     bool IsKeptCar(void* iv) { for (void* k : g_keepCars) if (k && k == iv) return true; return false; }
     void KeepCar(void* iv) {
@@ -688,7 +689,11 @@ namespace {
     int __fastcall Cache_OnQuery(void*, void*, void* iv, void* /*asking*/) {
         // while an event we join builds its racers, the game may take our copy of their car for room
         bool yield = g_ghostYieldUntil && (int)(GetTickCount() - g_ghostYieldUntil) < 0;
-        return (iv && iv == g_ghost && !yield) ? 0 /*want*/ : 1 /*don't care*/;
+        if (iv && iv == g_ghost && !yield) return 0;   // want
+        // a copy of the other player's traffic / cop close to us stays: taking it for room made cops vanish
+        // in front of the player (and come back 3 s later, taking another car - over and over in pursuits)
+        if (iv && g_keepMirror && g_keepMirror(iv)) return 0;
+        return 1;                                      // don't care
     }
 
     uint32_t VehicleKey(void* iv) {

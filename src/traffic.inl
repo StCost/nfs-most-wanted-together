@@ -165,6 +165,7 @@ namespace {
         for (auto& m : g_mirrors) if (m.used && m.id == id) return &m;
         return nullptr;
     }
+    int g_budgetWaits = 0;   // mirror spawns that waited because the world was full (20 cars)
     bool IsMirrorCar(void* iv) {
         for (auto& m : g_mirrors) if (m.used && m.iv == iv) return true;
         return false;
@@ -590,6 +591,15 @@ static void SharedPursuitCopHit(uint16_t mirrorId);   // pursuit.inl
 bool Game::InstallTrafficHooks() {
     // the game deleted one of our mirror cars to make room (and may build a new car in its memory): forget it now
     // (and wait 3 s before building it again: two copies over the car budget evicted each other every frame)
+    // free roam: the copies within 150 m of our car stay when the game needs room for a new car (it takes a far
+    // car instead, or doesn't build its new one - as when the world is full). In events the event code frees them.
+    g_keepMirror = [](void* iv) -> bool {
+        if (!iv || Game::CurrentEventHash()) return false;
+        void* lrb = RigidBodyOf(LocalVehicle()); void* rb = RigidBodyOf(iv);
+        if (!lrb || !rb) return false;
+        for (auto& m : g_mirrors) if (m.used && !m.bound && !m.racer && m.iv == iv) return Dist(RB_GetVec(lrb, RB_GetPosition), RB_GetVec(rb, RB_GetPosition)) < 150.f;
+        return false;
+    };
     g_onMirrorRemoved = [](void* iv) {
         for (auto& m : g_mirrors) if (m.used && !m.bound && m.iv == iv) { m.iv = nullptr; m.noSpawnUntil = Net::LocalClockMs() + 3000.0; }
     };
@@ -910,6 +920,9 @@ static int MaintainMirrors(double now) {
             if ((lrb && Dist(RB_GetVec(lrb, RB_GetPosition), e.pos) < 6.f) ||
                 (grb && Dist(RB_GetVec(grb, RB_GetPosition), e.pos) < 6.f)) continue;
             if (Net::LocalClockMs() < m.noSpawnUntil) continue;   // the game just deleted it for room
+            // the world is at the game's 20-car limit: wait for room instead of making the game delete one of
+            // its cars for this copy (a car vanished in front of the player, then the game took the copy back)
+            { void** lb = nullptr; if (ListSize(VL_ALL, &lb) >= 20) { ++g_budgetWaits; continue; } }
             // SmoothHandover: only where the player can't see it pop in (or one of our cars becomes it)
             bool placed = smooth && !(e.flags & 1);
             if (placed && !PlaceHostCar(m, cam, lp, gp, own)) { if (!m.iv) ++g_hoWaiting; continue; }
