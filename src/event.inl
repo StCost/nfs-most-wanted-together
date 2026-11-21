@@ -403,6 +403,19 @@ namespace {
     bool  g_restartFromPeer = false;
     uint8_t g_lastRestartFlag = 0;
 
+    // A menu the player opened over the world (pause menu and its pages, world map, messages, save):
+    // the screens co-op keeps the world running under. Polled at most every 200 ms.
+    bool PlayerMenuOpen() {
+        static const char* const menus[] = { "Pause_Main.fng", "Pause_Options.fng", "Pause_PCDisplayOptions.fng", "Options_PC_Controller.fng",
+                                             "WorldMapMain.fng", "SMS_Mailboxes.fng", "SMS_MailBoxes.fng", "SMS_Message.fng",
+                                             "InGame_MC_Main.fng", "InGame_MC_Main_GC.fng", "RapSheetMain.fng", "Dialog.fng", "InGameDialog.fng" };
+        static DWORD at = 0; static bool open = false;
+        DWORD now = GetTickCount();
+        if (now - at < 200) return open;
+        at = now; open = false;
+        for (const char* m : menus) if (FEScreens::IsPushed(m)) { open = true; break; }
+        return open;
+    }
     void SetNoPause(bool on) {
         if (on == g_noPausePatched) return;
         const uint8_t jz[2] = { 0x74, 0x11 }, jmp[2] = { 0xEB, 0x11 };
@@ -542,8 +555,10 @@ void Game::PauseRuleTick(bool connected) {
     __try { if (g_holding && GetTickCount() - g_holdSince > (g_prologueHeld ? 15u * 60u * 1000u + 1000u : 21000u)) ReleaseHold("safety limit"); } __except (EXCEPTION_EXECUTE_HANDLER) { g_holding = false; }
     __try {
         StartSyncTickImpl(connected);
-        // while we wait on the grid, or a story scene holds / plays over the world, the pause must bite
-        SetNoPause(connected && g_cfg.noPause && !g_holding && !Game::StoryPauseWanted());
+        // while we wait on the grid, or a story scene holds / plays over the world, the pause must bite.
+        // And only a player's menu is skipped: other pause requests (the final pursuit's in-world
+        // "LOADING..." after its intro movie waits for the world to stop) must stop the world as before.
+        SetNoPause(connected && g_cfg.noPause && !g_holding && !Game::StoryPauseWanted() && PlayerMenuOpen());
         RestartTickImpl(connected);
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
