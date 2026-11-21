@@ -465,7 +465,10 @@ static void StartSyncTickImpl(bool connected) {
     bool ready = mode == 1 && !nis && g_modeSince && (g_sawNis || now - g_modeSince > 3000);
     if (g_stage == 1 && ready) {
         if (!g_readyAt) g_readyAt = now;
-        if ((int)(now - g_readyAt) < g_cfg.readyDelayMs) ready = false;      // test: pretend to load slowly
+        // the race puts the cars on the grid a little above the road: let them land (0.8 s) before the hold
+        // stops the world - holding at once left them hanging, and they dropped onto the road at the go
+        int settle = g_cfg.readyDelayMs > 800 ? g_cfg.readyDelayMs : 800;     // (ReadyDelayMs: test, pretend to load slowly)
+        if ((int)(now - g_readyAt) < settle) ready = false;
     }
     if (g_stage == 1 && ready) {
         g_stage = 2;

@@ -520,6 +520,27 @@ static void ApplyCarDamage(void* iv, const CarState& s) {
         if (l != s.brokenLights) { l = s.brokenLights; LOG("Ghost: broken lights now %08X", l); }
     }
 }
+// The flames (and NOS sound) follow IEngine slot 8 "nitrous engaged", which the engine works out from its
+// own throttle and speed - the copy of their car here has no throttle fed in (it fought the hard-set motion),
+// so it never engaged. Slot 8 of the three engine classes (vtables 0x8AB6E0 / 0x8AB7C0 / 0x8ABF88) answers
+// "engaged" for their car while they hold NOS; every other car gets the game's own answer.
+static void* g_ghostEngine = nullptr;
+static bool  g_ghostNos = false;
+static uintptr_t g_nosOrig[3] = {};
+template <int I> static bool __fastcall hk_NosEngaged(void* eng, void*) {
+    if (eng && eng == g_ghostEngine && g_ghostNos) return true;
+    return ((bool(__thiscall*)(void*))g_nosOrig[I])(eng);
+}
+static void InstallNosHooks() {
+    static const uintptr_t slots[3] = { 0x8AB700, 0x8AB7E0, 0x8ABFA8 };
+    void* hooks[3] = { (void*)&hk_NosEngaged<0>, (void*)&hk_NosEngaged<1>, (void*)&hk_NosEngaged<2> };
+    int n = 0;
+    for (int i = 0; i < 3; ++i) {
+        uintptr_t cur = 0;
+        if (Mem::Read(slots[i], cur) && (cur == 0x6A0410 || cur == 0x6A1180)) { g_nosOrig[i] = cur; Mem::PatchPointer((void*)slots[i], hooks[i]); ++n; }
+    }
+    LOG("Ghost: nitrous flames for the other player's car hooked %d/3", n);
+}
 static void ApplyCarControls(void* iv, const CarState& s) {
     void* in = Find(iv, 0x403F90 /*IInput*/);
     if (in) {
@@ -533,8 +554,10 @@ static void ApplyCarControls(void* iv, const CarState& s) {
     // while its tank has some left, and the copy of their car here never refills. IEngine (handle 0x404020):
     // slot 7 nitrous left (0..1), slot 8 engaged, slot 11 has nitrous, slot 12 ChargeNOS(amount). While they
     // hold NOS, keep the tank of their car here topped up.
+    g_ghostEngine = Find(iv, 0x404020);
+    g_ghostNos = s.nos != 0;
     if (s.nos) {
-        if (void* eng = Find(iv, 0x404020)) {
+        if (void* eng = g_ghostEngine) {
             bool has = VCall<bool(__thiscall*)(void*)>(eng, 11)(eng);
             static void* loggedFor = nullptr;
             if (!has) { if (loggedFor != iv) { loggedFor = iv; LOG("Ghost: the other player uses nitrous, but their car here has no nitrous installed - no flames"); } }
@@ -927,6 +950,7 @@ bool Game::InstallVehicleFactoryHook() {
     Mem::PatchPointer((void*)0x92C534, (void*)&hk_VehicleConstruct);
     InstallTrafficHooks();
     InstallBudgetLog();
+    InstallNosHooks();
     InstallEventSync();
     InstallRestartSync();
     InstallStreamHook();
@@ -1033,6 +1057,7 @@ void Game::SetDataDir(const char* dir) { strncpy_s(g_dataDir, dir, _TRUNCATE); }
 
 void Game::ReleaseGhost() {
     g_streamPeer = false;
+    g_ghostEngine = nullptr; g_ghostNos = false;
     if (g_ghost) {
         __try {
             // Only touch the car if the game still owns it (it may have been destroyed after a race).

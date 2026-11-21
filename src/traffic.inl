@@ -175,6 +175,7 @@ namespace {
 
     double g_lastTrafficPkt = 0;   // local ms of the owner's last traffic packet
 
+    void RemoveMirror(Mirror& m);   // below
     void OnTrafficPacket(const TrafficEntry* e, int count, double sendMs) {
         double now = Net::LocalClockMs();
         g_lastTrafficPkt = now;
@@ -185,6 +186,14 @@ namespace {
             if (!g_cfg.isHost && !racer && !g_trafficNear) continue;   // far from the host: own traffic
             if (!g_cfg.isHost && !racer && g_clientRacing && !g_cfg.trafficSharedInRaces && !(e[i].flags & 1)) continue;   // in a race: own traffic too
             Mirror* m = FindMirror(e[i].id);
+            // the owner reuses ids: a new car (another model - e.g. a cop where a traffic car was) under an id we
+            // already show must be built fresh, not shown by the old car (it carried the cop's light bar and
+            // counted as their cop - a pursuit started on a traffic car - until it was rebuilt later)
+            if (m && m->n && !m->racer && !racer && m->model != e[i].model) {
+                LOG("Traffic: the other player's car %u is another car now (model %08X -> %08X) - building it again", (unsigned)e[i].id, m->model, e[i].model);
+                RemoveMirror(*m);
+                m = nullptr;
+            }
             if (!m) {
                 for (auto& slot : g_mirrors) if (!slot.used) { slot = Mirror{}; slot.used = true; slot.id = e[i].id; m = &slot; break; }
                 if (!m) continue;
