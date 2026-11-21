@@ -252,6 +252,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                     else if (c == "screens") r = FEScreens::ListAll();
                     else if (c == "resultsrestart") r = Game::DebugResultsRestart();
                     else if (c == "hud") r = Game::ToggleHud();
+                    else if (c == "hudscan") r = Game::DebugHudScan();
                     else if (c == "freeroam") r = Game::DebugFreeRoam();
                     else if (c.rfind("fe ", 0) == 0) r = Game::FEPad(c.substr(3).c_str());
                     else if (c.rfind("accept ", 0) == 0) r = Game::FEAccept(c.substr(7).c_str());

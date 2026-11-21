@@ -129,6 +129,46 @@ namespace {
     int ApplyHudSafe(bool hide, bool log) { int r = ApplyHudSafeImpl(hide, log); if (r < 0) { g_hudSet.clear(); g_hudWasHidden.clear(); } return r; }
 }
 
+// test command "hudscan": every object of the pushed HUD package - depth, name hash, type, flags, child
+// count - with the object's first 0x80 bytes and 0x60 bytes behind each pointer-like field there, to find
+// where an object keeps its screen position (to pick the minimap's and the gauges' parts by place)
+namespace {
+    void ScanObj(void* o, int depth, int& n) {
+        if (n > 400) return;
+        ++n;
+        const uint32_t* w = (const uint32_t*)o;
+        char line[1400]; int L = sprintf_s(line, "HUDSCAN d%d %p hash %08X type %d flags %08X kids %d |", depth, o, w[4], (int)w[6], w[7], ObjType(o) == 5 ? (int)w[0x60 / 4] : 0);
+        for (int i = 0; i < 32 && L < 1300; ++i) L += sprintf_s(line + L, sizeof(line) - L, " %08X", w[i]);
+        LOG("%s", line);
+        for (int i = 8; i < 24; ++i) {
+            const uint8_t* p = (const uint8_t*)(uintptr_t)w[i];
+            if ((uintptr_t)p < 0x01000000 || !Mem::IsReadable(p, 0x60)) continue;
+            const float* f = (const float*)p; int k = sprintf_s(line, "HUDSCAN    +%02X -> %p:", i * 4, p);
+            for (int j = 0; j < 24 && k < 1300; ++j) k += sprintf_s(line + k, sizeof(line) - k, " %.2f", f[j]);
+            LOG("%s", line);
+        }
+        if (ObjType(o) == 5 && depth < 8) {
+            int c = (int)w[0x60 / 4]; void* ch = *(void**)((uint8_t*)o + 0x64);
+            for (int i = 0; i < c && ch && i < 300; ++i, ch = *(void**)((uint8_t*)ch + 4)) ScanObj(ch, depth + 1, n);
+        }
+    }
+    int HudScanImpl() {
+        void* fe = nullptr; int n = 0;
+        if (!Mem::Read(0x91CADC, fe) || !fe) return -1;
+        for (const char* pkgName : kHudPackages) {
+            if (!((bool(__thiscall*)(void*, const char*))0x516B50)(fe, pkgName)) continue;
+            void* pkg = ((void*(__thiscall*)(void*, const char*))0x516AF0)(fe, pkgName);
+            if (!pkg) continue;
+            LOG("HUDSCAN package %s %p", pkgName, pkg);
+            int guard = 0;
+            for (void* o = *(void**)((uint8_t*)pkg + 0x4C); o && guard < 300; o = *(void**)((uint8_t*)o + 4), ++guard) ScanObj(o, 0, n);
+        }
+        return n;
+    }
+    int HudScanSafe() { __try { return HudScanImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) { return -2; } }
+}
+std::string Game::DebugHudScan() { int n = HudScanSafe(); return "hud scan: " + std::to_string(n) + " object(s) in the log"; }
+
 std::string Game::ToggleHud() {
     if (!g_ok) return "game not recognised";
     g_hudHidden = !g_hudHidden;
