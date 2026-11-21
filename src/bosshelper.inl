@@ -37,13 +37,19 @@ namespace {
         char* rs = RaceStatusPtr();
         return ri && rs && g_helperOn && g_helperSlot >= 0 && ri == rs + 0x18 + g_helperSlot * 0x194;
     }
+    bool IsPartnerRacer(void* ri) {
+        char* rs = RaceStatusPtr();
+        return ri && rs && g_partnerOn && g_partnerSlot >= 0 && ri == rs + 0x18 + g_partnerSlot * 0x194;
+    }
 
     int __fastcall hk_NumOpponents(void* parms, void*) {
         int n = ((int(__thiscall*)(void*))NumOppFn)(parms);
         g_helperOn = false; g_helperOpp = -1; g_helperSlot = -1; g_bossRacerBuilds = 0; g_helperPeerRoster = false;
+        g_partnerOn = false; g_partnerOpp = -1; g_partnerSlot = -1;
         __try {
             bool linked = Net::Stats().connected && g_coopLinked;
-            if (!g_cfg.bossHelper || !parms || n < 1 || !(linked || g_cfg.bossHelperSolo)) return n;
+            bool helper = g_cfg.bossHelper, partner = g_cfg.partnerInRivalRaces && linked && g_cfg.ghostEnabled && Net::PeerCar();
+            if (!(helper || partner) || !parms || n < 1 || !(linked || g_cfg.bossHelperSolo)) return n;
             if (!((bool(__thiscall*)(void*))IsBossRaceFn)(parms)) return n;
             {   // never in the prologue's scripted races
                 const char* id = ((const char*(__thiscall*)(void*))0x5FBA70)(parms);
@@ -51,17 +57,28 @@ namespace {
             }
             char* rs = RaceStatusPtr();
             int have = 0;
-            if (!rs || !Mem::Read((uintptr_t)rs + 0x1958, have) || have < 0 || have + n + 1 > 16) return n;
-            g_helperOn = true; g_helperOpp = n;
-            LOG("Race: rival race together - %d opponent(s) + 1 helper racer", n);
-            return n + 1;
+            int extra = (helper ? 1 : 0) + (partner ? 1 : 0);
+            if (!rs || !Mem::Read((uintptr_t)rs + 0x1958, have) || have < 0 || have + n + extra > 16) return n;
+            int next = n;
+            if (helper) { g_helperOn = true; g_helperOpp = next++; }
+            if (partner) { g_partnerOn = true; g_partnerOpp = next++; }
+            LOG("Race: rival race together - %d opponent(s)%s%s", n, helper ? " + 1 helper racer" : "", partner ? " + the other player's racer slot" : "");
+            return n + extra;
         } __except (EXCEPTION_EXECUTE_HANDLER) { g_helperOn = false; return n; }
     }
     void* __fastcall hk_GetOpponent(void* parms, void*, int i) {
-        if (!g_helperOn || i != g_helperOpp) return ((void*(__thiscall*)(void*, int))GetOppFn)(parms, i);
+        bool isHelper = g_helperOn && i == g_helperOpp, isPartner = g_partnerOn && i == g_partnerOpp;
+        if (!isHelper && !isPartner) return ((void*(__thiscall*)(void*, int))GetOppFn)(parms, i);
         char* rs = RaceStatusPtr();
         int slot = -1;
         if (rs) Mem::Read((uintptr_t)rs + 0x1958, slot);   // AddRacer puts it into this slot next
+        if (isPartner) {
+            g_partnerSlot = slot;
+            uint32_t ph = ((uint32_t(__cdecl*)(const char*))0x4549B0)("character_smart");
+            void* pd = ((void*(__cdecl*)(uint32_t))0x5E1880)(ph);
+            LOG("Race: the other player's racer = opponent %d, racer slot %d", i, slot);
+            return pd;   // a racer record; the car is built as theirs (vehicle factory) and its AI is switched off
+        }
         g_helperSlot = slot;
         uint32_t h = ((uint32_t(__cdecl*)(const char*))0x4549B0)("character_smart");
         void* drv = ((void*(__cdecl*)(uint32_t))0x5E1880)(h);
@@ -69,7 +86,7 @@ namespace {
         return drv;
     }
     bool __fastcall hk_RivalName(void* ri, void*) {
-        if (IsHelperRacer(ri)) return false;                   // the usual AI name, not the rival's
+        if (IsHelperRacer(ri) || IsPartnerRacer(ri)) return false;   // the usual name (the other player's is set later), not the rival's
         return ((bool(__thiscall*)(void*))RivalNameFn)(ri);
     }
     bool __fastcall hk_RacerSkill(void* rs, void*, void* ri, void* a, void* b, void* c, uint32_t d) {

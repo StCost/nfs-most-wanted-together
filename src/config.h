@@ -42,6 +42,7 @@ struct Config {
     bool        noSlowMotion = false;    // [Coop] NoSlowMotion - 1: no slow-motion moments while connected (speed traps, finish, crash cams); 0 (default): as in the plain game
     bool        coopPrologue = true;     // [Coop] Prologue - co-op already in the prologue (both games run its chain, kept together at each start)
     bool        catchUpLeader = true;    // [Coop] CatchUpLeader - AI catch-up follows whichever player is ahead
+    bool        partnerInRivalRaces = true; // [Coop] PartnerInRivalRaces - a rival race together has a racer slot for the other player (in the standings)
     bool        bossHelper = true;       // [Coop] BossHelper - co-op Blacklist rival races get one more AI racer (normal AI)
     bool        bossHelperSolo = false;  // [Debug] BossHelperSolo - test: the extra rival-race racer also when not connected
     bool        startTogether = true;    // [Coop] StartTogether - wait on the grid until the other player has loaded

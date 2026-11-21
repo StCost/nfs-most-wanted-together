@@ -817,6 +817,9 @@ namespace {
     int      g_helperSlot = -1;         // its GRacerInfo slot in GRaceStatus
     int      g_bossRacerBuilds = 0;     // AI racer cars built for this rival race so far
     bool     g_helperPeerRoster = false;// the client joined with the host's roster: its helper car is entry g_helperOpp
+    bool     g_partnerOn = false;       // this rival race load added a racer slot for the other player
+    int      g_partnerOpp = -1;         // its opponent index (after the helper)
+    int      g_partnerSlot = -1;        // its GRacerInfo slot
 }
 static void InstallBossHelper();
 static void InstallBudgetLog();
@@ -862,7 +865,22 @@ static void* __cdecl hk_VehicleConstruct(SimParam p) {
     }
     // the helper (the racer after the event's own opponents): the host's choice on the client, else the
     // rival's partner from the list when that model is loaded, else the car the game picked
-    bool helper = boss && g_helperOn && g_bossRacerBuilds++ == g_helperOpp;
+    int bossIdx = boss ? g_bossRacerBuilds++ : -1;
+    bool helper = boss && g_helperOn && bossIdx == g_helperOpp;
+    // the other player's racer slot in a rival race together: built as their car, like the replaced AI racer
+    // of other races (their name, progress and finish then show in the standings)
+    if (boss && g_partnerOn && bossIdx == g_partnerOpp && !g_racerReplacedThisLoad && g_cfg.ghostEnabled && Net::Stats().connected && g_coopLinked) {
+        if (const CarInfo* pc = Net::PeerCar()) {
+            g_origRacer[0] = vp->carType; g_origRacerCustom = vp->customization; g_origRacerMatched = vp->matched;
+            vp->carType = pc->carKey;
+            if (pc->hasCustom) { memcpy(g_peerCustomForRace, pc->custom, sizeof(g_peerCustomForRace)); vp->customization = g_peerCustomForRace; }
+            else vp->customization = nullptr;
+            vp->matched = nullptr;
+            replaced = true;
+            g_racerReplacedThisLoad = true;
+            LOG("Race: rival race - the other player's racer built as their car %08X", pc->carKey);
+        }
+    }
     uint32_t hKey = 0; void* hCustom = nullptr; void* hMatched = nullptr; const char* hFrom = "";
     if (helper) {
         hKey = vp->carType; hCustom = vp->customization; hMatched = vp->matched;
@@ -892,7 +910,7 @@ static void* __cdecl hk_VehicleConstruct(SimParam p) {
         simable = ((Fn)Addr::PVehicleConstruct)(p);
     }
     if (helper) LOG("Race: rival race - helper racer built as model %08X, %s (%s)", vp->carType, hFrom, simable ? "ok" : "FAILED");
-    else if (boss) LOG("Race: rival race - rival built as model %08X (%s)", vp->carType, simable ? "ok" : "FAILED");
+    else if (boss && !replaced) LOG("Race: rival race - rival built as model %08X (%s)", vp->carType, simable ? "ok" : "FAILED");
     if (fromRoster) {
         if (simable) LOG("Race: opponent %d built as the peer's opponent (key %08X)", g_peerRosterNext, vp->carType);
         else {

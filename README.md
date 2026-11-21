@@ -69,9 +69,9 @@ The prologue (the opening races in the BMW) can be played together too: start a 
 - [x] Status overlay on F8, and it remembers whether you hid it
 - [x] Launcher (`MWTogetherLauncher.exe` next to `speed.exe`) in the game's style: name, host or join, the host's IP, start options under Settings, then Play
 - [x] A short notice in the corner when the other player joins or leaves, even with the overlay hidden.
-- [x] Notifications use game's own UI: the message line in the centre of the screen (where races show hints and split times) shows "<name> joined / left" in green, problems (lost connection, firewall, prologue) in orange; a long notice is shown in parts. In cutscenes and menus, where there is no HUD, the EA Trax song banner shows it instead (?)
+- [x] Notifications use game's own UI: the message line in the centre of the screen (where races show hints and split times) shows "<name> joined / left" in green, problems (lost connection, firewall, prologue) in orange; a long notice is shown in parts. In cutscenes and menus, where there is no HUD, the EA Trax song banner shows it instead
 - [x] Notices stay on screen for 10 seconds (a notice in parts shares them, at least 3 s a part), the game's banner included, without sliding in again (`[UI] NoticeSeconds`)
-- [x] Joining while the other player is in a race: you roam freely, get a notice, and go together into the next event (?)
+- [x] Joining while the other player is in a race: you roam freely, get a notice, and go together into the next event
 - [x] Strangers can't interfere: each game ignores network packets from anyone except the player it connected to
 - [x] Event starts and restarts are repeated for a few seconds, so a lost packet can't leave you in different races
 - [ ] Up to 4 players
@@ -98,16 +98,16 @@ The prologue (the opening races in the BMW) can be played together too: start a 
 - [x] Shared traffic when you're near each other
 - [x] Cops of the other player show up for you, light bars included
 - [x] You see the cops chasing the other player
-- [x] Cops may switch to chasing the other player when you're both being chased (?)
+- [x] Cops may switch to chasing the other player when you're both being chased
 - [x] Traffic cars near the other player keep full physics instead of moving at reducing quality
-- [x] The other player's traffic, cops and race opponents no longer float above the road (or sink into it) on your screen: a car their game runs in its cheap physics mode (no world loaded under it there) is put on your road surface, smoothly (?)
-- [x] Semi trucks of the other player's traffic keep their trailers on your screen: the trailer follows the truck exactly as on their PC instead of falling off and lying on the road (?)
+- [x] The other player's traffic, cops and race opponents no longer float above the road (or sink into it) on your screen: a car their game runs in its cheap physics mode (no world loaded under it there) is put on your road surface, smoothly
+- [x] Semi trucks of the other player's traffic keep their trailers on your screen: the trailer follows the truck exactly as on their PC instead of falling off and lying on the road
 - [x] Hitting the other player's traffic, cops or race opponents pushes the real car on their PC
 - [x] Pause menu and world map don't pause the time while you're connected
 - [x] No speedbreaker in co-op (slow motion can't work for two people). The game's own short slow-motion moments (speed traps, the finish, crash cameras) play as in the plain game (`[Coop] NoSlowMotion=1` turns them off)
-- [x] Smooth traffic handover: when you drive away from the other player, their traffic cars around you don't vanish - they drive on as your own traffic. When you come back, your own cars stay until they're out of sight and the other player's cars only appear where you can't see them pop in (behind you or far away), or one of your nearby cars quietly takes their place (`[Traffic] SmoothHandover`, 0 = the old instant switch) (?)
+- [x] Smooth traffic handover: when you drive away from the other player, their traffic cars around you don't vanish - they drive on as your own traffic. When you come back, your own cars stay until they're out of sight and the other player's cars only appear where you can't see them pop in (behind you or far away), or one of your nearby cars quietly takes their place (`[Traffic] SmoothHandover`, 0 = the old instant switch)
 - [x] Shared traffic inside races: the host's traffic cars are shown by the client's own traffic cars, so race scripts keep every car they own. Cars are in the same places on both screens, but may be a different model when no matching one is free (`[Traffic] SharedInRaces`, 0 = each player keeps their own traffic in races)
-- [x] No cars popping up in front of you: the game never puts a new traffic car or cop right in front of the other player (within ~60 m, it picks another spot), and the other player's cars only appear on your screen outside your view or farther than ~60 m (`[Traffic] NoSpawnNearPlayers`, 0 = as before) (?)
+- [x] No cars popping up in front of you: the game never puts a new traffic car or cop right in front of the other player (within ~60 m, it picks another spot), and the other player's cars only appear on your screen outside your view or farther than ~60 m (`[Traffic] NoSpawnNearPlayers`, 0 = as before)
 
 
 </details>
@@ -117,7 +117,7 @@ The prologue (the opening races in the BMW) can be played together too: start a 
 - [x] Both games build the same AI opponents (car models and tuning)
 - [x] Opponents on the client follow the host's opponents, so the race looks the same on both screens
 - [x] Opponent names match on both PCs
-- [x] Race positions use each player's real progress, and the order changes as soon as one passes the other (?)
+- [x] Race positions use each player's real progress, and the order changes as soon as one passes the other
 - [x] Joining an event from far away: the other player still gets their racer in the standings (in an AI car's body if their car model isn't loaded on your PC yet)
 - [x] At a race start you stand on different grid slots and see each other's car and name from the countdown on (`SeparateGridSlots`)
 - [x] Start together: whoever loads first waits on the grid until the other is ready (`StartTogether`)
@@ -128,7 +128,7 @@ The prologue (the opening races in the BMW) can be played together too: start a 
 - [x] The other player's finish is shown in your standings
 - [x] When one of you finishes first, the other is finished as the winner right away, even while still driving: 1st place, the winner's screen, the payout, and in rival races the rival's progress, each in their own career (`SharedWins`)
 - [x] Blacklist rival races: the rival on the client follows the host's rival, also in the second race of the series and when the two games built different cars for it
-- [x] Blacklist rival races: you both race the rival in the same event (your partner's car drives alongside, outside the standings), and each of you gets the normal rival flow after winning
+- [x] Blacklist rival races: you both race the rival in the same event, and each of you gets the normal rival flow after winning. Your partner has a racer slot of their own there, with a grid slot and a row in the standings (`[Coop] PartnerInRivalRaces`) (?)
 - [x] The prologue together: both of you start a new career; each game plays its own prologue races and movies, and whoever is ahead waits on the grid of the next race until the other one is there. Your partner's car races next to you (the prologue opponents stay as they are); the Razor race stays the story's loss for both (`[Coop] Prologue`)
 - [x] Rival races and story events (Razor's races, the final pursuit) are only joined by a partner whose career is at the same Blacklist rival, so nobody's career jumps ahead. Pressing Continue on "race the rival" after a win takes your partner into the rival's next race too
 - [x] Blacklist rival races together have one more AI racer on the rival's side: one more car to beat, with the game's normal racing AI and normal catch-up (not the rival's). Its car is the partner the rival's race intro shows (Ming, #10, Big Lou), else the game's pick; both PCs build the same car (`[Coop] BossHelper`, 0 = the rival alone)
@@ -164,8 +164,8 @@ The prologue (the opening races in the BMW) can be played together too: start a 
 - [x] No "leave the safe house?" question (`SkipLeaveSafeHouseDialog`)
 - [x] Menus react while their opening animation plays, and animate 2x faster (`IntroInput`, `MenuSpeed`) to improve UI responsivness
 - [x] Optional: close the pursuit result screens in free roam by itself ("Bounty achieved" and the pursuit summary), off by default (`SkipPursuitResults`). Getting busted still shows the fine screen
-- [x] A gamepad or wheel plugged in while the game is running (USB or Bluetooth) works right away, and so does one that dropped out and came back; your bindings stay as they were (`[Input] GamepadHotplug`, launcher: Detect gamepads connected while playing) (?)
-- [x] Starting the game without your pad no longer resets its controller bindings to the defaults (`[Input] KeepPadBindings`) (?)
+- [x] A gamepad or wheel plugged in while the game is running (USB or Bluetooth) works right away, and so does one that dropped out and came back; your bindings stay as they were (`[Input] GamepadHotplug`, launcher: Detect gamepads connected while playing)
+- [x] Starting the game without your pad no longer resets its controller bindings to the defaults (`[Input] KeepPadBindings`)
 
 
 </details>
