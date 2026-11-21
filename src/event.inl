@@ -80,6 +80,15 @@ namespace {
                 lastExit = GetTickCount();
                 ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0x406415E3, resultsScreen, 0xFF);
                 LOG("Event: %s invited while we're on the results screen - leaving it to join", eventId);
+                // From "race the rival" the game starts the next rival race by itself (no start of ours below):
+                // count it as joining theirs, so it isn't sent back and builds their opponents (rival, helper)
+                if (!strcmp(resultsScreen, "InGameRivalChallenge.fng")) {
+                    g_joiningEvent = eventHash; g_joinStartedAt = GetTickCount();
+                    g_startingEventHash = eventHash;
+                    g_usePeerRoster = g_peerRosterN > 0 && GetTickCount() - g_peerRosterAt < 5000;
+                    g_peerRosterNext = 0;
+                    LOG("Event: joining %s through the rival's next race - using %s", eventId, g_usePeerRoster ? "the peer's opponents" : "our own opponents (no roster received)");
+                }
             }
             return;                               // the invitation is repeated; the next copy finds us in free roam
         }
