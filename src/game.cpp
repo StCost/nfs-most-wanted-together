@@ -529,6 +529,18 @@ static void ApplyCarControls(void* iv, const CarState& s) {
         VCall<void(__thiscall*)(void*, float)>(in, 5)(in, steer);
         VCall<void(__thiscall*)(void*, bool)>(in, 8)(in, s.nos != 0);
     }
+    // Nitrous flames: the press alone shows nothing - the engine only engages NOS (and draws the flames)
+    // while its tank has some left, and the copy of their car here never refills. IEngine (handle 0x404020):
+    // slot 7 nitrous left (0..1), slot 8 engaged, slot 11 has nitrous, slot 12 ChargeNOS(amount). While they
+    // hold NOS, keep the tank of their car here topped up.
+    if (s.nos) {
+        if (void* eng = Find(iv, 0x404020)) {
+            bool has = VCall<bool(__thiscall*)(void*)>(eng, 11)(eng);
+            static void* loggedFor = nullptr;
+            if (!has) { if (loggedFor != iv) { loggedFor = iv; LOG("Ghost: the other player uses nitrous, but their car here has no nitrous installed - no flames"); } }
+            else if (VCall<float(__thiscall*)(void*)>(eng, 7)(eng) < 0.5f) VCall<void(__thiscall*)(void*, float)>(eng, 12)(eng, 1.0f);
+        }
+    }
     *(uint32_t*)((uint8_t*)iv + 0x9C) = s.glare;
 }
 // While the remote car is held (cutscene, spawn protection) it must not keep the last steering / NOS.
