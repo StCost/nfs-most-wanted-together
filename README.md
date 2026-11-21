@@ -266,6 +266,13 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 </details>
 
+<details><summary><h2>License</h2></summary>
+
+MIT - see [LICENSE](LICENSE). The bundled Ultimate ASI Loader (`dinput8.dll`) is MIT too: [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
+
+
+</details>
+
 <details><summary><h2>Credits</h2></summary>
 
 - Reverse-engineering references: NFSPluginSDK (MW05 headers), MostWantedTimeTrialGhosts and

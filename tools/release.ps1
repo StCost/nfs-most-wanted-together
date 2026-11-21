@@ -31,7 +31,7 @@ New-Item -ItemType Directory -Force (Join-Path $pkg 'scripts') | Out-Null
 Copy-Item build\MWTogether.asi (Join-Path $pkg 'scripts')
 # settings ship as a default only: unpacking an update over an install never overwrites the player's MWTogether.ini
 Copy-Item MWTogether.ini (Join-Path $pkg 'scripts\MWTogether.default.ini')
-Copy-Item README.md $pkg
+Copy-Item README.md, LICENSE, THIRD-PARTY-NOTICES.txt $pkg
 & C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe /nologo /target:winexe /out:build\MWTogetherLauncher.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll "/resource:docs\banner.png,banner.png" "/resource:docs\launcher-bg.jpg,bg.jpg" launcher\Launcher.cs
 if ($LASTEXITCODE -ne 0) { throw "launcher build failed" }
 Copy-Item build\MWTogetherLauncher.exe $pkg
