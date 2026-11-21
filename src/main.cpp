@@ -39,6 +39,7 @@ namespace {
     bool        g_coopHere = true;            // this profile may play co-op (career started; prologue done, or [Coop] Prologue)
     bool        g_inPrologue = false;         // this career is in the prologue
     bool        g_careerStarted = true;       // this profile has started its career
+int         g_prologueStep = 0;           // prologue events done (Prologue::MiaStep = on the way to Mia)
 bool        g_noProfile = false;          // no profile loaded yet (title screen, main menu before it)
     const char* g_coopStatus = "";            // overlay line when co-op is off because of the prologue
     // A short notice for the player: in the game's own banner (the EA Trax chyron) when it can show one,
@@ -235,6 +236,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                     else if (c == "clone") r = Game::DebugSpawnClone();
                     else if (c == "unclone") r = Game::DebugKillClone();
                     else if (c.rfind("shot ", 0) == 0) { Overlay::Screenshot(c.substr(5)); r = "screenshot"; }
+                    else if (c == "freeroam") r = Game::DebugFreeRoam();
                     else if (c.rfind("fe ", 0) == 0) r = Game::FEPad(c.substr(3).c_str());
                     else if (c.rfind("accept ", 0) == 0) r = Game::FEAccept(c.substr(7).c_str());
                     else if (c.rfind("notice ", 0) == 0) { bool w = c.rfind("notice warn ", 0) == 0; Toast(c.substr(w ? 12 : 7), w); r = "notice queued"; }
@@ -257,7 +259,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
             g_coopHere = !g_gameOk || Game::CoopAllowed();
             Game::PrologueState pro = g_gameOk ? Game::PrologueNow() : Game::PrologueState{ true, false, 0 };
             Prologue::Peer peerPro = Prologue::Decode(Net::Latest().valid, Net::Latest().s.prologue);
-            g_inPrologue = pro.inPrologue; g_careerStarted = pro.careerStarted; g_noProfile = pro.noProfile;
+            g_inPrologue = pro.inPrologue; g_careerStarted = pro.careerStarted; g_noProfile = pro.noProfile; g_prologueStep = pro.step;
             haveLocal = g_gameOk && Game::ReadLocalCar(local);
             local.hasCar = (haveLocal && g_coopHere) ? 1 : 0;   // in the prologue the other side shows nothing
             local.nisHash = g_gameOk ? Game::SceneHash() : 0;      // also during scenes without a car (cutscene or story movie)
@@ -310,14 +312,16 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
             if (st.connected && profilesKnown && g_coopHere && peerAllowed && peerSnap.valid && peerPro.supported && !phaseOk && !peerPro.inPrologue && !toldPeer) {
                 toldPeer = true;
                 Toast((st.peerName.empty() ? std::string("The other player") : st.peerName) +
-                      (peerPro.noCareer ? " hasn't started a career yet - co-op begins with its first race" : " is past the prologue - co-op starts when you are too"), !peerPro.noCareer);
+                      (peerPro.noCareer ? " hasn't started a career yet - co-op begins with its first race"
+                       : Prologue::DrivingToMia(g_inPrologue, g_prologueStep) ? " is past the prologue - drive to Mia (GPS) to play together"
+                       : " is past the prologue - co-op starts when you are too"), !peerPro.noCareer);
                 LOG("Co-op: off - we are in the prologue, the other player is past it");
             }
             // (not while both are in the prologue: their first state may still say "not allowed" for a moment)
             bool bothInPrologue = g_inPrologue && peerPro.supported && peerPro.inPrologue;
             if (st.connected && profilesKnown && g_coopHere && !bothInPrologue && !peerPro.noCareer && (!peerAllowed || (peerSnap.valid && !phaseOk && peerPro.inPrologue)) && !toldPeer && !(g_inPrologue && !peerPro.supported)) {
                 toldPeer = true;
-                Toast((st.peerName.empty() ? std::string("The other player") : st.peerName) + " is still in the prologue - co-op starts when they reach free roam", true);
+                Toast((st.peerName.empty() ? std::string("The other player") : st.peerName) + (Prologue::DrivingToMia(peerPro.inPrologue, peerPro.step) ? " hasn't met Mia yet - co-op starts when they do" : " is still in the prologue - co-op starts when they reach free roam"), true);
                 LOG("Co-op: off - the other player is still in the prologue");
             }
             if (!st.connected) toldPeer = false;

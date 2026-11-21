@@ -59,6 +59,7 @@ namespace Game {
     std::string DebugNisSkip();         // test: press skip on the current cutscene
     std::string DebugStopOpponents();   // test: AI opponents stop driving (so a player wins)
     std::string DebugCash();            // test: career cash and whether the current event is won
+    std::string DebugFreeRoam();                  // test: "freeroam" - leave the front end (safe house) into career free roam
     std::string FEPad(const char* args);          // test: "fe left Dialog.fng" - a pad message to a front-end screen
     std::string FEAccept(const char* package);   // test: send PAD_ACCEPT to a front-end screen         // test: restart the current race
     void AutopilotTick();               // [Debug] AutoPilot: AI drives in free roam / races      // test key: the game's AI drives the local car   // no pause while connected + race restart sync

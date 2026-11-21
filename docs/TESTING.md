@@ -51,6 +51,9 @@ second, deletes it and logs `Command '<text>': <result>`. This works with the ga
 | `milestone` / `speedtrap` | complete the first open milestone / speed trap of our rival here, through the game's own award (bounty included), as if we had earned it. With co-op on it's then sent to the other player |
 | `shot <file.bmp>` | save the next frame (without the overlay) |
 | `accept <Screen.fng>` | send "accept" to a menu screen |
+| `fe <pad> <Screen.fng>` | send a pad message (accept, back, left, right, up, down) to a menu screen without focus. Doesn't reach Yes/No dialogs (Dialog.fng) |
+| `freeroam` | from the front end (main menu, or the safe house after a story movie) load career free roam, no focus needed |
+| `icons` | log every minimap icon drawn in the next second (position, pinned to the edge, call site): finds the GPS target of a story drive, e.g. Mia's meeting point after the car lot |
 
 **Useful ini switches:** `[Debug] AutoPilot=1` (the AI drives in free roam and races), `[Window]
 StartInBackground=1` (start without taking focus, muted), `[Debug] Perf=1` (fps and the mod's cost every
@@ -272,5 +275,3 @@ A pass looks like this (both PCs on fresh careers, linked):
 - `event` starts any event regardless of career progress; real play goes through the game's menus.
 - A parked car in a pursuit is busted in about 30 seconds, so pursuit scenarios are short.
 - Only one copy of the game can run per PC, so co-op always needs two PCs.
-
-| `icons` | log every minimap icon drawn in the next second (position, pinned to the edge, call site): finds the GPS target of a story drive, e.g. Mia's meeting point after the car lot |

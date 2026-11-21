@@ -41,6 +41,10 @@ namespace Prologue {
         if (!peer.known) return !inPrologue;
         return peer.inPrologue == inPrologue;
     }
+    // Prologue events done after the Razor race (16.2.1): the car lot and the drive to meet Mia, the last
+    // part of the prologue (free roam; it ends at her safe house).
+    constexpr int MiaStep = 5;
+    inline bool DrivingToMia(bool inPrologue, int step) { return inPrologue && step >= MiaStep; }
     // The prologue events: "16.<x>.<y>".
     inline bool IsPrologueEvent(const char* id) { return id && id[0] == '1' && id[1] == '6' && id[2] == '.'; }
 

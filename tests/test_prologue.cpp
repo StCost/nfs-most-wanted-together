@@ -20,6 +20,7 @@ TEST(prologue_encode_decode) {
     CHECK(Decode(true, Encode(false, 0, true, true)).noProfile);  // title screen / main menu: no profile yet
     CHECK(!Decode(true, Encode(true, 2)).noProfile);
     CHECK(!Decode(true, 0).noProfile);
+    CHECK(DrivingToMia(true, 5)); CHECK(!DrivingToMia(true, 4)); CHECK(!DrivingToMia(false, 5));
 }
 
 TEST(prologue_allowed_here) {

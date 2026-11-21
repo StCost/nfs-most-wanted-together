@@ -308,6 +308,16 @@ namespace {
     }
 }
 
+// test command "freeroam": from the front end with a career profile loaded (main menu, the safe house after a
+// story movie) load career free roam, as the quick start does. No focus needed.
+static const char* FreeRoamSafe() {
+    __try { return DirectFreeRoamNow(); } __except (EXCEPTION_EXECUTE_HANDLER) { return "exception"; }
+}
+std::string Game::DebugFreeRoam() {
+    if (!g_ok || GameFlowState() != 3) return "only in the front end";
+    return FreeRoamSafe();
+}
+
 void Game::InstallBootPatches() {
     if (g_cfg.skipIntro) {
         int n = 0;
