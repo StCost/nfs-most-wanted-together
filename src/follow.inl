@@ -13,15 +13,18 @@ namespace {
     // A dialog and then a long jump is also the map's "go to the safe house" (and leaving it): only a jump
     // that a pursuit on us follows within 10 s is a Blacklist pursuit. The other player is asked then.
     void FollowSenderTick(void* me) {
-        static DWORD dialogAt = 0, jumpAt = 0; static float last[3]; static bool haveLast = false; static float jumpDist = 0;
+        static DWORD dialogAt = 0, jumpAt = 0; static float last[3], jumpTo[3]; static bool haveLast = false; static float jumpDist = 0;
         DWORD now = GetTickCount();
         if (FEScreens::IsPushed("InGameDialog.fng")) dialogAt = now;
         void* rb = RigidBodyOf(me);
         if (!rb) { haveLast = false; return; }
         const float* p = RB_GetVec(rb, RB_GetPosition);
         if (haveLast && Dist(last, p) > 300.f && dialogAt && now - dialogAt < 6000 && !Game::CurrentEventHash()) {
-            jumpAt = now; jumpDist = Dist(last, p); dialogAt = 0;
+            jumpAt = now; jumpDist = Dist(last, p); dialogAt = 0; memcpy(jumpTo, p, 12);
         }
+        // a Blacklist pursuit starts where it put us; a patrol that spots us after driving off (out of the safe
+        // house, after a map jump) is not one
+        if (jumpAt && Dist(jumpTo, p) > 150.f) { jumpAt = 0; LOG("Follow: moved %.0f m after a dialog, then drove off - not a Blacklist pursuit, not shared", jumpDist); }
         if (jumpAt && now - jumpAt > 10000) { jumpAt = 0; LOG("Follow: moved %.0f m after a dialog, but no pursuit followed (safe house, map jump) - not shared", jumpDist); }
         if (jumpAt && g_localChased && !Game::CurrentEventHash()) {
             float f[3], r[3];

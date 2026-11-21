@@ -256,6 +256,78 @@ static void CoopFinishTickImpl() {
     if (posted) g_coopWinNotice = true;
 }
 
+// ---- lap knockout: knocked out while the other player still races ----
+//  stategraph_basicrace_racing_handler_notifyknockedout: a human racer knocked out, and
+//  Game.AllHumanPlayersDone() (native 0x60E0A0: every human racer finished or out) -> ChangeState("raceover"),
+//  the results screen with Restart / Quit. In co-op the other player is an AI racer in our game, so the
+//  results came up at once and a Restart there restarted the race for them too, mid-race. While they still
+//  race, AllHumanPlayersDone answers "no": the game shows "knocked out" and goes on. When they are done we
+//  post our racer's placement (racing_handler_notifyraceplacement_3: a human racer, all humans done ->
+//  Placing 1 ? "postrace" : "raceover") - 1 if they won (shared win), else our own place.
+namespace {
+    bool     g_koHeld = false;        // AllHumanPlayersDone answered "no" for the other player
+    uint32_t g_koEvent = 0;
+    DWORD    g_koSince = 0;
+
+    // the first instruction (mov ecx, [0x91E000], 6 bytes) moved here, then on at 0x60E0A6
+    __declspec(naked) bool __cdecl AllHumanDoneOrig() {
+        __asm {
+            mov ecx, dword ptr ds:[0x91E000]
+            push 0x60E0A6
+            ret
+        }
+    }
+    bool PeerStillRacing() {
+        if (!g_cfg.sharedWins || !g_coopLinked || !Net::Stats().connected) return false;
+        const Net::Snapshot& p = Net::Latest();
+        uint32_t ev = Game::CurrentEventHash();
+        return ev && p.valid && p.s.eventHash == ev && p.s.inRace && !p.s.finished && p.s.pad[0] != 3 && g_peerRacedHere;
+    }
+    bool KnockoutHoldWanted() {
+        void* parms = CurrentParms();
+        if (!parms || ((int(__thiscall*)(void*))0x5FAA20)(parms) != 3) return false;   // lap knockout only
+        if (!LocalRacerOut() || !PeerStillRacing()) return false;
+        if (g_koHeld && g_koEvent == Game::CurrentEventHash() && GetTickCount() - g_koSince > 15u * 60u * 1000u) return false;   // safety
+        return true;
+    }
+    bool __cdecl hk_AllHumanDone() {
+        bool r = AllHumanDoneOrig();
+        if (!r) return false;
+        __try {
+            if (KnockoutHoldWanted()) {
+                if (!g_koHeld || g_koEvent != Game::CurrentEventHash()) {
+                    g_koHeld = true; g_koEvent = Game::CurrentEventHash(); g_koSince = GetTickCount();
+                    LOG("Race: knocked out while the other player still races - no results screen until they are done");
+                }
+                return false;
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        return r;
+    }
+}
+static void KnockoutReleaseTickImpl() {
+    if (!g_koHeld) return;
+    uint32_t ev = Game::CurrentEventHash();
+    if (ev != g_koEvent || Game::GameFlowState() != 6) { g_koHeld = false; return; }   // restarted / left
+    if (PeerStillRacing() && GetTickCount() - g_koSince <= 15u * 60u * 1000u) return;
+    g_koHeld = false;
+    void* rs = nullptr; void* parms = nullptr;
+    if (!Mem::Read(0x91E000, rs) || !rs || !Mem::Read((uintptr_t)rs + 0x1968, parms) || !parms) return;
+    void* sim = LocalSimable(); void* ri = RacerInfoOfLocal();
+    if (!sim || !ri) return;
+    bool won = PeerWonThisEvent();
+    int placing = 1;
+    if (won) {
+        g_forcedFinishTried = true; g_forcedFinishEvent = ev;   // (the shared-win finish must not post a second time)
+        ((void(__cdecl*)(void*))0x6119F0)(sim);                 // NotifyRaceFinished: the payout of the shared win
+    } else {
+        Mem::Read((uintptr_t)ri + 0x10, placing);
+        if (placing < 2) placing = 2;
+    }
+    bool posted = PostRacePlacement(parms, sim, placing);
+    LOG("Race: the other player is done - our knocked-out racer's place %d %s", placing, posted ? "posted (results screen next)" : "NOT posted");
+}
+
 static void CoopWinTickImpl(bool connected, const Net::Snapshot& peer) {
     bool sameEvent = peer.valid && peer.s.eventHash && peer.s.eventHash == Game::CurrentEventHash();
     void* gri = (connected && sameEvent && peer.s.inRace) ? GhostRacerInfo() : nullptr;
@@ -278,6 +350,7 @@ void Game::CoopWinTick(bool connected, const Net::Snapshot& peer) {
     // before their racer is marked finished here: our racer then sorts first (rank 1) as well
     __try { if (connected) CoopFinishTickImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Race: exception finishing our racer"); }
     __try { CoopWinTickImpl(connected, peer); } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    __try { KnockoutReleaseTickImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) { g_koHeld = false; }
 }
 
 bool Game::InstallCoopWin() {
@@ -300,7 +373,9 @@ bool Game::InstallCoopWin() {
     // won, and is finished as the winner when their win arrives while we drive (CoopFinishTickImpl).
     const uint8_t calc[5] = { 0xE8, 0x3B, 0x35, 0x0E, 0x00 };   // call 0x6E8DF0
     bool d = PatchJmp(0x6058B0, calc, 5, (void*)&hk_CalcRanking);
-    LOG("Career: shared wins %s/%s/%s, winner's place for the race script %s", a ? "ok" : "FAIL", b ? "ok" : "FAIL", c ? "ok" : "FAIL", d ? "ok" : "FAIL (code differs)");
+    const uint8_t allHuman[6] = { 0x8B, 0x0D, 0x00, 0xE0, 0x91, 0x00 };   // mov ecx, [0x91E000]
+    bool e = PatchJmp(0x60E0A0, allHuman, 6, (void*)&hk_AllHumanDone);
+    LOG("Career: shared wins %s/%s/%s, winner's place for the race script %s, knockout waits for the other player %s", a ? "ok" : "FAIL", b ? "ok" : "FAIL", c ? "ok" : "FAIL", d ? "ok" : "FAIL (code differs)", e ? "ok" : "FAIL (code differs)");
     return a && b && c;
 }
 

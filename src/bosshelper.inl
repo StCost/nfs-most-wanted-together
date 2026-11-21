@@ -61,7 +61,9 @@ namespace {
             if (!rs || !Mem::Read((uintptr_t)rs + 0x1958, have) || have < 0 || have + n + extra > 16) return n;
             int next = n;
             if (helper) { g_helperOn = true; g_helperOpp = next++; }
-            if (partner) { g_partnerOn = true; g_partnerOpp = next++; }
+            // the partner's slot must be built as their car in this load too (the rival's next race may come
+            // without a world load, and the "replaced once per load" flag would turn the slot into a free AI racer)
+            if (partner) { g_partnerOn = true; g_partnerOpp = next++; g_racerReplacedThisLoad = false; g_replacedRacer = nullptr; }
             LOG("Race: rival race together - %d opponent(s)%s%s", n, helper ? " + 1 helper racer" : "", partner ? " + the other player's racer slot" : "");
             return n + extra;
         } __except (EXCEPTION_EXECUTE_HANDLER) { g_helperOn = false; return n; }

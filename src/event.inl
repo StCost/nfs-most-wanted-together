@@ -451,7 +451,48 @@ static bool PrologueHoldOn(uint32_t hash, const Net::Snapshot& pr) {
     Game::PrologueState st = Game::PrologueNow();
     return st.inPrologue && PeerPrologue().inPrologue && (pr.s.eventHash != hash || pr.s.pad[0] < 2);
 }
+// Our car on the ground at a race start. The race puts the cars on the grid a little above the road, and
+// they drop onto it. Our car's ride height (body position above the road) is learned while it rests or
+// drives level in free roam; on the grid the car is put at the road + that height, so nothing drops.
+namespace {
+    float    g_myRide = 0;       // learned ride height of our current car (m), 0 = not known yet
+    uint32_t g_myRideModel = 0;
+    void LearnRideHeight() {
+        static DWORD next = 0;
+        DWORD now = GetTickCount();
+        if ((int)(now - next) < 0) return;
+        next = now + 500;
+        void* me = LocalVehicle(); void* rb = me ? RigidBodyOf(me) : nullptr;
+        if (!rb || g_curEventHash) return;
+        uint32_t model = ModelKeyOf(me);
+        if (model != g_myRideModel) { g_myRideModel = model; g_myRide = 0; }
+        const float* p = RB_GetVec(rb, RB_GetPosition); const float* v = RB_GetVec(rb, RB_GetLinearVelocity);
+        if (fabsf(v[1]) > 0.2f) return;                          // jumping, falling, on a steep slope
+        float g = 0;
+        if (!GroundHeightAt(p, g)) return;
+        float d = p[1] - g;
+        if (d < 0.1f || d > 2.5f) return;
+        g_myRide = g_myRide > 0 ? g_myRide * 0.8f + d * 0.2f : d;
+    }
+    void SnapToGround(const char* when) {
+        void* me = LocalVehicle(); void* rb = me ? RigidBodyOf(me) : nullptr;
+        if (!rb || g_myRide <= 0 || ModelKeyOf(me) != g_myRideModel) return;
+        const float* p = RB_GetVec(rb, RB_GetPosition);
+        float g = 0;
+        if (!GroundHeightAt(p, g)) return;
+        float d = p[1] - g;
+        if (d < g_myRide + 0.03f || d > g_myRide + 3.f) return;  // already down (or something odd below us)
+        float to[3] = { p[0], g + g_myRide, p[2] }, zero[3] = { 0, 0, 0 };
+        RB_SetVec(rb, RB_SetPosition, to);
+        RB_SetVec(rb, RB_SetLinearVelocity, zero);
+        LOG("Start: our car put on the road %s (was %.2f m above it, ride height %.2f m)", when, d - g_myRide, g_myRide);
+    }
+    void SnapToGroundSafe(const char* when) { __try { SnapToGround(when); } __except (EXCEPTION_EXECUTE_HANDLER) {} }
+    void LearnRideHeightSafe() { __try { LearnRideHeight(); } __except (EXCEPTION_EXECUTE_HANDLER) {} }
+}
+
 static void StartSyncTickImpl(bool connected) {
+    LearnRideHeightSafe();
     DWORD now = GetTickCount();
     uint32_t hash = g_curEventHash;
     const Net::Snapshot& pr = Net::Latest();
@@ -465,7 +506,7 @@ static void StartSyncTickImpl(bool connected) {
     // on the grid: the intro cutscene is over (or the event has none: 3 s of racing mode without one)
     bool ready = mode == 1 && !nis && g_modeSince && (g_sawNis || now - g_modeSince > 3000);
     if (g_stage == 1 && ready) {
-        if (!g_readyAt) g_readyAt = now;
+        if (!g_readyAt) { g_readyAt = now; SnapToGroundSafe("on the grid"); }
         // the race puts the cars on the grid a little above the road: let them land (0.8 s) before the hold
         // stops the world - holding at once left them hanging, and they dropped onto the road at the go
         int settle = g_cfg.readyDelayMs > 800 ? g_cfg.readyDelayMs : 800;     // (ReadyDelayMs: test, pretend to load slowly)
@@ -473,6 +514,7 @@ static void StartSyncTickImpl(bool connected) {
     }
     if (g_stage == 1 && ready) {
         g_stage = 2;
+        SnapToGroundSafe("before the start hold");
         // coming = already in this event, or still on the way to it (no event yet and we invited them /
         // they invited us). A peer in ANOTHER event, or roaming and ignoring us, is not waited for.
         // (while our invitation is still being repeated the peer may be leaving the previous race's results)
@@ -517,14 +559,29 @@ static void StartSyncTickImpl(bool connected) {
     }
 }
 
-uint8_t Game::RaceStage() { return g_stage; }
+// our racer is out of this race: finished, or knocked out / busted / wrecked (GRacerInfo +0x21 finished,
+// +0x1C..+0x1F the "out" flags AllHumanPlayersDone 0x60E0A0 checks)
+static bool LocalRacerOut() {
+    void* ri = RacerInfoOfLocal();
+    if (!ri) return false;
+    uint32_t outs = 0; uint8_t fin = 0;
+    return (Mem::Read((uintptr_t)ri + 0x1C, outs) && outs) || (Mem::Read((uintptr_t)ri + 0x21, fin) && fin);
+}
+// sent as CarState::pad[0]: 3 = on the grid stage, but out of the race already (older builds read >= 2 as
+// "on the grid" - still right for them)
+uint8_t Game::RaceStage() {
+    if (g_stage == 2) { __try { if (LocalRacerOut()) return 3; } __except (EXCEPTION_EXECUTE_HANDLER) {} }
+    return g_stage;
+}
 const char* Game::StartStatus() { return g_startStatus; }
 
 static void RestartTickImpl(bool connected) {
     uint8_t flag = 0;
     Mem::Read(0x91CF28, flag);
     if (flag && !g_lastRestartFlag) {
-        if (g_restartFromPeer && (!g_restartFromPeerAt || GetTickCount() - g_restartFromPeerAt < 15000)) { g_restartFromPeer = false; g_restartFromPeerAt = 0; }   // we did it because the peer did
+        // we did it because the peer did (a Restart pressed on our results screen fires only when its winner's
+        // photo closes - the player may sit there a while, so that one counts for 2 minutes)
+        if (g_restartFromPeer && (!g_restartFromPeerAt || GetTickCount() - g_restartFromPeerAt < 120000)) { g_restartFromPeer = false; g_restartFromPeerAt = 0; }
         else if (connected) {
             int mode = 0;
             void* parms = CurrentParms(&mode);
@@ -561,17 +618,16 @@ bool Game::TakeRestartIgnoredNotice() { bool v = g_restartIgnoredNotice; g_resta
 static bool PressRestartOnResults() {
     void* fe = nullptr;
     if (!Mem::Read(0x91CADC, fe) || !fe) return false;
-    bool sent = false;
+    // one press only: with both screens up, a second Restart could take the immediate path under the photo
     for (const char* pkg : { "InGamePhotoMaster.fng", "PostRace_Results.fng" }) {
         if (!FEScreens::IsPushed(pkg)) continue;
         ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0xE1A57D51, pkg, 0xFF);
-        sent = true;
+        return true;
     }
-    return sent;
+    return false;
 }
 std::string Game::DebugResultsRestart() { return PressRestartOnResults() ? "Restart pressed on the results screen" : "no results screen up"; }
 
-static bool PressRestartOnResults();
 bool Game::InstallRestartSync() {
     Net::OnRestart = [](uint32_t hash, uint32_t seq) {
         if (!g_coopLinked) return;
@@ -596,7 +652,7 @@ bool Game::InstallRestartSync() {
                 }
             }
             if (hash && EventHashOf(parms) != hash) { LOG("Race: peer restarted a different event - ignored"); return; }
-            g_restartFromPeer = true;
+            g_restartFromPeer = true; g_restartFromPeerAt = 0;
             if (!TriggerRestart()) { g_restartFromPeer = false; LOG("Race: restart failed"); return; }
             LOG("Race: peer restarted the race - restarting here too");
         } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Race: exception restarting"); }

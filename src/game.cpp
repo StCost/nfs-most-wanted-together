@@ -572,6 +572,7 @@ static void ClearCarControls(void* iv) {
     if (!in) return;
     VCall<void(__thiscall*)(void*, float)>(in, 5)(in, 0.f);
     VCall<void(__thiscall*)(void*, bool)>(in, 8)(in, false);
+    g_ghostNos = false;   // no flames on a held car
 }
 
 bool Game::ReadLocalCar(CarState& out) {
@@ -661,7 +662,20 @@ namespace {
     // deleted and our pointer then drove a cop or traffic car (seen as "his car turned into a taxi").
     void* g_keepCars[64] = {};                // every car we spawned (the other player's car, mirrors)
     uint32_t g_keepWid[64] = {};              // their world ids: the same address may later hold another car
+    // one car length (6 m) straight behind a car, at its height, facing the same way: where the other player is
+    // shown when both games put the two cars on the same start spot
+    void BehindUs(void* rb, float out[3]) {
+        __try {
+            float f[3];
+            VCall<void(__thiscall*)(void*, float*)>(rb, 13 /*GetForwardVector*/)(rb, f);
+            const float* p = RB_GetVec(rb, RB_GetPosition);
+            out[0] = p[0] - f[0] * 6.f; out[1] = p[1]; out[2] = p[2] - f[2] * 6.f;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
     uint32_t WorldIdOf(void* iv) {            // ISimable slot 28 (0x686AF0): unique per car, never reused
+        // only a live car: calling into a deleted one ran whatever its freed memory held (an event start
+        // deletes most cars at once) and crashed past the __try below
+        if (!IsVehicle(iv) || !ListContains(-1, iv)) return 0;
         __try {
             void* sim = VCall<void* (__thiscall*)(void*)>(iv, 1 /*IV_GetSimable*/)(iv);
             return sim ? VCall<uint32_t(__thiscall*)(void*)>(sim, 28)(sim) : 0;
@@ -1268,6 +1282,8 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
             // booth): the new car's collisions are switched off below in the same frame, before any physics
             // step, and stay off until the two cars are apart - the cars just overlap for a moment
             float spawnPos[3] = { latest.s.pos[0], latest.s.pos[1], latest.s.pos[2] };
+            if (void* lrb0 = RigidBodyOf(LocalVehicle()))     // on our own start spot: one car length behind us
+                if (Game::CurrentEventHash() && Dist(RB_GetVec(lrb0, RB_GetPosition), spawnPos) < 3.f) BehindUs(lrb0, spawnPos);
             iv = SpawnVehicle(pc->carKey, pc->hasCustom ? pc->custom : nullptr, spawnPos, dir, DRV_REMOTE);
             if (!iv && pc->hasCustom) {
                 // Diagnose: is it the customization record that Construct rejects, or the model itself?
@@ -1390,8 +1406,9 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
             g_separated = true;
             LOG("Spawn protection off: players are %.0f m apart", Dist(lp, s.pos));
         }
-        // (their car is always shown exactly where they are - never moved aside or held: on one start spot the
-        //  two cars overlap without colliding until they are apart)
+        // a race start with no grid slot for them (or the intro cutscene put both cars on one spot): their game
+        // has them where we are. Shown one car length behind us instead - a grid of our own - until one moves
+        if (Game::CurrentEventHash() && Dist(lp, s.pos) < 3.f) BehindUs(lrbP, s.pos);
     }
 
     // Hard-set the exact interpolated transform + velocities every frame. Because consecutive targets
@@ -1522,7 +1539,7 @@ static void LogCarsOnGhostSafe() {
 }
 static void GhostModelCheck() {
     static void* checked = nullptr; static int firstType = -9; static DWORD since = 0, next = 0, nextNear = 0;
-    if (!g_ghost || g_ghostKind != GK_SPAWNED) { checked = nullptr; return; }
+    if (!g_ghost || (g_ghostKind != GK_SPAWNED && g_ghostKind != GK_RACER)) { checked = nullptr; return; }   // (racers too: a body kit lost in a race)
     DWORD now = GetTickCount();
     if (checked != g_ghost) { checked = g_ghost; firstType = -9; since = now; next = now + 1500; }
     if (now >= nextNear) { nextNear = now + 5000; LogCarsOnGhostSafe(); }

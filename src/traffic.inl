@@ -189,7 +189,8 @@ namespace {
             // the owner reuses ids: a new car (another model - e.g. a cop where a traffic car was) under an id we
             // already show must be built fresh, not shown by the old car (it carried the cop's light bar and
             // counted as their cop - a pursuit started on a traffic car - until it was rebuilt later)
-            if (m && m->n && !m->racer && !racer && m->model != e[i].model) {
+            if (m && m->n && m->bound && m->model != e[i].model) m->model = e[i].model;   // shown by our own car (race traffic): it just shows the new one
+            else if (m && m->n && !m->racer && !racer && m->model != e[i].model) {
                 LOG("Traffic: the other player's car %u is another car now (model %08X -> %08X) - building it again", (unsigned)e[i].id, m->model, e[i].model);
                 RemoveMirror(*m);
                 m = nullptr;

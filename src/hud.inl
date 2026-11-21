@@ -116,6 +116,11 @@ namespace {
         if (hide) {
             HookSetVisible();
             int roots = BuildHudSet(log);
+            // forget objects that are no longer in the HUD (a new HUD package after an event loaded: the old
+            // one's objects are freed - showing them again later would write into freed memory)
+            for (auto it = g_hudWasHidden.begin(); it != g_hudWasHidden.end();) {
+                if (g_hudSet.count(it->first)) ++it; else it = g_hudWasHidden.erase(it);
+            }
             for (void* o : g_hudSet) HideObj(o);
             return roots;
         }
