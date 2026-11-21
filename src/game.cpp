@@ -626,18 +626,6 @@ namespace {
     // deleted and our pointer then drove a cop or traffic car (seen as "his car turned into a taxi").
     void* g_keepCars[64] = {};                // every car we spawned (the other player's car, mirrors)
     uint32_t g_keepWid[64] = {};              // their world ids: the same address may later hold another car
-    // a spot behind and a little to the left of a car, facing the same way (where a partner waits on a grid)
-    bool BehindLeftOf(void* rb, float out[3]) {
-        __try {
-            float f[3], r[3];
-            VCall<void(__thiscall*)(void*, float*)>(rb, 13 /*GetForwardVector*/)(rb, f);
-            VCall<void(__thiscall*)(void*, float*)>(rb, 14 /*GetRightVector*/)(rb, r);
-            const float* p = RB_GetVec(rb, RB_GetPosition);
-            for (int i = 0; i < 3; ++i) out[i] = p[i] - f[i] * 7.0f - r[i] * 2.5f;
-            out[1] += 0.3f;
-            return true;
-        } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
-    }
     uint32_t WorldIdOf(void* iv) {            // ISimable slot 28 (0x686AF0): unique per car, never reused
         __try {
             void* sim = VCall<void* (__thiscall*)(void*)>(iv, 1 /*IV_GetSimable*/)(iv);
@@ -1217,13 +1205,10 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
             float dir[3] = { 1, 0, 0 };
             float vlen = sqrtf(latest.s.linVel[0] * latest.s.linVel[0] + latest.s.linVel[2] * latest.s.linVel[2]);
             if (vlen > 1.f) { dir[0] = latest.s.linVel[0] / vlen; dir[2] = latest.s.linVel[2] / vlen; }
-            // spawn protection: never create the car inside the local player (same spawn point / grid slot)
+            // where they really are, also on our own spot (an event with no start slot for them, e.g. a toll
+            // booth): the new car's collisions are switched off below in the same frame, before any physics
+            // step, and stay off until the two cars are apart - the cars just overlap for a moment
             float spawnPos[3] = { latest.s.pos[0], latest.s.pos[1], latest.s.pos[2] };
-            if (void* lrb0 = RigidBodyOf(LocalVehicle())) {
-                if (Dist(RB_GetVec(lrb0, RB_GetPosition), spawnPos) < 4.f && Game::CurrentEventHash()) {   // a race with no grid slot for them: behind us, a little to the left
-                    if (!BehindLeftOf(lrb0, spawnPos)) { spawnPos[0] += -dir[2] * 5.f; spawnPos[2] += dir[0] * 5.f; spawnPos[1] += 0.5f; }
-                }
-            }
             iv = SpawnVehicle(pc->carKey, pc->hasCustom ? pc->custom : nullptr, spawnPos, dir, DRV_REMOTE);
             if (!iv && pc->hasCustom) {
                 // Diagnose: is it the customization record that Construct rejects, or the model itself?
@@ -1345,13 +1330,9 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
         if (!g_protectHolding && Dist(lp, s.pos) > (float)g_cfg.safeDistance) {
             g_separated = true;
             LOG("Spawn protection off: players are %.0f m apart", Dist(lp, s.pos));
-        } else if (Dist(lp, s.pos) < 4.f && Game::CurrentEventHash() && g_ghostKind != GK_RACER) {
-            // never frozen: their car moves with them all the time, collisions between the two cars stay off
-            // until they are apart. Only in a race where they have no grid slot (a rival race: their car isn't
-            // a racer) and both games put their player on the same spot, it is shown behind us, a little to the
-            // left. Everywhere else it is exactly where they are.
-            BehindLeftOf(lrbP, s.pos);
         }
+        // (their car is always shown exactly where they are - never moved aside or held: on one start spot the
+        //  two cars overlap without colliding until they are apart)
     }
 
     // Hard-set the exact interpolated transform + velocities every frame. Because consecutive targets
