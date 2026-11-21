@@ -106,11 +106,15 @@ namespace {
             // only the cop-car icons exist in WorldMapMain.fng besides the player's own arrow; use the last one
             // (the map shows up to 8 cops, so 7 is free unless a big pursuit is on) and paint it like the player
             static const char* spare[] = { "MMICON_COPCAR_7", "MMICON_COPCAR_6" };
-            void** b = nullptr;
-            int n = ListSize(7 /*REMOTE*/, &b);
+            // the other player's car: our copy of it (g_ghost - it isn't always in the REMOTE list, e.g. a car
+            // spawned for them shows up as a racer / AI car there), else the first REMOTE car
+            void* cands[8] = {}; int n = 0;
+            if (IsVehicle(g_ghost)) cands[n++] = g_ghost;
+            { void** b = nullptr; int r = ListSize(7 /*REMOTE*/, &b); for (int i = 0; i < r && n < 8; ++i) if (void* v = ListGet(7, i)) if (v != g_ghost) cands[n++] = v; }
             int used = 0;
+            if (!n) LOG("World map: the other player's car isn't here - no icon");
             for (int i = 0; i < n && used < 1; ++i) {
-                void* iv = ListGet(7, i);
+                void* iv = cands[i];
                 if (!IsVehicle(iv)) continue;
                 void* sim = VCall<void* (__thiscall*)(void*)>(iv, 1)(iv);
                 if (!sim) continue;

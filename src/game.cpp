@@ -1113,7 +1113,10 @@ static void TakePeerSlotTick(const Net::Snapshot& latest, void* ghostRb) {
     float mySpeed = sqrtf(lv[0] * lv[0] + lv[1] * lv[1] + lv[2] * lv[2]);
     if (!NetUtil::ShouldTakePeerSlot(lp, mySpeed, latest.s.pos, latest.s.speedMps, g_peerSlot)) return;
     float from[3] = { lp[0], lp[1], lp[2] };
-    float to[3] = { g_peerSlot[0], g_peerSlot[1] + 0.2f, g_peerSlot[2] }, zero[3] = { 0, 0, 0 };
+    // the slot's height was read when the race placed their racer, before its suspension settled: on the
+    // same grid (level within 1 m) keep our own settled height, else the car dropped onto the road at the start
+    float slotY = fabsf(g_peerSlot[1] - lp[1]) < 1.f ? lp[1] : g_peerSlot[1] + 0.05f;
+    float to[3] = { g_peerSlot[0], slotY, g_peerSlot[2] }, zero[3] = { 0, 0, 0 };
     RB_SetVec(lrb, RB_SetPosition, to);                 // grid slots face the same way: keep our heading
     RB_SetVec(lrb, RB_SetLinearVelocity, zero); RB_SetVec(lrb, RB_SetAngularVelocity, zero);
     if (ghostRb) {                                      // their car onto the slot we left (where they are)

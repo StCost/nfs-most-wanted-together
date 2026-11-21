@@ -832,6 +832,14 @@ static int MaintainMirrors(double now) {
     // The other player's own car comes first: no mirror spawns until it exists, and when its spawn
     // failed (vehicle budget full) give back a couple of mirror cars.
     bool mayspawn = g_ghost && !g_ghostStarved;
+    // No new copies while an event loads (its first 15 s, and during cutscenes): the race start deletes
+    // them again a moment later, and a start camera that picked one of them crashed (0x44E9FD)
+    {
+        static uint32_t lastEv = 0; static DWORD evAt = 0;
+        uint32_t ev = Game::CurrentEventHash();
+        if (ev != lastEv) { lastEv = ev; evAt = GetTickCount(); }
+        if ((ev && GetTickCount() - evAt < 15000) || NisActive()) mayspawn = false;
+    }
     // SmoothHandover (client, free roam, near the host): host cars appear only where it can't be seen
     bool smooth = SmoothHandover() && !g_clientRacing && g_trafficNear;
     NetUtil::CamView cam{};
