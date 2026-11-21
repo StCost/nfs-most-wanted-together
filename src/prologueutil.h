@@ -48,10 +48,14 @@ namespace Prologue {
     // The prologue events: "16.<x>.<y>".
     inline bool IsPrologueEvent(const char* id) { return id && id[0] == '1' && id[1] == '6' && id[2] == '.'; }
 
-    // A rival (boss) event "<bin>.x.y" of the other player is only joined by a career at that rival (its
-    // Blacklist number = the event's bin); other events from anywhere, as before. Unknown bin: joined.
-    inline bool BossEventJoinable(bool boss, const char* id, int careerBin) {
-        if (!boss || !id || careerBin <= 0) return true;
+    // A rival (boss) event of the other player is only joined by a career at the same Blacklist rival as
+    // theirs (peerBin, sent with their state). The event id's bin is no guide on its own: a rival's later
+    // races reuse events of other bins (Razor's last race is 4.2.1). Without the partner's rival (older
+    // build): the event's bin "<bin>.x.y" as before. Other events from anywhere; unknown bins: joined.
+    inline bool BossEventJoinable(bool boss, const char* id, int careerBin, int peerBin = 0) {
+        if (!boss || careerBin <= 0) return true;
+        if (peerBin > 0) return peerBin == careerBin;
+        if (!id) return true;
         int bin = 0;
         for (const char* c = id; *c >= '0' && *c <= '9'; ++c) bin = bin * 10 + (*c - '0');
         return bin == 0 || bin == careerBin;

@@ -75,4 +75,7 @@ TEST(boss_event_join_needs_the_same_rival) {
     CHECK(BossEventJoinable(false, "1.2.1", 9));            // a normal race of another bin: as before
     CHECK(BossEventJoinable(true, "15.1.2", 0));            // our bin unknown: as before
     CHECK(BossEventJoinable(true, nullptr, 3));
+    CHECK(BossEventJoinable(true, "4.2.1", 1, 1));          // Razor's last race reuses a bin-4 event: both at #1
+    CHECK(!BossEventJoinable(true, "1.8.1", 1, 2));         // partner at #2: not joined
+    CHECK(!BossEventJoinable(true, "4.2.1", 4, 1));         // the partner's rival decides, not the id
 }

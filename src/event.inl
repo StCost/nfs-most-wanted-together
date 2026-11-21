@@ -15,6 +15,8 @@
 //  GRaceParameters::GetStartPosition 0x5FAD10 thiscall(parms, Vector3* out)
 // ---------------------------------------------------------------------------
 static Prologue::Peer PeerPrologue();   // the other player's prologue state (below)
+// the other player's Blacklist rival (CarState pad[2]; 0 = unknown / no state)
+static int PeerCareerBin() { const Net::Snapshot& p = Net::Latest(); return p.valid ? p.s.pad[2] : 0; }
 namespace {
     void*    g_lastParms = nullptr;          // race parameters we last saw on this machine
     uint32_t g_handledHash = 0; DWORD g_handledAt = 0;   // invitation we already acted on (repeats are ignored)
@@ -72,8 +74,11 @@ namespace {
         if (cur && mode == 1 && fromPeer && EventHashOf(cur) != eventHash && resultsScreen) {
             void* db0 = nullptr; Mem::Read(0x91E004, db0);
             void* next = db0 ? ((void*(__thiscall*)(void*, uint32_t))0x5FB710)(db0, eventHash) : nullptr;
-            if (!next || IsChallengeEvent(next) || !Prologue::BossEventJoinable(((bool(__thiscall*)(void*))0x5FBD90)(next), eventId, Game::CareerBin()))
-                return;                                    // one we'd refuse in free roam anyway: stay on the results
+            if (!next || IsChallengeEvent(next) || !Prologue::BossEventJoinable(((bool(__thiscall*)(void*))0x5FBD90)(next), eventId, Game::CareerBin(), PeerCareerBin())) {
+                static DWORD lastRefuseLog = 0;            // one we'd refuse in free roam anyway: stay on the results
+                if (GetTickCount() - lastRefuseLog > 10000) { lastRefuseLog = GetTickCount(); LOG("Event: %s invited while we're on the results screen - not joined (challenge event, or a rival event of another Blacklist rival: ours #%d, theirs #%d)", eventId, (int)Game::CareerBin(), PeerCareerBin()); }
+                return;
+            }
             static DWORD lastExit = 0;
             void* fe = nullptr;
             if (GetTickCount() - lastExit > 2500 && Mem::Read(0x91CADC, fe) && fe) {
@@ -101,7 +106,7 @@ namespace {
         Mem::Read(0x91E004, db);
         void* parms = db ? ((void*(__thiscall*)(void*, uint32_t))0x5FB710)(db, eventHash) : nullptr;
         if (!parms) { LOG("Event: unknown event %s (%08X)", eventId, eventHash); return; }
-        if (fromPeer && !Prologue::BossEventJoinable(((bool(__thiscall*)(void*))0x5FBD90)(parms), eventId, Game::CareerBin())) {
+        if (fromPeer && !Prologue::BossEventJoinable(((bool(__thiscall*)(void*))0x5FBD90)(parms), eventId, Game::CareerBin(), PeerCareerBin())) {
             // a Blacklist rival's race or story event (Razor's races, the final pursuit) of a rival our career
             // isn't at: winning it here would count for the wrong rival
             static DWORD lastLog = 0;
