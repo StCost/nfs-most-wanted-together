@@ -170,6 +170,7 @@ namespace {
     }
     DWORD g_restartResendAt[2] = { 0, 0 }; uint32_t g_restartResendHash = 0;
     uint32_t g_restartSeq = 0, g_peerRestartSeq = 0; DWORD g_ownRestartAt = 0;
+    bool g_restartIgnoredNotice = false;   // the partner restarted while our race was already over
 }
 
 // Joined the other player's event while one of the event menus was open here (the rival's race list with
@@ -530,6 +531,8 @@ void Game::PauseRuleTick(bool connected) {
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
+bool Game::TakeRestartIgnoredNotice() { bool v = g_restartIgnoredNotice; g_restartIgnoredNotice = false; return v; }
+
 bool Game::InstallRestartSync() {
     Net::OnRestart = [](uint32_t hash, uint32_t seq) {
         if (!g_coopLinked) return;
@@ -543,6 +546,16 @@ bool Game::InstallRestartSync() {
             g_peerRestartSeq = seq;
             if (g_ownRestartAt && GetTickCount() - g_ownRestartAt < 2500) return;   // we both restarted at once
             if (Game::GameFlowState() != 6 || mode != 1 || pending) { LOG("Race: peer restarted, but we're not racing - ignored"); return; }
+            {   // our race is over (finished, the results / winner's screen is up): the game's own restart from
+                // there goes through that screen - an ERestartRace queued now crashed (0x4E7D40, null object)
+                void* ri = RacerInfoOfLocal(); uint8_t fin = 0;
+                if (ri) Mem::Read((uintptr_t)ri + 0x21, fin);
+                if (fin || FEScreens::IsPushed("PostRace_Results.fng") || FEScreens::IsPushed("InGamePhotoMaster.fng")) {
+                    LOG("Race: peer restarted, but our race is already over (results screen) - ignored; Restart there to join");
+                    g_restartIgnoredNotice = true;
+                    return;
+                }
+            }
             if (hash && EventHashOf(parms) != hash) { LOG("Race: peer restarted a different event - ignored"); return; }
             g_restartFromPeer = true;
             if (!TriggerRestart()) { g_restartFromPeer = false; LOG("Race: restart failed"); return; }

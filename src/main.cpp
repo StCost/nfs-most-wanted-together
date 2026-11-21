@@ -446,6 +446,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                 }
             }
         }
+        if (g_gameOk && Game::TakeRestartIgnoredNotice()) Toast((st.peerName.empty() ? std::string("Your partner") : st.peerName) + " restarted the race - press Restart to race again");
         if (g_gameOk && Game::TakeCoopWinNotice()) Toast((st.peerName.empty() ? std::string("Your partner") : st.peerName) + " won the race");
         if (g_gameOk) {
             std::string ms = Game::TakeMilestoneNotice();
