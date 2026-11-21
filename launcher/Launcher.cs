@@ -157,7 +157,7 @@ class LauncherForm : Form {
         AutoSize = true; AutoSizeMode = AutoSizeMode.GrowAndShrink;
         try { Icon = Icon.ExtractAssociatedIcon(Path.Combine(dir, "speed.exe")); } catch { }
 
-        var root = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Padding = new Padding(0), Margin = new Padding(0) };
+        var root = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(0), Margin = new Padding(0) };
         Controls.Add(root);
 
         // banner + title
@@ -165,7 +165,7 @@ class LauncherForm : Form {
         try { var s = typeof(LauncherForm).Assembly.GetManifestResourceStream("banner.png"); if (s != null) banner.Image = Image.FromStream(s); } catch { }
         banner.SizeMode = PictureBoxSizeMode.StretchImage;
         root.Controls.Add(banner);
-        var body = new BgFlow { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Padding = new Padding(20, 6, 20, 16), Margin = new Padding(0) };
+        var body = new BgFlow { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(20, 6, 20, 16), Margin = new Padding(0) };
         try { var s = typeof(LauncherForm).Assembly.GetManifestResourceStream("bg.jpg"); if (s != null) Theme.Bg = Image.FromStream(s); } catch { }
         Theme.BgRoot = body;
         root.Controls.Add(body);
@@ -203,7 +203,7 @@ class LauncherForm : Form {
         settingsBtn.Click += (s, e) => { settings.Visible = !settings.Visible; settingsBtn.Arrow = settings.Visible ? 2 : 1; settingsBtn.Invalidate(); };
         body.Controls.Add(settingsBtn);
 
-        var sp = new BgFlow { Dim = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Padding = new Padding(12, 6, 12, 12), Margin = new Padding(0), Visible = false };
+        var sp = new BgFlow { Dim = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(12, 6, 12, 12), Margin = new Padding(0), Visible = false };
         settings = sp;
         var tip = new ToolTip { AutoPopDelay = 20000, InitialDelay = 250, ReshowDelay = 100, OwnerDraw = true };
         tip.Popup += (s, e) => { e.ToolTipSize = new Size(Math.Min(360, e.ToolTipSize.Width + 16), TextRenderer.MeasureText(tip.GetToolTip(e.AssociatedControl), Theme.Body, new Size(344, 0), TextFormatFlags.WordBreak).Height + 14); };
@@ -282,6 +282,7 @@ class LauncherForm : Form {
 
     public void ForceMode(bool host) { SetMode(host); }
     public void ShowSettings() { settings.Visible = true; settingsBtn.Arrow = 2; }
+    public void HideSettings() { settings.Visible = false; settingsBtn.Arrow = 1; }
 
     void SetMode(bool host) {
         isHost = host;
@@ -401,6 +402,10 @@ static class Program {
             if (opts.Contains("settings")) f.ShowSettings();
             f.StartPosition = FormStartPosition.Manual; f.Location = new Point(-4000, -4000); f.ShowInTaskbar = false;
             f.Show(); for (int i = 0; i < 20; ++i) { Application.DoEvents(); System.Threading.Thread.Sleep(15); }
+            if (opts.Contains("reopened")) {   // settings opened, then closed again: the window must shrink back
+                f.ShowSettings(); for (int i = 0; i < 10; ++i) { Application.DoEvents(); System.Threading.Thread.Sleep(15); }
+                f.HideSettings(); for (int i = 0; i < 10; ++i) { Application.DoEvents(); System.Threading.Thread.Sleep(15); }
+            }
             var bmp = new Bitmap(f.Width, f.Height);
             f.DrawToBitmap(bmp, new Rectangle(0, 0, f.Width, f.Height));
             bmp.Save(args[2], System.Drawing.Imaging.ImageFormat.Png);
