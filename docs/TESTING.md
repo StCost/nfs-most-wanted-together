@@ -52,7 +52,8 @@ second, deletes it and logs `Command '<text>': <result>`. This works with the ga
 | `shot <file.bmp>` | save the next frame (without the overlay) |
 | `accept <Screen.fng>` | send "accept" to a menu screen |
 | `fe <pad> <Screen.fng>` | send a pad message (accept, back, left, right, up, down) to a menu screen without focus. Doesn't reach Yes/No dialogs (Dialog.fng) |
-| `nopause <0/1/2>` | the co-op no-pause rule: 0 as configured, 1 the old rule (skip every pause request: the final pursuit 1.8.1 then hangs on its LOADING after the intro movie, even solo), 2 the current rule (player menus only) also solo |
+| `watchload <s>` | log once a second what an in-world loading waits for: the movie / NIS gates, the race status's "loaded" checks (racers, vehicles, the cop manager's queued spawns and its no-new-cops timer), and the code that raises that timer (hardware write watch). Found the final pursuit's 2-minute wait |
+| `stack` | the game's return addresses at the next frame (which loop draws it) |
 | `screens` | log every menu screen that is open now (all screen names in the exe, not only the known ones) |
 | `freeroam` | from the front end (main menu, or the safe house after a story movie) load career free roam, no focus needed |
 | `icons` | log every minimap icon drawn in the next second (position, pinned to the edge, call site): finds the GPS target of a story drive, e.g. Mia's meeting point after the car lot |

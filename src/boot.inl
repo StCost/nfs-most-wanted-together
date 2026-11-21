@@ -11,6 +11,7 @@
 //  [Start] SkipLeaveSafeHouseDialog: CResumeFreeRoam::React (vtable slot 0x89C42C, 0x51FF10) asks
 //    "leave the safe house?"; instead send its Yes message (0xD05FC3A3) straight back to the screen.
 // ---------------------------------------------------------------------------
+static DWORD g_watchLoadUntil = 0;   // test command "watchload"
 namespace {
     using ReactFn = int(__thiscall*)(void*, const char*, uint32_t, void*, uint32_t, uint32_t);
     ReactFn g_origResumeFreeRoamReact = nullptr;
@@ -307,6 +308,117 @@ namespace {
         return "loading career free roam";
     }
 }
+
+// The final pursuit (race type 8) waited ~2 minutes on an in-world "LOADING..." after its intro movie, solo
+// too. Its intro (EResetProps) resets the cop manager (ICopManager slot 2, 0x43A200): that sets the
+// "no new cops" timer (+0x58) to 60 s, then to 0 for a type 8 race - and then, because the race isn't
+// actively racing yet (GRaceStatus +0x1960 == 0), overwrites it with a 120 s tuning value. The race script
+// queues 6 cops (SpawnCop) and asks NotifyScriptWhenLoaded; GRaceStatus (0x603132) holds "loadingcomplete"
+// while the cop manager has queued spawns (slot 6, +0x1C), and the queue can't spawn while the timer runs
+// (0x410E20). So: while a type 8 race waits to load, clear the timer the way the game itself does
+// (slot 11, 0x411410, with false) - the cops spawn at once and the pursuit starts.
+static void PursuitLoadFixSafe() {
+    __try {
+        char* rs = nullptr; void* parms = nullptr; void* cm = nullptr; float timer = 0;
+        if (!Mem::Read(0x91E000, rs) || !rs || !rs[0x19A4]) return;                   // the script waits for "loaded"
+        if (!Mem::Read((uintptr_t)rs + 0x1968, parms) || !parms) return;
+        if (((int(__thiscall*)(void*))0x5FAA20)(parms) != 8) return;                  // the final pursuit's race type
+        if (!Mem::Read(0x92C67C, cm) || !cm || !Mem::Read((uintptr_t)cm + 0x58, timer) || timer <= 0.f) return;
+        VCall<void(__thiscall*)(void*, bool)>(cm, 11)(cm, false);
+        LOG("Pursuit: the final pursuit waited for its cops (no-new-cops timer %.0f s) - timer cleared, the pursuit loads now", timer);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+void Game::PursuitLoadFixTick() { if (g_ok && Game::GameFlowState() == 6) PursuitLoadFixSafe(); }
+// test (with "watchload"): who sets the cop manager's "no new cops" timer (vtable 0x891900 slot 11,
+// 0x411410 thiscall(bool on): on = 60 s, or a tuning value outside races; off = 0)
+namespace {
+    using CopTimerFn = void(__thiscall*)(void*, bool);
+    void __fastcall hk_CopTimer(void* self, void*, bool on) {
+        void* ret = _ReturnAddress();
+        ((CopTimerFn)0x411410)(self, on);
+        float t = 0; Mem::Read((uintptr_t)self + 0x58, t);
+        LOG("Cops: no-new-cops timer %s by %p -> %.1f s", on ? "SET" : "cleared", ret, t);
+    }
+}
+static void InstallCopTimerLog() {
+    static bool done = false; if (done) return; done = true;
+    uintptr_t slot = 0x891900 + 11 * 4, cur = 0;
+    if (Mem::Read(slot, cur) && cur == 0x411410) { Mem::PatchPointer((void*)slot, (void*)&hk_CopTimer); LOG("Cops: timer setter logged"); }
+}// test (with "watchload"): a hardware write watch (DR0) on the cop manager's timer, logging the code that
+// raises it (the per-frame countdown writes are skipped)
+namespace {
+    volatile uintptr_t g_hwAddr = 0; volatile float g_hwLast = 0; volatile LONG g_hwLogs = 0;
+    LONG CALLBACK HwWatchVeh(EXCEPTION_POINTERS* e) {
+        if (e->ExceptionRecord->ExceptionCode != EXCEPTION_SINGLE_STEP || !g_hwAddr) return EXCEPTION_CONTINUE_SEARCH;
+        if (!(e->ContextRecord->Dr6 & 1)) return EXCEPTION_CONTINUE_SEARCH;
+        e->ContextRecord->Dr6 = 0;
+        float v = *(volatile float*)g_hwAddr;
+        if (v > g_hwLast + 1.f && InterlockedIncrement(&g_hwLogs) < 40) {
+            uint32_t* sp = (uint32_t*)e->ContextRecord->Esp;
+            LOG("Cops: timer raised %.1f -> %.1f by code at %p (stack %08X %08X %08X %08X %08X %08X)", g_hwLast, v, e->ExceptionRecord->ExceptionAddress, sp[0], sp[1], sp[2], sp[3], sp[4], sp[5]);
+        }
+        g_hwLast = v;
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
+    DWORD g_mainTid = 0;
+    DWORD WINAPI HwArmThread(LPVOID) {
+        HANDLE th = OpenThread(THREAD_GET_CONTEXT | THREAD_SET_CONTEXT | THREAD_SUSPEND_RESUME, FALSE, g_mainTid);
+        if (!th) return 0;
+        SuspendThread(th);
+        CONTEXT c{}; c.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+        if (GetThreadContext(th, &c)) {
+            c.Dr0 = g_hwAddr; c.Dr7 = (c.Dr7 & ~0xF0003u) | 1u | (1u << 16) | (3u << 18);   // DR0 local, on write, 4 bytes
+            SetThreadContext(th, &c);
+        }
+        ResumeThread(th); CloseHandle(th);
+        return 0;
+    }
+    void ArmTimerWatch(void* iface) {
+        static bool veh = false;
+        if (!iface || g_hwAddr) return;
+        if (!veh) { veh = true; AddVectoredExceptionHandler(1, HwWatchVeh); }
+        g_hwAddr = (uintptr_t)iface + 0x58; g_hwLast = *(float*)g_hwAddr; g_mainTid = GetCurrentThreadId();
+        HANDLE h = CreateThread(nullptr, 0, HwArmThread, nullptr, 0, nullptr);
+        if (h) { WaitForSingleObject(h, 2000); CloseHandle(h); }
+        LOG("Cops: write watch on the timer at %p", (void*)g_hwAddr);
+    }
+}// test command "watchload <s>": once a second, the loading gates the game checks before a movie / NIS
+// (0x58F1E0: *0x9B2C14, track streamer busy 0x7303D0, loader *0x911FA8 busy 0x4B8C40) and the
+// stream / pause / NIS flags, to see which one keeps an in-world "LOADING..." up.
+static void LogLoadStateSafe() {
+    __try {
+        int f1 = 0, pause = 0, nisHold = 0; void* ld = nullptr; char* gm = nullptr; char* rs = nullptr;
+        Mem::Read(0x9B2C14, f1); Mem::Read(0x91CAE4, pause); Mem::Read(0x8EE348, nisHold); Mem::Read(0x911FA8, ld);
+        Mem::Read(0x91E00C, gm); Mem::Read(0x91E000, rs);
+        bool streamBusy = ((bool(__thiscall*)(void*))0x7303D0)((void*)0x9AA9D0);
+        bool loaderBusy = ld ? ((bool(__thiscall*)(void*))0x4B8C40)(ld) : false;
+        // RaceStatus update 0x603132: while rs+0x19A4 (the script asked NotifyScriptWhenLoaded) it sends
+        // "loadingcomplete" only when none of these says "still loading"
+        bool racerA = rs ? ((bool(__thiscall*)(void*))0x5E95F0)(rs) : false;
+        bool racerB = rs ? ((bool(__thiscall*)(void*))0x5E9660)(rs) : false;
+        bool gmReady = gm ? ((bool(__thiscall*)(void*))0x5EBF30)(gm) : true;
+        void* o92 = nullptr; Mem::Read(0x92C67C, o92);
+        bool o92Busy = o92 ? VCall<bool(__thiscall*)(void*)>(o92, 6)(o92) : false;
+        uint8_t b63 = 0; Mem::Read(0x9AAB63, b63);
+        void* pend = nullptr; void* pendVt = nullptr;
+        if (o92) { Mem::Read((uintptr_t)o92 + 0x1C, pend); if (pend) Mem::Read((uintptr_t)pend, pendVt); }
+        float coolDown = 0; uint8_t b60 = 0; int g90D5EC = 0; void* o9885C8 = nullptr;
+        if (o92) { Mem::Read((uintptr_t)o92 + 0x58, coolDown); Mem::Read((uintptr_t)o92 + 0x60, b60); }
+        Mem::Read(0x90D5EC, g90D5EC); Mem::Read(0x9885C8, o9885C8);
+        LOG("Load: cop manager pending spawns %p | can-spawn gates: +0x58 %.2f +0x60 %d *0x90D5EC %d obj9885C8 %p", pend, coolDown, b60, g90D5EC, o9885C8);
+        LOG("Load: racersNotLoaded %d racersNotReady %d vehiclesReady %d obj92C67C %p (vtable %p, fn6 %p) busy %d byte9AAB63 %d", racerA, racerB, gmReady, o92, o92 ? *(void**)o92 : nullptr, o92 ? (*(void***)o92)[6] : nullptr, o92Busy, b63);        LOG("Load: gate9B2C14 %d streamer %s loader %s | gm+2B4 %d rs+19A4 %d pauseReq %d nisHold %d flow %d",
+            f1, streamBusy ? "BUSY" : "idle", loaderBusy ? "BUSY" : "idle", gm ? (int)(uint8_t)gm[0x2B4] : -1, rs ? (int)(uint8_t)rs[0x19A4] : -1,
+            pause, nisHold, Game::GameFlowState());
+    } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Load: read failed"); }
+}
+void Game::LoadStateTick() {
+    static DWORD next = 0;
+    if (!g_ok || !g_watchLoadUntil || (int)(GetTickCount() - g_watchLoadUntil) > 0) return;
+    if ((int)(GetTickCount() - next) < 0) return;
+    next = GetTickCount() + 1000;
+    LogLoadStateSafe();
+}
+std::string Game::DebugWatchLoad(const char* arg) { InstallCopTimerLog(); { void* o = nullptr; Mem::Read(0x92C67C, o); ArmTimerWatch(o); } int s = atoi(arg); if (s <= 0) s = 60; g_watchLoadUntil = GetTickCount() + s * 1000; return "logging the loading gates for " + std::to_string(s) + " s"; }
 
 // test command "freeroam": from the front end with a career profile loaded (main menu, the safe house after a
 // story movie) load career free roam, as the quick start does. No focus needed.

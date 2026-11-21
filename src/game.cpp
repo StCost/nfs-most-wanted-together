@@ -1,4 +1,5 @@
 #include "game.h"
+#include <intrin.h>
 #include "netutil.h"
 #include "pursuitutil.h"
 #include "milestoneutil.h"

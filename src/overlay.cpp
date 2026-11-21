@@ -303,10 +303,33 @@ namespace {
             SetCursor(nullptr);
     }
 
+    // test command "stack": the game's return addresses on the stack of the next Present call (which loop
+    // is drawing this frame, e.g. a loading screen that waits): values in the exe's code that follow a call
+    volatile LONG g_stackReq = 0;
+    void LogStackOnce() {
+        char here = 0;
+        const uint8_t* sp = (const uint8_t*)&here;
+        const uint8_t* top = (const uint8_t*)((NT_TIB*)NtCurrentTeb())->StackBase;
+        char line[1024]; int n = 0, found = 0;
+        n += sprintf_s(line + n, sizeof(line) - n, "Stack:");
+        for (const uint8_t* p = (const uint8_t*)((uintptr_t)sp & ~3u); p + 4 <= top && found < 48; p += 4) {
+            uint32_t a = *(const uint32_t*)p;
+            if (a < 0x401005 || a > 0x8A0000) continue;
+            const uint8_t* c = (const uint8_t*)a;
+            bool afterCall = c[-5] == 0xE8 || c[-6] == 0xFF || c[-2] == 0xFF || c[-3] == 0xFF;
+            if (!afterCall) continue;
+            n += sprintf_s(line + n, sizeof(line) - n, " %06X@%X", a, (unsigned)(p - sp));
+            ++found;
+            if (n > (int)sizeof(line) - 24) break;
+        }
+        LOG("%s", line);
+    }
+
     HRESULT STDMETHODCALLTYPE hk_Present(IDirect3DDevice9* dev, const RECT* src, const RECT* dst, HWND wnd, const RGNDATA* dirty) {
         if (g_inPresent) return g_realPresent(dev, src, dst, wnd, dirty); // someone chained back into us
         g_inPresent = true;
         UpdateCursor(dev);
+        if (InterlockedExchange(&g_stackReq, 0)) { __try { LogStackOnce(); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Stack: walk failed"); } }
         IDirect3DDevice9* gameDev = nullptr;
         Mem::Read(0x982BDC, gameDev);
         if (gameDev && gameDev != g_dev) {
@@ -397,6 +420,7 @@ static DWORD WINAPI Watchdog(LPVOID) {
     return 0;
 }
 
+void Overlay::RequestStack() { InterlockedExchange(&g_stackReq, 1); }
 bool Overlay::InstallHooks() {
     void** slot = (void**)IAT_Direct3DCreate9;
     if (!Mem::IsReadable(slot, 4)) { LOG("IAT slot not readable - wrong exe version?"); return false; }

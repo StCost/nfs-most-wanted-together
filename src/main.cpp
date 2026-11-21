@@ -39,6 +39,7 @@ namespace {
     bool        g_coopHere = true;            // this profile may play co-op (career started; prologue done, or [Coop] Prologue)
     bool        g_inPrologue = false;         // this career is in the prologue
     bool        g_careerStarted = true;       // this profile has started its career
+bool        g_forceActive = false;        // test command "active 1": keep the game's application-active flag set (no focus taken)
 int         g_prologueStep = 0;           // prologue events done (Prologue::MiaStep = on the way to Mia)
 bool        g_noProfile = false;          // no profile loaded yet (title screen, main menu before it)
     const char* g_coopStatus = "";            // overlay line when co-op is off because of the prologue
@@ -120,7 +121,9 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
             } else { int one = 1; Mem::Write(0x982BEC, one); }
         }
 
+        if (g_forceActive) { int one = 1; Mem::Write(0x982BEC, one); }   // test command "active 1": the game runs as if focused
         Perf::FrameStart();
+        if (g_gameOk) { Game::LoadStateTick(); Game::PursuitLoadFixTick(); }
         { Perf::Scope perfMenus(Perf::Menus);
         static int lastFlow = -2;
         int flowNow = Game::GameFlowState();
@@ -236,7 +239,9 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                     else if (c == "clone") r = Game::DebugSpawnClone();
                     else if (c == "unclone") r = Game::DebugKillClone();
                     else if (c.rfind("shot ", 0) == 0) { Overlay::Screenshot(c.substr(5)); r = "screenshot"; }
-                    else if (c.rfind("nopause ", 0) == 0) r = Game::DebugNoPause(c.substr(8).c_str());
+                    else if (c.rfind("active ", 0) == 0) { g_forceActive = c.substr(7) == "1"; r = g_forceActive ? "application flag held active" : "application flag left to the game"; }
+                    else if (c.rfind("watchload ", 0) == 0) r = Game::DebugWatchLoad(c.substr(10).c_str());
+                    else if (c == "stack") { Overlay::RequestStack(); r = "stack at the next frame"; }
                     else if (c == "screens") r = FEScreens::ListAll();
                     else if (c == "freeroam") r = Game::DebugFreeRoam();
                     else if (c.rfind("fe ", 0) == 0) r = Game::FEPad(c.substr(3).c_str());

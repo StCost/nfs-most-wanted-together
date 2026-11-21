@@ -14,6 +14,7 @@ namespace Overlay {
     void SetText(const std::string& text);
     void SetVisible(bool v);
     void SetForceShow(bool v);
+    void RequestStack();                      // test: log the game's return addresses at the next frame
     void Screenshot(const std::string& path);   // save the next frame as a BMP (test tool)   // draw even when hidden (notifications)
     bool IsVisible();
 
