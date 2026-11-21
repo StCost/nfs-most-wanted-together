@@ -590,7 +590,7 @@ namespace {
             st.inPrologue = st.careerStarted && (up[0xB0] == 0x10 || (mode == 1 && Prologue::IsPrologueEvent(id)));   // only racing one counts
             if (st.inPrologue && Mem::Read(0x91E004, db) && db)
                 for (const char* e : kPrologueEvents) if (PrologueRaceDone(db, e)) ++st.step;
-        } else st.careerStarted = true;                                  // no profile loaded yet: as before
+        } else { st.careerStarted = true; st.noProfile = true; }          // no profile loaded yet: as before (no notices about it)
         if (st.careerStarted != g_prologue.careerStarted || st.inPrologue != g_prologue.inPrologue || st.step != g_prologue.step)
             LOG("Prologue: %s (career %s, prologue events done %d)", st.inPrologue ? "in the prologue" : "not in the prologue",
                 st.careerStarted ? "started" : "not started", st.step);

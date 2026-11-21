@@ -437,6 +437,20 @@ std::string Game::FEAccept(const char* pkg) {
     ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0x406415E3, pkg, 0xFF);
     return std::string("accept sent to ") + pkg;
 }
+// test command "fe <accept|back|left|right|up|down> <screen.fng>": that pad message to a front-end screen
+// (FEngHash of PAD_<name>), e.g. "fe left Dialog.fng" moves a Yes/No dialog to Yes. Works without focus.
+std::string Game::FEPad(const char* args) {
+    char name[16] = "", pkg[96] = "";
+    if (sscanf_s(args, "%15s %95s", name, (unsigned)sizeof(name), pkg, (unsigned)sizeof(pkg)) != 2) return "usage: fe <accept|back|left|right|up|down> <screen.fng>";
+    std::string msg = "PAD_";
+    for (const char* c = name; *c; ++c) msg += (char)toupper((unsigned char)*c);
+    uint32_t h = 0xFFFFFFFF;
+    for (char c : msg) h = h * 33 + (uint8_t)c;
+    void* fe = nullptr;
+    if (!g_ok || !Mem::Read(0x91CADC, fe) || !fe) return "no front end";
+    ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, h, pkg, 0xFF);
+    return msg + " sent to " + pkg;
+}
 
 // Notices in the game's own UI: the EA Trax chyron (the banner that shows the song title when a track
 // starts). The game summons it with 0x595ED0, cdecl(title, artist, album): it stores the three string

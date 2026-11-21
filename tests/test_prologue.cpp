@@ -17,6 +17,9 @@ TEST(prologue_encode_decode) {
     CHECK(Decode(true, Encode(false, 0, false)).noCareer);     // career not started yet
     CHECK(!Decode(true, Encode(true, 2)).noCareer);
     CHECK(!Decode(true, 0).noCareer);
+    CHECK(Decode(true, Encode(false, 0, true, true)).noProfile);  // title screen / main menu: no profile yet
+    CHECK(!Decode(true, Encode(true, 2)).noProfile);
+    CHECK(!Decode(true, 0).noProfile);
 }
 
 TEST(prologue_allowed_here) {
