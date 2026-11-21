@@ -10,9 +10,8 @@
 //  shows some of its objects again every frame (the speedometer digits: 0x57A540). So F1 hides every
 //  object under the chosen groups, and FEngSetVisible (0x514CC0, rewritten here with the same logic)
 //  keeps those hidden while F1 is on.
-//  The groups: SpeedometerGroup, GaugeCluster (the speedometer / tachometer, by the names the HUD's own
-//  code looks up) and the group the minimap's player arrow (PLAYERCARINDICATOR) is in - the minimap
-//  has no group name of its own in the exe, its group holds the map, its icons and the heat bar.
+//  What to hide is picked by screen position (see InHideZone): the minimap with its icons and heat meter
+//  bottom-left, the gauge cluster bottom-right. Most of these parts have no name the exe looks up.
 // ---------------------------------------------------------------------------
 #include <unordered_set>
 #include <unordered_map>
@@ -21,21 +20,9 @@ namespace {
     std::unordered_set<void*> g_hudSet;          // every object F1 hid (the chosen groups and all that is in them)
     std::unordered_map<void*, bool> g_hudWasHidden;   // each one's own state before F1 (restored exactly when shown again)
     const char* const kHudPackages[] = { "HUD_SingleRace.fng", "HUD_Drag.fng", "HUD_Player1.fng", "HUD_Drag_Player1.fng" };
-    const char* const kHudGroups[] = { "SpeedometerGroup", "GaugeCluster" };
 
-    uint32_t FeHash(const char* s) { return ((uint32_t(__cdecl*)(const char*))0x5AF1C0)(s); }
     uint32_t ObjFlags(void* o) { return *(uint32_t*)((uint8_t*)o + 0x1C); }
     int      ObjType(void* o) { return *(int*)((uint8_t*)o + 0x18); }
-
-    // walk an object list (siblings from `first`); remembers each object's parent group
-    struct Walk { void* target = nullptr; uint32_t hash = 0; void* parentOfTarget = nullptr; int depth = 0; };
-    void FindWithParent(void* first, void* parent, Walk& w, int depth) {
-        int guard = 0;
-        for (void* o = first; o && guard < 2000 && !w.target; o = *(void**)((uint8_t*)o + 4), ++guard) {
-            if (*(uint32_t*)((uint8_t*)o + 0x10) == w.hash) { w.target = o; w.parentOfTarget = parent; w.depth = depth; return; }
-            if (ObjType(o) == 5) FindWithParent(*(void**)((uint8_t*)o + 0x64), o, w, depth + 1);
-        }
-    }
     int CountTree(void* o, int depth = 0) {
         int n = 1;
         if (depth < 12 && ObjType(o) == 5) {
@@ -79,35 +66,49 @@ namespace {
         LOG("HUD: FEngSetVisible %s", ok ? "hooked" : "NOT hooked (bytes differ) - the speedometer digits may show again");
     }
 
-    // build the set of objects to hide from the pushed HUD package(s)
+    // An object's position: FEObject +0x2C -> data block, floats [7] x, [8] y, relative to its parent group;
+    // the screen is about 640x480 around (0,0), y down. The minimap sits bottom-left (centre about -220, 140),
+    // the gauge cluster bottom-right (centre about 145, 185), the pursuit bar bottom-centre (x -110..110),
+    // the mirror top-centre.
+    bool ObjPos(void* o, float& x, float& y) {
+        const float* d = *(const float**)((uint8_t*)o + 0x2C);
+        if ((uintptr_t)d < 0x10000 || !Mem::IsReadable(d, 0x24)) return false;
+        x = d[7]; y = d[8];
+        return x == x && y == y && fabsf(x) < 5000 && fabsf(y) < 5000;
+    }
+    bool InHideZone(float x, float y) {
+        if (y > 260) return false;       // parked below the screen (race lists that slide in)
+        return (x < -150 && y > 50)      // minimap, its icons and the heat meter
+            || (x > 120 && y > 0);       // speedometer / tachometer, nitrous, speedbreaker and their icons
+    }
+    // walk a list: an object in a zone is hidden with all it holds (a big group - the whole HUD or the whole
+    // right side - is looked into instead, so the parts outside the zones stay)
+    int HideByZone(void* first, float px, float py, int depth) {
+        int roots = 0, guard = 0;
+        for (void* o = first; o && guard < 500; o = *(void**)((uint8_t*)o + 4), ++guard) {
+            float x = 0, y = 0;
+            if (!ObjPos(o, x, y)) continue;
+            x += px; y += py;
+            bool group = ObjType(o) == 5;
+            if (InHideZone(x, y) && (!group || CountTree(o) < 60)) { CollectTree(o); ++roots; continue; }
+            if (group && depth < 8) roots += HideByZone(*(void**)((uint8_t*)o + 0x64), x, y, depth + 1);
+        }
+        return roots;
+    }
+
+    // build the set of objects to hide from the HUD package(s)
     int BuildHudSet(bool log) {
         g_hudSet.clear();
         void* fe = nullptr;
         if (!Mem::Read(0x91CADC, fe) || !fe) return 0;
         int roots = 0;
         for (const char* pkgName : kHudPackages) {
-            if (!((bool(__thiscall*)(void*, const char*))0x516B50)(fe, pkgName)) continue;        // pushed now
             void* pkg = ((void*(__thiscall*)(void*, const char*))0x516AF0)(fe, pkgName);
             if (!pkg) continue;
             void* first = *(void**)((uint8_t*)pkg + 0x4C);
-            for (const char* name : kHudGroups) {
-                Walk w; w.hash = FeHash(name);
-                FindWithParent(first, nullptr, w, 0);
-                if (!w.target) { if (log) LOG("HUD: %s not in %s", name, pkgName); continue; }
-                CollectTree(w.target); ++roots;
-                if (log) LOG("HUD: %s in %s - %d object(s)", name, pkgName, CountTree(w.target));
-            }
-            // the minimap: the group its player arrow is in (unless that is the whole HUD)
-            Walk w; w.hash = FeHash("PLAYERCARINDICATOR");
-            FindWithParent(first, nullptr, w, 0);
-            if (!w.target) { if (log) LOG("HUD: minimap arrow not in %s", pkgName); continue; }
-            void* grp = w.parentOfTarget;
-            int n = grp ? CountTree(grp) : 0;
-            if (log) LOG("HUD: minimap arrow in %s at depth %d, its group %p (hash %08X) holds %d object(s)", pkgName, w.depth, grp,
-                         grp ? *(uint32_t*)((uint8_t*)grp + 0x10) : 0, n);
-            if (grp && n > 1 && n < 120) { CollectTree(grp); ++roots; }
-            else if (log) LOG("HUD: that group is too big to be the minimap - hiding the minimap's own objects only");
-            if (!grp || n >= 120) CollectTree(w.target);
+            int r = HideByZone(first, 0, 0, 0);
+            if (log) LOG("HUD: %s - %d part(s), %d object(s) so far", pkgName, r, (int)g_hudSet.size());
+            roots += r;
         }
         return roots;
     }
