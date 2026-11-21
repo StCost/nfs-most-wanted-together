@@ -57,6 +57,7 @@ second, deletes it and logs `Command '<text>': <result>`. This works with the ga
 | `stack` | the game's return addresses at the next frame (which loop draws it) |
 | `screens` | log every menu screen that is open now (all screen names in the exe, not only the known ones) |
 | `freeroam` | from the front end (main menu, or the safe house after a story movie) load career free roam, no focus needed |
+| `hud` / `hudscan` | toggle the F1 HUD hide / log every object of the HUD package with its position (to pick what F1 hides) |
 | `icons` | log every minimap icon drawn in the next second (position, pinned to the edge, call site): finds the GPS target of a story drive, e.g. Mia's meeting point after the car lot |
 
 **Useful ini switches:** `[Debug] AutoPilot=1` (the AI drives in free roam and races), `[Window]
@@ -64,7 +65,7 @@ StartInBackground=1` (start without taking focus, muted), `[Debug] Perf=1` (fps 
 5 s), `[Debug] ReadyDelayMs=6000` (pretend to load slowly), `[Debug] BootTrace=1` (log the boot screens).
 
 **Useful event ids:** `15.1.1` circuit, `15.1.2` rival race (Razor), `14.4.1` tollbooth, `13.5.1` speedtrap,
-`12.7.3` drag, `15.3.1` lap knockout, `19.8.32` Challenge Series tollbooth (preset car). `events` lists all 208.
+`12.7.3` drag, `15.3.1` lap knockout, `1.8.1` final pursuit, `19.8.32` Challenge Series tollbooth (preset car). `events` lists all 208.
 
 **The log** is `scripts\MWTogether.log`, rewritten on every start. The game keeps it open, so read it with
 shared access (plain `Get-Content` works; some tools need "open for read, allow read/write").
@@ -271,7 +272,7 @@ A pass looks like this (both PCs on fresh careers, linked):
 5. Install the release zip into a copy of the game **without** the Widescreen Fix (and once with it), start it
    through `MWTogetherLauncher.exe` > Play: the plain game's title screen is `MW_LS_Splash.fng`, the fixed
    game's `WS_MW_LS_Splash.fng`, and the fast start must get past both into free roam.
-6. Update the checklist in `README.md`: a line loses its `(?)` only when it was seen working on two PCs.
+6. Update the checklist in `README.md`: a new feature gets `(?)` until it was seen working on two PCs.
 
 ## Known limits of the test tools
 

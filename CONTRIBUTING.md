@@ -91,7 +91,7 @@ Open an issue and include:
 - what you did, what you expected and what happened instead.
 
 ## Good first areas
-The unticked lines in the [README checklist](README.md#features-and-progress) are what's left: more than two players, internet play without a VPN, name tags, and story cutscenes for both players.
+Everything on the [README checklist](README.md#features-and-progress) is done. Ideas that would fit: internet play without a VPN or port forwarding, and name tags over the other player's car. The mod aims for the plain game's experience, so no engine limit raises or gameplay extras.
 
 ## Testing in the game
 See [docs/TESTING.md](docs/TESTING.md): the test commands, `tools\coop-test.ps1` scenarios for two PCs, and the release checklist. Add a scenario there when you add a co-op feature.

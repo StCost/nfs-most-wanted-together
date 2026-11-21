@@ -51,8 +51,6 @@ You can play the prologue (the opening BMW races) together too: start a new care
 
 <details><summary><h2>Features and progress (100%)</h2></summary>
 
-(?) = built, but not fully playtested yet.
-
 <details><summary><b>Connecting</b></summary>
 
 - [x] Direct connection between two PCs (one hosts, one joins), ping in the overlay
@@ -95,6 +93,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Smooth traffic handover: drive away from the other player and their traffic around you keeps going as your own. Come back, and their cars only show up where you can't see them appear, or quietly replace one of yours (`[Traffic] SmoothHandover`)
 - [x] Shared traffic in races: the client shows the host's traffic with its own cars, so the race scripts keep working. Same positions on both screens, though the model can differ (`[Traffic] SharedInRaces`)
 - [x] No cars popping up in front of you: new traffic and cops never appear within ~60 m in front of either player (`[Traffic] NoSpawnNearPlayers`)
+- [x] Same weather on both PCs: the client gets the host's rain and wet roads (`[Coop] SyncWeather`)
 
 
 </details>
@@ -112,10 +111,10 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] A win by either of you counts for both: cash, unlocks and progress in each own career. The one still driving is finished as the winner on the spot, with the winner's screen, the payout and the rival's progress (`SharedWins`)
 - [x] You see the other player's finish in your standings
 - [x] Blacklist rival races: you both race the rival, the client's rival follows the host's (second race of the series too), and you each get the normal rival flow after winning
-- [x] In rival races your partner has their own racer slot: a grid slot and a row in the standings (`[Coop] PartnerInRivalRaces`) (?)
+- [x] In rival races your partner has their own racer slot: a grid slot and a row in the standings (`[Coop] PartnerInRivalRaces`)
 - [x] Rival races also get one extra AI racer on the rival's side, with normal AI and catch-up. It drives the car the race intro shows (Ming, #10, Big Lou) when there is one (`[Coop] BossHelper`)
 - [x] Rival races and story events (Razor's races, the final pursuit) only take along a partner who's at the same Blacklist rival, so nobody skips ahead. Continue on "race the rival" takes your partner to the next race too
-- [x] The final pursuit loads in about a second (?)
+- [x] The final pursuit loads in about a second
 - [x] The prologue together: start a new career on both PCs. Each game plays its own prologue, and whoever is ahead waits on the next grid. Your partner races next to you, and the Razor race is still lost for both (`[Coop] Prologue`)
 - [x] After beating a rival, each of you picks your own markers and gets your own rewards (pink slip, cash, parts)
 - [x] Bounty goes to each player's own career
@@ -133,6 +132,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Shared pursuits (`[Coop] SharedPursuits`): you get the same heat, the higher one counts
 - [x] The other player's cops show on your minimap and trigger your radar
 - [x] Ramming their cop starts a pursuit on you
+- [x] Blacklist pursuits (milestones, bounty) started from the Blacklist screen take your partner along to the start (`[Coop] FollowToPursuits`)
 - [x] One of you gets busted, you both get busted
 - [x] Escaping: the cooldown only runs while neither of you is seen, restarts when either one is spotted, and you both escape at the same moment
 - [x] No pursuit-start camera: the camera stays on your car when a chase starts (`NoPursuitCams`)
@@ -143,7 +143,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 <details><summary><b>Quality of life (settings in <code>[Start]</code>, <code>[UI]</code> and <code>[Input]</code>)</b></summary>
 
 - [x] Goes straight into career free roam after the profile loads (`DirectFreeRoam`); can skip the intro logos and movie (`SkipIntro`, off by default)
-- [x] Several profiles: the quick start loads the one you used last (`[Start] LastProfile`); the first time you pick it yourself (?)
+- [x] Several profiles: the quick start loads the one you used last (`[Start] LastProfile`); the first time you pick it yourself
 - [x] **F1** hides the minimap, heat meter and speedometer, keeping the rear-view mirror. F1 again brings them back (`[UI] HideHudKey`)
 - [x] Confirms the "load complete" screen for you (`SkipLoadComplete`)
 - [x] No "leave the safe house?" question (`SkipLeaveSafeHouseDialog`)
@@ -229,14 +229,23 @@ The code is in `src/`:
 | `netutil.h` | pure helpers: interpolation maths, traffic ids, race traffic binding, traffic handover rules (camera view, when a car may appear or go), name limits, validation of received numbers |
 | `game.cpp` | vehicles, spawning, the other player's car (ghost), race integration, autopilot |
 | `traffic.inl` | traffic, cop and race-opponent mirroring |
+| `budget.inl` | the game's 20-car budget, logged |
 | `event.inl` | shared event start, roster, co-op rules (speedbreaker, no pause, restart sync) |
+| `coopwin.inl` | shared wins |
+| `bosshelper.inl` | rival races together: the partner's racer slot and the extra AI racer |
 | `pursuit.inl` | cops chasing the other player, shared heat / busted / cooldown, their cops on the minimap and radar, no pursuit-start camera |
-| `pursuitutil.h` | the shared-pursuit rules that don't need the game (heat, cooldown, busted), tested in `tests\test_pursuit.cpp` |
+| `follow.inl` | going along to a Blacklist pursuit |
+| `milestone.inl` | shared milestones and speed traps |
+| `nis.inl`, `story.inl` | cutscene skip voting, story movies and scenes |
+| `save.inl` | the host's copy of the partner's career save |
+| `weather.inl` | the same rain on both PCs |
 | `stream.inl` | world streaming around the other player |
 | `minimap.inl`, `worldmap.inl` | player blips |
-| `boot.inl` | fast start (skip intro, direct free roam, no safe-house dialog) |
-| `input.*` | DirectInput observation, menu automation (AutoStart) |
+| `hud.inl` | F1: hide the minimap and the gauges |
+| `boot.inl` | fast start (skip intro, direct free roam, no safe-house dialog, last profile), final pursuit load fix |
+| `input.*`, `pad.cpp` | DirectInput, menu automation (AutoStart), gamepad hot-plug and bindings |
 | `overlay.*` | D3D9 hooks and the status overlay |
+| `*util.h` | the rules that don't need the game (pursuit, race, ground, milestones, prologue, profiles, notices, saves), covered by `tests\` |
 
 
 </details>
