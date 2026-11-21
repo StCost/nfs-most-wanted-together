@@ -56,7 +56,7 @@ void Config::Load(const char* ini) {
     catchUpLeader = ReadInt(ini, "Coop", "CatchUpLeader", 1) != 0;
     bossHelper = ReadInt(ini, "Coop", "BossHelper", 1) != 0;
     bossHelperSolo = ReadInt(ini, "Debug", "BossHelperSolo", 0) != 0;
-    noSlowMotion = ReadInt(ini, "Coop", "NoSlowMotion", 1) != 0;
+    noSlowMotion = ReadInt(ini, "Coop", "NoSlowMotion", 0) != 0;
     syncWeather = ReadInt(ini, "Coop", "SyncWeather", 1) != 0;
     followToPursuits = ReadInt(ini, "Coop", "FollowToPursuits", 1) != 0;
     restoreOnlyMissing = ReadInt(ini, "Career", "RestoreOnlyMissing", 1) != 0;

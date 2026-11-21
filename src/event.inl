@@ -401,6 +401,7 @@ void Game::CoopRulesTick(bool connected) {
 namespace {
     bool  g_noPausePatched = false;
     bool  g_restartFromPeer = false;
+    DWORD g_restartFromPeerAt = 0;   // when we pressed Restart on our results screen for the peer (it restarts a moment later)
     uint8_t g_lastRestartFlag = 0;
 
     void SetNoPause(bool on) {
@@ -523,7 +524,7 @@ static void RestartTickImpl(bool connected) {
     uint8_t flag = 0;
     Mem::Read(0x91CF28, flag);
     if (flag && !g_lastRestartFlag) {
-        if (g_restartFromPeer) g_restartFromPeer = false;        // we did it because the peer did
+        if (g_restartFromPeer && (!g_restartFromPeerAt || GetTickCount() - g_restartFromPeerAt < 15000)) { g_restartFromPeer = false; g_restartFromPeerAt = 0; }   // we did it because the peer did
         else if (connected) {
             int mode = 0;
             void* parms = CurrentParms(&mode);
@@ -553,6 +554,24 @@ void Game::PauseRuleTick(bool connected) {
 
 bool Game::TakeRestartIgnoredNotice() { bool v = g_restartIgnoredNotice; g_restartIgnoredNotice = false; return v; }
 
+// The results / winner's screen's own Restart: its button sends 0xE1A57D51, which the post-race handler
+// (0x5A764C -> 0x5A7880) answers with its dismiss event (0x625870) and the restart - right away, or, with
+// the winner's photo (InGamePhotoMaster) up, once that screen has closed (flag 0x91CF40). The same message
+// from us is exactly a press of Restart there - an ERestartRace of our own on a finished race crashed.
+static bool PressRestartOnResults() {
+    void* fe = nullptr;
+    if (!Mem::Read(0x91CADC, fe) || !fe) return false;
+    bool sent = false;
+    for (const char* pkg : { "InGamePhotoMaster.fng", "PostRace_Results.fng" }) {
+        if (!FEScreens::IsPushed(pkg)) continue;
+        ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0xE1A57D51, pkg, 0xFF);
+        sent = true;
+    }
+    return sent;
+}
+std::string Game::DebugResultsRestart() { return PressRestartOnResults() ? "Restart pressed on the results screen" : "no results screen up"; }
+
+static bool PressRestartOnResults();
 bool Game::InstallRestartSync() {
     Net::OnRestart = [](uint32_t hash, uint32_t seq) {
         if (!g_coopLinked) return;
@@ -571,8 +590,8 @@ bool Game::InstallRestartSync() {
                 void* ri = RacerInfoOfLocal(); uint8_t fin = 0;
                 if (ri) Mem::Read((uintptr_t)ri + 0x21, fin);
                 if (fin || FEScreens::IsPushed("PostRace_Results.fng") || FEScreens::IsPushed("InGamePhotoMaster.fng")) {
-                    LOG("Race: peer restarted, but our race is already over (results screen) - ignored; Restart there to join");
-                    g_restartIgnoredNotice = true;
+                    if (PressRestartOnResults()) { g_restartFromPeer = true; g_restartFromPeerAt = GetTickCount(); LOG("Race: peer restarted - pressing Restart on our results screen too"); }
+                    else { LOG("Race: peer restarted, but our race is already over and no results screen is up - Restart there to join"); g_restartIgnoredNotice = true; }
                     return;
                 }
             }

@@ -244,6 +244,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                     else if (c == "fixedlists") r = Game::DebugFixedLists();
                     else if (c == "stack") { Overlay::RequestStack(); r = "stack at the next frame"; }
                     else if (c == "screens") r = FEScreens::ListAll();
+                    else if (c == "resultsrestart") r = Game::DebugResultsRestart();
                     else if (c == "freeroam") r = Game::DebugFreeRoam();
                     else if (c.rfind("fe ", 0) == 0) r = Game::FEPad(c.substr(3).c_str());
                     else if (c.rfind("accept ", 0) == 0) r = Game::FEAccept(c.substr(7).c_str());
@@ -352,10 +353,16 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                 }
             }
             {   // careers at different Blacklist rivals: say so once (the rival screens and milestones differ then)
-                static int toldMine = -1, toldTheirs = -1;
+                // only a lasting difference: after beating a rival together the two careers move on a few seconds
+                // apart (the win, the rival's screens, the autosave) - said then, it told the player to beat a rival
+                // they had just beaten. So: both in free roam, out of any event, and still different 30 s later.
+                static int toldMine = -1, toldTheirs = -1; static DWORD diffSince = 0;
                 const Net::Snapshot& ps = Net::Latest();
                 int mine = g_gameOk ? Game::CareerBin() : 0, theirs = ps.valid ? ps.s.pad[2] : 0;
-                if (st.connected && linked && mine >= 1 && mine <= 15 && theirs >= 1 && theirs <= 15 && mine != theirs &&
+                bool calm = g_gameOk && Game::GameFlowState() == 6 && !Game::CurrentEventHash() && ps.valid && ps.s.eventHash == 0 && ps.s.gameFlowState == 6;
+                bool differ = st.connected && linked && mine >= 1 && mine <= 15 && theirs >= 1 && theirs <= 15 && mine != theirs && calm;
+                if (!differ) diffSince = 0; else if (!diffSince) diffSince = GetTickCount();
+                if (differ && GetTickCount() - diffSince > 30000 &&
                     (mine != toldMine || theirs != toldTheirs)) {
                     toldMine = mine; toldTheirs = theirs;
                     std::string who = st.peerName.empty() ? std::string("The other player") : st.peerName;

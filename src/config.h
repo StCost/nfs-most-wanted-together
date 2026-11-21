@@ -39,7 +39,7 @@ struct Config {
     bool        sharedPursuits = true;   // [Coop] SharedPursuits - shared heat, busted together, cooldown / escape together,
                                          // the other player's cops on the radar, ramming their cop starts a pursuit
     bool        noPursuitCams = true;    // [Coop] NoPursuitCams - no pursuit-start camera (look at the cop) while connected
-    bool        noSlowMotion = true;     // [Coop] NoSlowMotion - no slow-motion moments while connected (speed traps, pursuit / crash cams)
+    bool        noSlowMotion = false;    // [Coop] NoSlowMotion - 1: no slow-motion moments while connected (speed traps, finish, crash cams); 0 (default): as in the plain game
     bool        coopPrologue = true;     // [Coop] Prologue - co-op already in the prologue (both games run its chain, kept together at each start)
     bool        catchUpLeader = true;    // [Coop] CatchUpLeader - AI catch-up follows whichever player is ahead
     bool        bossHelper = true;       // [Coop] BossHelper - co-op Blacklist rival races get one more AI racer (normal AI)
