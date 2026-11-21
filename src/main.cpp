@@ -236,6 +236,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                     else if (c == "clone") r = Game::DebugSpawnClone();
                     else if (c == "unclone") r = Game::DebugKillClone();
                     else if (c.rfind("shot ", 0) == 0) { Overlay::Screenshot(c.substr(5)); r = "screenshot"; }
+                    else if (c.rfind("nopause ", 0) == 0) r = Game::DebugNoPause(c.substr(8).c_str());
                     else if (c == "screens") r = FEScreens::ListAll();
                     else if (c == "freeroam") r = Game::DebugFreeRoam();
                     else if (c.rfind("fe ", 0) == 0) r = Game::FEPad(c.substr(3).c_str());

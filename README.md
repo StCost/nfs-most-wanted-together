@@ -51,7 +51,7 @@ The prologue (the opening races in the BMW) can be played together too: start a 
 - **One world.** Shared traffic when you're near by, collisions between your cars, blips on the minimap and map.
 - **Saves.** Everyone keeps their own career save. The host stores a copy of the partner's save after every
   autosave and hands it back if theirs is ever missing. An existing save is never replaced, so everyone's own settings (camera, units, controls) stay theirs.
-- **Final pursuit:** it used to stay on its "LOADING..." screen after the intro movie while both of you were connected; fixed in 1.6.1 (?). If it still happens, one of you quits the game for a moment: the pursuit then loads, and the other can join again.
+- **Final pursuit:** it used to stay on its "LOADING..." screen after the intro movie while both of you were connected; fixed in 1.6.1 (the cause is confirmed: co-op kept the world running through the pause that loading needs). If it still happens, one of you quits the game for a moment: the pursuit then loads, and the other can join again.
 - **Not yet:** 4 players.
 
 

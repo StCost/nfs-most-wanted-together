@@ -405,6 +405,7 @@ namespace {
 
     // A menu the player opened over the world (pause menu and its pages, world map, messages, save):
     // the screens co-op keeps the world running under. Polled at most every 200 ms.
+    int g_noPauseTest = 0;   // test command "nopause": 0 as configured, 1 always skip the pause (the old rule), 2 the menu rule even solo
     bool PlayerMenuOpen() {
         static const char* const menus[] = { "Pause_Main.fng", "Pause_Options.fng", "Pause_PCDisplayOptions.fng", "Options_PC_Controller.fng",
                                              "WorldMapMain.fng", "SMS_Mailboxes.fng", "SMS_MailBoxes.fng", "SMS_Message.fng",
@@ -558,9 +559,19 @@ void Game::PauseRuleTick(bool connected) {
         // while we wait on the grid, or a story scene holds / plays over the world, the pause must bite.
         // And only a player's menu is skipped: other pause requests (the final pursuit's in-world
         // "LOADING..." after its intro movie waits for the world to stop) must stop the world as before.
-        SetNoPause(connected && g_cfg.noPause && !g_holding && !Game::StoryPauseWanted() && PlayerMenuOpen());
+        bool want = connected && g_cfg.noPause && !g_holding && !Game::StoryPauseWanted() && PlayerMenuOpen();
+        if (g_noPauseTest == 1) want = true;                                        // test: the old rule (any pause request)
+        else if (g_noPauseTest == 2) want = g_cfg.noPause && !g_holding && !Game::StoryPauseWanted() && PlayerMenuOpen();   // test: this rule, solo
+        SetNoPause(want);
         RestartTickImpl(connected);
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+std::string Game::DebugNoPause(const char* arg) {
+    g_noPauseTest = atoi(arg);
+    if (g_noPauseTest < 0 || g_noPauseTest > 2) g_noPauseTest = 0;
+    static const char* const what[] = { "as configured (co-op only, player menus only)", "always skip the pause (old rule)", "player menus only, also solo" };
+    return std::string("no-pause test: ") + what[g_noPauseTest];
 }
 
 bool Game::TakeRestartIgnoredNotice() { bool v = g_restartIgnoredNotice; g_restartIgnoredNotice = false; return v; }
