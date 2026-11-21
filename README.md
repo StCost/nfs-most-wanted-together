@@ -160,6 +160,7 @@ The prologue (the opening races in the BMW) can be played together too: start a 
 
 - [x] Load straight into career free roam after the profile (`DirectFreeRoam`); optionally skip the intro logos and movie (`SkipIntro`, off by default)
 - [x] Several profiles: the quick start picks the profile you loaded last in the game's profile list by itself (remembered as `[Start] LastProfile`); the first time, or with the quick start off, you pick it yourself (?)
+- [x] **F1** hides the minimap (with the heat meter) and the speedometer; the rear-view mirror stays. F1 again shows them (`[UI] HideHudKey`) (?)
 - [x] The "load complete" screen after the title confirms itself (`SkipLoadComplete`, on by default)
 - [x] No "leave the safe house?" question (`SkipLeaveSafeHouseDialog`)
 - [x] Menus react while their opening animation plays, and animate 2x faster (`IntroInput`, `MenuSpeed`) to improve UI responsivness
