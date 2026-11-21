@@ -1424,6 +1424,12 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
         SetCollisions(g_ghost, wantCollide);
         g_ghostCollide = wantCollide;
         LOG("Ghost collisions %s", wantCollide ? "ON" : "OFF");
+    } else if (!g_ghostCollide) {
+        // keep them off: a race's start (grid placement, reset to the start positions, the countdown)
+        // resets its racers' bodies and turns their object collisions back on - the two cars on one grid
+        // spot then pushed each other up into a pile. Said again every 200 ms until they are apart.
+        static DWORD lastOff = 0;
+        if (GetTickCount() - lastOff > 200) { lastOff = GetTickCount(); SetCollisions(g_ghost, false); }
     }
 
     sprintf_s(out, outLen, "%s  jitter %.1fmm  extrap %.0fms  dist %.0fm  err %.1fm  coll %s%s", g_ghostName, g_jitterMm, g_extrapMs, sep, err,

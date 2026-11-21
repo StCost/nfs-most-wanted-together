@@ -10,21 +10,27 @@ namespace {
     struct FollowTarget { bool pending = false; float pos[3], fwd[3], right[3], quat[4]; DWORD loadAt = 0, moveAt = 0; };
     FollowTarget g_follow;
 
+    // A dialog and then a long jump is also the map's "go to the safe house" (and leaving it): only a jump
+    // that a pursuit on us follows within 10 s is a Blacklist pursuit. The other player is asked then.
     void FollowSenderTick(void* me) {
-        static DWORD dialogAt = 0; static float last[3]; static bool haveLast = false;
+        static DWORD dialogAt = 0, jumpAt = 0; static float last[3]; static bool haveLast = false; static float jumpDist = 0;
         DWORD now = GetTickCount();
         if (FEScreens::IsPushed("InGameDialog.fng")) dialogAt = now;
         void* rb = RigidBodyOf(me);
         if (!rb) { haveLast = false; return; }
         const float* p = RB_GetVec(rb, RB_GetPosition);
         if (haveLast && Dist(last, p) > 300.f && dialogAt && now - dialogAt < 6000 && !Game::CurrentEventHash()) {
+            jumpAt = now; jumpDist = Dist(last, p); dialogAt = 0;
+        }
+        if (jumpAt && now - jumpAt > 10000) { jumpAt = 0; LOG("Follow: moved %.0f m after a dialog, but no pursuit followed (safe house, map jump) - not shared", jumpDist); }
+        if (jumpAt && g_localChased && !Game::CurrentEventHash()) {
             float f[3], r[3];
             VCall<void(__thiscall*)(void*, float*)>(rb, 13)(rb, f);
             VCall<void(__thiscall*)(void*, float*)>(rb, 14)(rb, r);
             const float* q = RB_GetVec(rb, RB_GetOrientation);
             Net::SendFollow(p, f, r, q);
-            dialogAt = 0;
-            LOG("Follow: we were moved %.0f m after the Blacklist dialog - asking the other player to come along", Dist(last, p));
+            jumpAt = 0;
+            LOG("Follow: moved %.0f m after the Blacklist dialog and a pursuit started - asking the other player to come along", jumpDist);
         }
         memcpy(last, p, 12); haveLast = true;
     }
@@ -64,6 +70,6 @@ void Game::InstallFollow() {
         g_follow.loadAt = GetTickCount(); g_follow.moveAt = g_follow.loadAt + 4000; g_follow.pending = true;
         StreamHoldAt(pos, 20000);                                            // load the world there first
         LOG("Follow: the other player went to a Blacklist pursuit - loading the world there, moving in 4 s");
-        { std::string m = (Net::Stats().peerName.empty() ? std::string("The other player") : Net::Stats().peerName) + " started a Blacklist pursuit - taking you there"; Game::QueueNotice(m, false); }
+        { std::string m = (Net::Stats().peerName.empty() ? std::string("The other player") : Net::Stats().peerName) + " started a Blacklist pursuit"; Game::QueueNotice(m, false); }
     };
 }
