@@ -123,7 +123,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
 
         if (g_forceActive) { int one = 1; Mem::Write(0x982BEC, one); }   // test command "active 1": the game runs as if focused
         Perf::FrameStart();
-        if (g_gameOk) { Game::LoadStateTick(); Game::PursuitLoadFixTick(); }
+        if (g_gameOk) { Game::LoadStateTick(); Game::PursuitLoadFixTick(); Game::BudgetTick(); }
         { Perf::Scope perfMenus(Perf::Menus);
         static int lastFlow = -2;
         int flowNow = Game::GameFlowState();
@@ -241,6 +241,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                     else if (c.rfind("shot ", 0) == 0) { Overlay::Screenshot(c.substr(5)); r = "screenshot"; }
                     else if (c.rfind("active ", 0) == 0) { g_forceActive = c.substr(7) == "1"; r = g_forceActive ? "application flag held active" : "application flag left to the game"; }
                     else if (c.rfind("watchload ", 0) == 0) r = Game::DebugWatchLoad(c.substr(10).c_str());
+                    else if (c == "fixedlists") r = Game::DebugFixedLists();
                     else if (c == "stack") { Overlay::RequestStack(); r = "stack at the next frame"; }
                     else if (c == "screens") r = FEScreens::ListAll();
                     else if (c == "freeroam") r = Game::DebugFreeRoam();

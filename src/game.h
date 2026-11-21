@@ -61,7 +61,9 @@ namespace Game {
     std::string DebugCash();            // test: career cash and whether the current event is won
     std::string DebugWatchLoad(const char* arg);  // test: "watchload <s>" - log the movie / NIS loading gates every second
     void LoadStateTick();
-    void PursuitLoadFixTick();           // the final pursuit's 2-minute loading wait: clear the cop manager's timer
+    void PursuitLoadFixTick();
+    void BudgetTick();
+    std::string DebugFixedLists();       // test: "fixedlists" - every fixed-capacity table in the exe's data, capacity and fill                   // car budget summary (evicted / refused cars) every 30 s           // the final pursuit's 2-minute loading wait: clear the cop manager's timer
     std::string DebugFreeRoam();                  // test: "freeroam" - leave the front end (safe house) into career free roam
     std::string FEPad(const char* args);          // test: "fe left Dialog.fng" - a pad message to a front-end screen
     std::string FEAccept(const char* package);   // test: send PAD_ACCEPT to a front-end screen         // test: restart the current race

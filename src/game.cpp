@@ -791,6 +791,7 @@ namespace {
     bool     g_helperPeerRoster = false;// the client joined with the host's roster: its helper car is entry g_helperOpp
 }
 static void InstallBossHelper();
+static void InstallBudgetLog();
 // The helper's car per Blacklist rival: the partner the rival's race intro shows, where it shows one
 // (BossHelperCar, raceutil.h); otherwise the game's own pick. (The cars the intro cutscene itself builds
 // are traffic and police props - traftaxi, copmidsize_nis ... - never the partner, so they aren't used.)
@@ -920,6 +921,7 @@ bool Game::InstallVehicleFactoryHook() {
     }
     Mem::PatchPointer((void*)0x92C534, (void*)&hk_VehicleConstruct);
     InstallTrafficHooks();
+    InstallBudgetLog();
     InstallEventSync();
     InstallRestartSync();
     InstallStreamHook();
@@ -1005,6 +1007,7 @@ bool Game::ReadLocalCarInfo(CarInfo& out) {
 }
 
 #include "traffic.inl"
+#include "budget.inl"
 #include "event.inl"
 #include "minimap.inl"
 #include "worldmap.inl"
