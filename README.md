@@ -174,6 +174,7 @@ The prologue (the opening races in the BMW) can be played together too: start a 
 - [x] **F5** autopilot: the game's AI drives your car, cruising in free roam and following the route in races. `AutoPilot=1` turns it on by itself. For testing purposes
 - [x] Autopilot uses nitrous on straights (`[Debug] AutoPilotNos`, default on)
 - [x] `[Window] StartInBackground=1`: the game starts without taking the focus, loads the profile and goes into free roam in the background, and stays muted until you click it. For testing purposes
+- [x] Car budget in the log: the game allows 20 cars in the world (yours, your partner's, traffic, cops); when a new car needs room, the log says which cars were removed for it or that it was refused, with the count and car memory, plus a summary every 30 s. For troubleshooting
 - [x] Performance diagnostics: `[Debug] Perf=1` logs fps, 1% lows, worst frame and how many milliseconds each part of the mod takes, every 5 seconds (it's also shown in the F8 overlay). For testing purposes
 - [x] **F7** starts the test event (`TestEvent`) for both players. For testing purposes
 - [x] **F10 / F11** spawn or remove a test copy of the other player's car, **F12** spawns a test cop. For testing purposes
