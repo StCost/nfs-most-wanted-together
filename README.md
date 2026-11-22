@@ -192,11 +192,16 @@ All options are in `scripts\MWTogether.ini`, with a comment on each. Sections:
 - Visual Studio 2022 with the C++ workload (MSVC x86).
 - Run `build.bat`. It produces `build\MWTogether.asi`. When this folder sits inside the game folder
   (`<game>\MWTogether-src\`), the script also installs the plugin into `<game>\scripts\`.
+  That is a dev build with the test keys and commands (`docs/TESTING.md`); `set MWT_RELEASE=1` first for a
+  release build without them (`tools\release.ps1` and the workflow do this).
 - Nothing builds automatically on GitHub. The **Build** workflow under **Actions** runs only when you start it
   by hand: it builds the plugin and the launcher, runs the tests and packages the zip with the ASI loader. Give
   it a version number and it also creates the GitHub release.
 - Local release, without Actions: `tools\release.ps1 -Version 0.2.0` publishes a pre-release; add `-Final` for a
   normal release. `-DryRun` only builds the zip in `dist\`.
+- The launcher is built by `tools\build-launcher.ps1`. Its pictures are files in `scripts\launcher\`, not part of the
+  exe. Every release lists the SHA256 of its files, and files built by the workflow carry a build provenance
+  attestation: `gh attestation verify MWTogether.zip --repo StCost/nfs-most-wanted-together`.
 
 
 </details>

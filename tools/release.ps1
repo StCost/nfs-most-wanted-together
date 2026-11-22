@@ -17,11 +17,12 @@ if (-not $DryRun) {
     if (git tag --list "v$Version") { throw "Tag v$Version already exists." }
 }
 
-# 1. build with the version stamped in
+# 1. build with the version stamped in; MWT_RELEASE leaves the test commands and debug tools out
 $env:MWT_VERSION = $Version
+$env:MWT_RELEASE = '1'
 & (Join-Path $root "build.bat")
 if ($LASTEXITCODE -ne 0) { throw "build failed" }
-Remove-Item Env:MWT_VERSION
+Remove-Item Env:MWT_VERSION, Env:MWT_RELEASE
 
 # 2. package: dinput8.dll (Ultimate ASI Loader, MIT) + scripts\MWTogether.asi/.ini + README
 $dist = Join-Path $root 'dist'
@@ -32,42 +33,51 @@ Copy-Item build\MWTogether.asi (Join-Path $pkg 'scripts')
 # settings ship as a default only: unpacking an update over an install never overwrites the player's MWTogether.ini
 Copy-Item MWTogether.ini (Join-Path $pkg 'scripts\MWTogether.default.ini')
 Copy-Item README.md, LICENSE, THIRD-PARTY-NOTICES.txt $pkg
-# launcher: the release number in its file details, a manifest (normal user rights), and the banner as a
-# small JPEG (a 1.3 MB embedded PNG made the exe look packed / obfuscated to antivirus heuristics)
-$lv = if (($Version -split '\.').Count -eq 3) { "$Version.0" } else { $Version }
-Set-Content build\LauncherVersion.cs "static class LauncherVersion { public const string Text = `"$lv`"; }"
-Add-Type -AssemblyName System.Drawing
-$img = [System.Drawing.Image]::FromFile((Resolve-Path docs\banner.png))
-$enc = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | ? MimeType -eq 'image/jpeg'
-$ep = New-Object System.Drawing.Imaging.EncoderParameters 1
-$ep.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter ([System.Drawing.Imaging.Encoder]::Quality), 85L
-$img.Save((Join-Path (Resolve-Path build) 'launcher-banner.jpg'), $enc, $ep); $img.Dispose()
-& C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe /nologo /target:winexe /optimize+ /out:build\MWTogetherLauncher.exe /win32manifest:launcher\app.manifest /r:System.Windows.Forms.dll /r:System.Drawing.dll "/resource:build\launcher-banner.jpg,banner.png" "/resource:docs\launcher-bg.jpg,bg.jpg" launcher\Launcher.cs build\LauncherVersion.cs
-if ($LASTEXITCODE -ne 0) { throw "launcher build failed" }
+# launcher (shared with the GitHub workflow): the exe, and its pictures as files in scripts\launcher\
+& (Join-Path $PSScriptRoot 'build-launcher.ps1') -Version $Version
+New-Item -ItemType Directory -Force (Join-Path $pkg 'scripts\launcher') | Out-Null
+Copy-Item build\launcher\banner.jpg, build\launcher\background.jpg (Join-Path $pkg 'scripts\launcher')
 Copy-Item build\MWTogetherLauncher.exe $pkg
 
-$loader = Join-Path $dist 'dinput8.dll'
-if (-not (Test-Path $loader)) {
+# Ultimate ASI Loader: a pinned version, checked against the official file's SHA256
+$uasiVersion = 'v10.0.4'
+$uasiSha256 = '450304ba4f18646e43faeb6ca06962e76f1baf09860ec1a0a8751b1a4bee50d1'
+$loader = Join-Path $dist "dinput8-$uasiVersion.dll"
+if (-not (Test-Path $loader) -or (Get-FileHash $loader -Algorithm SHA256).Hash -ne $uasiSha256) {
     $tmp = Join-Path $env:TEMP "uasi-$([guid]::NewGuid())"
     New-Item -ItemType Directory $tmp | Out-Null
-    Invoke-WebRequest 'https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/latest/download/Ultimate-ASI-Loader.zip' -OutFile "$tmp\uasi.zip"
+    Invoke-WebRequest "https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/download/$uasiVersion/Ultimate-ASI-Loader.zip" -OutFile "$tmp\uasi.zip"
     Expand-Archive "$tmp\uasi.zip" -DestinationPath "$tmp\x"
-    Copy-Item "$tmp\x\dinput8.dll" $loader
+    $h = (Get-FileHash "$tmp\x\dinput8.dll" -Algorithm SHA256).Hash
+    if ($h -ne $uasiSha256) { throw "Ultimate ASI Loader $uasiVersion dinput8.dll SHA256 $h, expected $uasiSha256" }
+    Copy-Item "$tmp\x\dinput8.dll" $loader -Force
     Remove-Item $tmp -Recurse -Force
 }
-Copy-Item $loader $pkg
+Copy-Item $loader (Join-Path $pkg 'dinput8.dll')
 
 $zip = Join-Path $dist "MWTogether-$Version.zip"
 Remove-Item $zip -ErrorAction SilentlyContinue
 Compress-Archive -Path "$pkg\*" -DestinationPath $zip
 Write-Host "Packaged $zip"
+
+# SHA256 of the zip and of every file in it, for the release notes (anyone can check a download against them)
+$notes = Join-Path $dist "MWTogether-$Version-notes.md"
+$lines = @('### SHA256', '', '| File | SHA256 |', '|---|---|')
+$lines += "| MWTogether.zip | ``$((Get-FileHash $zip -Algorithm SHA256).Hash.ToLower())`` |"
+Get-ChildItem $pkg -Recurse -File | Sort-Object FullName | % {
+    $rel = $_.FullName.Substring($pkg.Length + 1)
+    $lines += "| $rel | ``$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())`` |"
+}
+$lines += '', "Ultimate ASI Loader $uasiVersion (dinput8.dll) is the unmodified official build."
+Set-Content $notes $lines -Encoding utf8
+Get-Content $notes | Write-Host
 $assets = @($zip)
 if ($DryRun) { return }
 
 # 3. tag + GitHub release
 git tag "v$Version"
 git push origin "v$Version"
-$flags = @('--generate-notes', '--title', "NFS MW Together $Version")
+$flags = @('--notes-file', $notes, '--generate-notes', '--title', "NFS MW Together $Version")
 if (-not $Final) { $flags += '--prerelease' }
 # the release assets always have the same names, so README can link releases/latest/download/MWTogether.zip
 $named = @()

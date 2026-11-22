@@ -16,7 +16,9 @@ on:
         default: true
 
 permissions:
-  contents: write
+  contents: write      # the release
+  id-token: write      # build provenance attestation
+  attestations: write
 
 jobs:
   build:
@@ -39,11 +41,13 @@ jobs:
             echo "version=0.0.0-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build MWTogether.asi
-        shell: cmd
-        env:
-          MWT_VERSION: ${{ steps.ver.outputs.version }}
-        run: build.bat
+      # The same script as a local release (tools\release.ps1 -DryRun): the plugin built as a release
+      # (/DMWT_VERSION, no test commands), the launcher with /optimize+ and its pictures as files in
+      # scripts\launcher\, Ultimate ASI Loader pinned to one version and checked by SHA256, and
+      # dist\MWTogether-<version>-notes.md with the SHA256 of every file.
+      - name: Build and package
+        shell: pwsh
+        run: tools/release.ps1 -Version "${{ steps.ver.outputs.version }}" -DryRun
 
       # Unit, regression and fuzz tests (no game needed): /RTC1 build, then AddressSanitizer if the
       # toolset has it for x86 (the script skips that part with a note otherwise).
@@ -51,36 +55,30 @@ jobs:
         shell: cmd
         run: tests\build_tests.bat
 
-      - name: Build launcher
-        shell: cmd
-        run: |
-          if not exist build mkdir build
-          C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe /nologo /target:winexe /out:build\MWTogetherLauncher.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll /win32manifest:launcher\app.manifest /resource:docs\banner.png,banner.png /resource:docs\launcher-bg.jpg,bg.jpg launcher\Launcher.cs launcher\LauncherVersion.cs
-
       # MSVC /analyze over the plugin sources. Report only: it never fails the run.
       - name: Static analysis (report only)
         shell: cmd
         continue-on-error: true
         run: tests\build_tests.bat analyze
 
-      - name: Package
+      - name: SHA256
         shell: pwsh
-        run: |
-          $pkg = "package/MWTogether-${{ steps.ver.outputs.version }}"
-          New-Item -ItemType Directory -Force "$pkg/scripts" | Out-Null
-          Copy-Item build/MWTogether.asi "$pkg/scripts/"
-          Copy-Item MWTogether.ini "$pkg/scripts/"
-          Copy-Item README.md "$pkg/"
-          # Ultimate ASI Loader (MIT, ThirteenAG) loads the plugin: ship its 32-bit dinput8.dll
-          Invoke-WebRequest "https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/latest/download/Ultimate-ASI-Loader.zip" -OutFile asi.zip
-          Expand-Archive asi.zip -DestinationPath asi
-          Copy-Item asi/dinput8.dll "$pkg/"
-          Compress-Archive -Path "$pkg/*" -DestinationPath "MWTogether-${{ steps.ver.outputs.version }}.zip"
+        run: Get-Content "dist/MWTogether-${{ steps.ver.outputs.version }}-notes.md" | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      # Signed build provenance (Sigstore): anyone can check a file came from this workflow and commit with
+      # gh attestation verify <file> --repo StCost/nfs-most-wanted-together
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/MWTogether-${{ steps.ver.outputs.version }}.zip
+            dist/MWTogether-${{ steps.ver.outputs.version }}/MWTogetherLauncher.exe
+            dist/MWTogether-${{ steps.ver.outputs.version }}/scripts/MWTogether.asi
 
       - uses: actions/upload-artifact@v4
         with:
           name: MWTogether-${{ steps.ver.outputs.version }}
-          path: MWTogether-${{ steps.ver.outputs.version }}.zip
+          path: dist/MWTogether-${{ steps.ver.outputs.version }}.zip
 
       - name: Release
         if: github.event.inputs.version != ''
@@ -91,4 +89,6 @@ jobs:
           v="${{ steps.ver.outputs.version }}"
           flags=""
           if [ "${{ github.event.inputs.prerelease }}" = "true" ]; then flags="--prerelease"; fi
-          gh release create "v$v" "MWTogether-$v.zip" --title "NFS MW Together $v" --generate-notes --target "${{ github.sha }}" $flags
+          # same asset name as tools\release.ps1, so README can link releases/latest/download/MWTogether.zip
+          cp "dist/MWTogether-$v.zip" dist/MWTogether.zip
+          gh release create "v$v" dist/MWTogether.zip --title "NFS MW Together $v" --notes-file "dist/MWTogether-$v-notes.md" --generate-notes --target "${{ github.sha }}" $flags
