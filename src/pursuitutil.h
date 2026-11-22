@@ -47,12 +47,15 @@ namespace SharedPursuit {
     }
 
     // ---- cooldown ----------------------------------------------------------------------------------
-    // Design (1.7.1): each evade bar fills personally, vanilla, from whether cops see THAT player.
-    // Only the transition into cooldown is shared. A player whose bar is full cannot enter cooldown
-    // while the other is still seen or their bar is not full; both enter when both are ready (bars
-    // full / neither seen). Once in cooldown it is personal: the other player getting spotted does
-    // not cancel it. Busted and escape are personal. A disconnect, a busted peer, or a peer who is
-    // no longer in a pursuit falls back to solo (we enter when our own bar is full).
+    // Design (1.7.1, refined): evade bar and busted are personal (vanilla: cops see THAT player).
+    // When a player evades they ENTER cooldown immediately. Their cooldown meter does not progress
+    // (frozen) until BOTH are in cooldown; then both meters run as usual. Escape is applied only
+    // when both have finished: the first stays in cooldown (bar full) until the other also finishes.
+    // If a player is spotted during cooldown, ONLY that player drops back to pursuit (vanilla).
+    // The other stays in cooldown; their progress is reset to the start of the meter and frozen
+    // until the spotted player evades and re-enters cooldown. A hidden player is never pulled back
+    // into pursuit because the other was spotted. Disconnect, a busted peer, or a peer who left
+    // the pursuit: solo — unfreeze and escape on your own.
     //
     // One side of a pursuit as the other game needs it (CarState::pursuitFlags / coolLeft10).
     struct View {
@@ -80,36 +83,50 @@ namespace SharedPursuit {
     }
 
     enum class Cool {
-        Free,    // vanilla: the evade bar fills or resets locally, cooldown may start or run
-        Wait,    // our bar is full; do not enter cooldown until the other player is also ready
+        Free,        // vanilla: enter cooldown, let the meter run, or escape
+        Freeze,      // we are in cooldown: do not let the meter advance (peer is not in cooldown)
+        Reset,       // we are in cooldown: set the meter back to the start (peer was in cooldown and got spotted)
+        HoldEscape,  // our meter is finished: do not escape until the peer has finished too
     };
-    struct Decision { Cool what; float left; };   // left kept for the wire / logs; unused by Wait
+    struct Decision { Cool what; float left; };   // left: remaining time to hold at for HoldEscape
     // The exe float at 0x890D34: not seen this long in the current state starts cooldown.
     constexpr float COOLDOWN_UNSEEN_S = 2.5f;
-    constexpr float WAIT_UNSEEN_SLACK_S = 0.05f;  // clamp just under the threshold so the bar stays full
-    inline float WaitUnseenInState(float threshold = COOLDOWN_UNSEEN_S) {
-        if (!(threshold > WAIT_UNSEEN_SLACK_S)) return 0.f;
-        return threshold - WAIT_UNSEEN_SLACK_S;
-    }
+    constexpr float WAIT_UNSEEN_SLACK_S = 0.05f;
+    // Lowest +0x128 that does not look like "seen again" (that would cancel cooldown).
+    constexpr float COOLDOWN_FLOOR_S = SEEN_LIMIT_S + 0.1f;
+    constexpr float ESCAPE_HOLD_LEFT_S = 0.2f;   // keep this much left so evade level stays < 1
     // Hidden long enough that vanilla would enter cooldown (or already in it). Seen resets the bar.
     inline bool EvadeBarFull(bool seen, bool cooling, float unseenInState, float threshold = COOLDOWN_UNSEEN_S) {
         if (seen) return false;
         if (cooling) return true;
         return threshold > 0.f && unseenInState + WAIT_UNSEEN_SLACK_S >= threshold;
     }
-    // The other player blocks our entry into cooldown. Not once we are already in it.
-    inline bool PeerBlocksCooldown(const View& peer, bool peerConnected) {
-        if (!peerConnected) return false;          // disconnect: fall back to solo
-        if (!peer.inPursuit || peer.busted) return false;
-        if (peer.cooling || peer.ready) return false;
-        return true;                               // still seen, or hidden but their bar is not full yet
+    inline bool CooldownFinished(const View& v, float eps = ESCAPE_HOLD_LEFT_S) {
+        return v.cooling && v.left <= eps;
     }
-    inline Decision DecideCooldown(const View& me, const View& peer, bool peerConnected = true) {
+    inline bool PeerAllowsSolo(const View& peer, bool peerConnected) {
+        if (!peerConnected) return true;
+        if (!peer.inPursuit || peer.busted) return true;
+        return false;
+    }
+    // peerWasCooling: the peer's previous tick (so a drop out of cooldown is a spot, not "never entered").
+    inline Decision DecideCooldown(const View& me, const View& peer, bool peerConnected = true,
+                                   bool peerWasCooling = false) {
         if (!me.inPursuit) return { Cool::Free, 0.f };
-        if (me.cooling) return { Cool::Free, 0.f };    // already in cooldown: personal, do not cancel
-        if (me.seen || !me.ready) return { Cool::Free, 0.f };  // vanilla fills or resets the bar
-        if (PeerBlocksCooldown(peer, peerConnected)) return { Cool::Wait, 0.f };
+        if (!me.cooling) return { Cool::Free, 0.f };   // enter immediately when vanilla wants
+        if (me.seen) return { Cool::Free, 0.f };       // we were spotted: vanilla drops us; do not freeze ourselves
+        if (PeerAllowsSolo(peer, peerConnected)) return { Cool::Free, 0.f };  // disconnect / busted / left: unfreeze
+        if (!peer.cooling) return { peerWasCooling ? Cool::Reset : Cool::Freeze, 0.f };
+        if (CooldownFinished(me) && !CooldownFinished(peer)) return { Cool::HoldEscape, ESCAPE_HOLD_LEFT_S };
         return { Cool::Free, 0.f };
+    }
+    inline void ResetCooldownProgress(float& accum, float& sinceSeen) {
+        accum = 0.f;
+        sinceSeen = COOLDOWN_FLOOR_S;
+    }
+    inline void FreezeProgress(float frozenAccum, float frozenSince, float& accum, float& sinceSeen) {
+        accum = frozenAccum;
+        sinceSeen = frozenSince < COOLDOWN_FLOOR_S ? COOLDOWN_FLOOR_S : frozenSince;
     }
 
     // The game's escape progress is accum + sinceSeen (AIPursuit +0x124 / +0x128 from IPursuit*) and the

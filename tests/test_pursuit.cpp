@@ -1,5 +1,5 @@
-// Shared pursuits (src/pursuitutil.h): heat sharing, personal evade bars with a shared cooldown
-// entry, and the pursuit fields of the state packet through the real handler.
+// Shared pursuits (src/pursuitutil.h): heat sharing, personal evade bars, frozen cooldown until
+// both are in, escape when both finish, and the pursuit fields of the state packet.
 #include "net_helpers.h"
 #include "../src/pursuitutil.h"
 #include <limits>
@@ -99,84 +99,81 @@ TEST(pursuit_evade_bar_full_is_local) {
     CHECK(EvadeBarFull(false, false, 2.45f));                  // just under the 2.5 s threshold (slack)
     CHECK(EvadeBarFull(false, false, 2.5f));
     CHECK(EvadeBarFull(false, true, 0.f));                     // already in cooldown
-    CHECK(!EvadeBarFull(true, true, 2.5f));                    // seen wins: bar is not full
-    CHECK_NEAR(WaitUnseenInState(), 2.45f, 1e-4);
+    CHECK(!EvadeBarFull(true, true, 2.5f));                    // seen wins: the bar is not full
 }
 
-TEST(pursuit_cooldown_waits_until_peer_is_ready_both_roles) {
-    // A is hidden with a full bar; B is still seen. A must not enter cooldown. B's bar is vanilla.
-    View a = V(true, false, false, 20, true), b = V(true, true, false, 20, false);
-    CHECK(DecideCooldown(a, b).what == Cool::Wait);
-    CHECK(DecideCooldown(b, a).what == Cool::Free);            // B is seen: the game resets B's bar
-    // B is hidden but their bar is not full yet: A still waits
-    b.seen = false; b.ready = false;
-    CHECK(DecideCooldown(a, b).what == Cool::Wait);
-    CHECK(DecideCooldown(b, a).what == Cool::Free);            // B is still filling
-    // same the other way: B ready, A still seen
-    View aSeen = V(true, true, false, 20, false), bReady = V(true, false, false, 20, true);
-    CHECK(DecideCooldown(bReady, aSeen).what == Cool::Wait);
-    CHECK(DecideCooldown(aSeen, bReady).what == Cool::Free);
-}
-
-TEST(pursuit_cooldown_enters_when_both_ready) {
-    View a = V(true, false, false, 20, true), b = V(true, false, false, 20, true);
+TEST(pursuit_cooldown_enters_immediately_and_freezes_until_both) {
+    // A evaded and is in cooldown; B is still seen. A enters immediately; the meter is frozen.
+    View a = V(true, false, true, 18, true), b = V(true, true, false, 20, false);
+    CHECK(DecideCooldown(a, b, true, false).what == Cool::Freeze);
+    CHECK(DecideCooldown(b, a, true, true).what == Cool::Free);    // B is not in cooldown: vanilla
+    // the other way: B in cooldown, A still chasing
+    CHECK(DecideCooldown(V(true, false, true, 18, true), V(true, true, false, 20, false), true, false).what == Cool::Freeze);
+    CHECK(DecideCooldown(V(true, true, false, 20, false), V(true, false, true, 18, true), true, true).what == Cool::Free);
+    // both in cooldown: meters run
+    b.seen = false; b.cooling = true; b.ready = true; b.left = 15;
     CHECK(DecideCooldown(a, b).what == Cool::Free);
     CHECK(DecideCooldown(b, a).what == Cool::Free);
-    // one already in cooldown counts as ready: the other may enter
-    a.cooling = true; a.ready = true;
-    b.cooling = false; b.ready = true;
-    CHECK(DecideCooldown(a, b).what == Cool::Free);
-    CHECK(DecideCooldown(b, a).what == Cool::Free);
-    // escape timers are personal: a longer time left there does not hold us back
-    CHECK(DecideCooldown(V(true, false, true, 4, true), V(true, false, true, 9, true)).what == Cool::Free);
+    // a player still hiding (not yet in cooldown) does not enter early - vanilla, Free
+    View hiding = V(true, false, false, 20, true);
+    CHECK(DecideCooldown(hiding, a).what == Cool::Free);
 }
 
-TEST(pursuit_cooldown_does_not_cancel_when_peer_is_spotted) {
-    // A is already in cooldown; B gets seen. A's cooldown keeps running (personal).
+TEST(pursuit_cooldown_reset_when_peer_spotted_during_progress) {
+    // both were in cooldown; B is spotted. A stays in cooldown, meter resets.
     View a = V(true, false, true, 8, true), b = V(true, true, false, 20, false);
-    CHECK(DecideCooldown(a, b).what == Cool::Free);
-    CHECK(DecideCooldown(b, a).what == Cool::Free);            // B is seen: vanilla
-    // B hidden again, bar not full: still does not pull A out of cooldown
-    b.seen = false; b.ready = false;
-    CHECK(DecideCooldown(a, b).what == Cool::Free);
+    CHECK(DecideCooldown(a, b, true, true).what == Cool::Reset);
+    // later ticks: B still out, already reset -> freeze
+    CHECK(DecideCooldown(a, b, true, false).what == Cool::Freeze);
+    // A was spotted: vanilla drops A; we must not freeze or reset A
+    a.seen = true;
+    CHECK(DecideCooldown(a, b, true, true).what == Cool::Free);
 }
 
-TEST(pursuit_cooldown_disconnect_and_busted_are_solo) {
-    View me = V(true, false, false, 20, true), peer = V(true, true, false, 20, false);
-    CHECK(DecideCooldown(me, peer, true).what == Cool::Wait);
-    CHECK(DecideCooldown(me, peer, false).what == Cool::Free); // disconnect: enter when our bar is full
-    // a busted peer does not block us (busts are personal)
+TEST(pursuit_cooldown_spot_during_frozen_wait) {
+    // A is frozen waiting for B, who has not entered yet. Still Freeze, not Reset.
+    View a = V(true, false, true, 18, true), b = V(true, true, false, 20, false);
+    CHECK(DecideCooldown(a, b, true, false).what == Cool::Freeze);
+    b.seen = false; b.ready = false;                           // B hiding, bar not full, not in cooldown
+    CHECK(DecideCooldown(a, b, true, false).what == Cool::Freeze);
+}
+
+TEST(pursuit_escape_completes_only_when_both_finish) {
+    View a = V(true, false, true, 0.1f, true), b = V(true, false, true, 8, true);
+    CHECK(DecideCooldown(a, b).what == Cool::HoldEscape);
+    CHECK(DecideCooldown(b, a).what == Cool::Free);            // B still has meter left: keep running
+    b.left = 0.1f;                                             // both finished
+    CHECK(DecideCooldown(a, b).what == Cool::Free);
+    CHECK(DecideCooldown(b, a).what == Cool::Free);
+}
+
+TEST(pursuit_cooldown_disconnect_unfreezes) {
+    View me = V(true, false, true, 10, true), peer = V(true, true, false, 20, false);
+    CHECK(DecideCooldown(me, peer, true, false).what == Cool::Freeze);
+    CHECK(DecideCooldown(me, peer, false, false).what == Cool::Free);  // disconnect: solo, unfreeze
     View busted = V(true, false, false, 0, false, true);
     CHECK(DecideCooldown(me, busted).what == Cool::Free);
-    // a peer who already escaped / is not chased
-    CHECK(DecideCooldown(me, V(false, false, false, 0)).what == Cool::Free);
-    // we are not in a pursuit
-    CHECK(DecideCooldown(V(false, false, false, 0), peer).what == Cool::Free);
-    // we are seen: vanilla resets our bar, no gate
-    CHECK(DecideCooldown(V(true, true, false, 20, false), peer).what == Cool::Free);
-    // our bar is not full yet: vanilla fills it, no gate
-    CHECK(DecideCooldown(V(true, false, false, 20, false), peer).what == Cool::Free);
+    CHECK(DecideCooldown(me, V(false, false, false, 0)).what == Cool::Free);  // peer left / escaped
 }
 
 TEST(pursuit_cooldown_walkthrough_both_roles) {
-    // both chased and seen, then A hides (bar fills), then is ready, then B hides and is ready
     View a = V(true, true, false, 20, false), b = V(true, true, false, 20, false);
     CHECK(DecideCooldown(a, b).what == Cool::Free);
     CHECK(DecideCooldown(b, a).what == Cool::Free);
-    a.seen = false;                                            // A hiding, bar not full
-    CHECK(DecideCooldown(a, b).what == Cool::Free);
-    a.ready = true;                                            // A bar full; B still seen
-    CHECK(DecideCooldown(a, b).what == Cool::Wait);
-    CHECK(DecideCooldown(b, a).what == Cool::Free);
-    b.seen = false;                                            // B hiding, bar not full
-    CHECK(DecideCooldown(a, b).what == Cool::Wait);
-    b.ready = true;                                            // both ready: both enter
-    CHECK(DecideCooldown(a, b).what == Cool::Free);
-    CHECK(DecideCooldown(b, a).what == Cool::Free);
-    a.cooling = true; b.cooling = true;                        // both in cooldown; B is spotted
-    b.seen = true; b.ready = false; b.cooling = false;
-    CHECK(DecideCooldown(a, b).what == Cool::Free);            // A stays in cooldown
-    CHECK(DecideCooldown(b, a).what == Cool::Free);            // B: seen, vanilla
+    a.seen = false; a.ready = true; a.cooling = true; a.left = 20;      // A evades, enters cooldown
+    CHECK(DecideCooldown(a, b, true, false).what == Cool::Freeze);
+    CHECK(DecideCooldown(b, a, true, true).what == Cool::Free);
+    b.seen = false; b.ready = true; b.cooling = true; b.left = 20;      // B evades too: both run
+    CHECK(DecideCooldown(a, b, true, false).what == Cool::Free);
+    CHECK(DecideCooldown(b, a, true, true).what == Cool::Free);
+    a.left = 8; b.left = 8;
+    b.seen = true; b.ready = false; b.cooling = false;                 // B spotted during progress
+    CHECK(DecideCooldown(a, b, true, true).what == Cool::Reset);
+    CHECK(DecideCooldown(b, a, true, true).what == Cool::Free);        // B: vanilla, back to pursuit
+    CHECK(DecideCooldown(a, b, true, false).what == Cool::Freeze);     // A stays frozen at 0
+    b.seen = false; b.ready = true; b.cooling = true; b.left = 20;     // B evades again
+    CHECK(DecideCooldown(a, b, true, false).what == Cool::Free);
+    CHECK(DecideCooldown(b, a, true, true).what == Cool::Free);
 }
 
 TEST(pursuit_delay_progress) {
@@ -203,6 +200,21 @@ TEST(pursuit_delay_progress) {
     DelayProgress(nan, 5, search, since);
     DelayProgress(30, nan, search, since);
     CHECK_NEAR(search, 2, 1e-4); CHECK_NEAR(since, 8, 1e-4);
+}
+
+TEST(pursuit_reset_and_freeze_progress) {
+    float search = 5, since = 15;
+    ResetCooldownProgress(search, since);
+    CHECK_NEAR(search, 0, 1e-4);
+    CHECK_NEAR(since, COOLDOWN_FLOOR_S, 1e-4);
+    // freeze holds the snapshot (and will not go below the "seen" floor)
+    float acc = 4, sn = 12;
+    FreezeProgress(1, 8, acc, sn);
+    CHECK_NEAR(acc, 1, 1e-4);
+    CHECK_NEAR(sn, 8, 1e-4);
+    acc = 3; sn = 2;                                       // 2 s would look "seen" and cancel cooldown
+    FreezeProgress(0, 2, acc, sn);
+    CHECK_NEAR(sn, COOLDOWN_FLOOR_S, 1e-4);
 }
 
 TEST(pursuit_wire_view) {

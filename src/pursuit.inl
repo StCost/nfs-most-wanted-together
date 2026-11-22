@@ -14,10 +14,11 @@
 //
 //  [Coop] SharedPursuits (free roam only, see the second half of this file): shared heat, the other
 //  player's cops on the minimap and the radar detector, ramming one of their cops starts a pursuit
-//  here. Each evade bar fills locally (vanilla: whether cops see THAT player). Only the transition
-//  into cooldown is shared: a full bar cannot start cooldown while the other player is still seen
-//  or their bar is not full. Both start cooldown when both are ready. Once in cooldown, a peer
-//  getting spotted does not cancel it. Busted and escape are personal.
+//  here. Evade bar and busted are personal. A player who evades ENTERS cooldown immediately;
+//  the meter is frozen until both are in cooldown, then both run as usual. Escape completes
+//  only when both have finished. If a player is spotted, only they drop back to pursuit; the
+//  other stays in cooldown, their progress is reset to 0 and frozen until the spotted player
+//  evades again. A hidden player is never pulled back into pursuit because the other was spotted.
 // ---------------------------------------------------------------------------
 namespace {
     constexpr uintptr_t AquireFn = 0x423860, IPerpetratorHandle = 0x4037E0;
@@ -186,8 +187,9 @@ std::string Game::DebugForcePursuit() {
 //    progress = +0x124 + +0x128; evade level = progress / needed; not seen for 2.5 s in the current
 //      state (+0x130 > 0x890D34) starts the cooldown (+0x12C = 1, status 2); evade level >= 1 is the
 //      escape (status 4); seen again during the cooldown ends it (status 0). Left = needed - progress.
-//  So: Wait = keep +0x130 just under the 2.5 s threshold so cooldown cannot start, without
-//  touching +0x124 / +0x128 (the evade bar stays full). Once in cooldown we do not write seen.
+//  So: enter cooldown is vanilla. Freeze / Reset write +0x124 / +0x128 (never down to the
+//  "seen" limit, which would cancel cooldown). HoldEscape keeps a sliver of time left so
+//  evade level stays < 1 until the other player has also finished.
 //  Heat: IPerpetrator (handle 0x4037E0) on the player's car (AIPerpVehicle vtable 0x892250): slot 1
 //    GetHeat 0x409400 (fld [ecx+0x1C]), slot 2 SetHeat 0x409060 (raises the heat-level events too;
 //    Game_SetWorldHeat 0x612660 calls the same slot).
@@ -223,6 +225,9 @@ namespace {
         bool     pendingStarted = false;
         int      lastStatus = -2;
         int      lastCool = -1;
+        bool     peerWasCooling = false;   // previous tick, for Reset vs Freeze
+        bool     haveFreeze = false;
+        float    freezeSearch = 0.f, freezeSince = 0.f;
         DWORD    lastCopHit = 0;
         int      radarCops = -1, mapCops = -1;
     } g_sp;
@@ -407,7 +412,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         LOG("Pursuit: the other player was busted - busts are personal, ours continues");
     g_sp.pendingBustUntil = 0;   // 1.7.1: do not start or continue a shared bust
 
-    // ---- 5. cooldown: gate only the entry; the evade bar itself is vanilla / local ----
+    // ---- 5. cooldown: enter immediately; freeze / reset the meter; escape only when both finish ----
     int coolNow = -1;
     if ((g_sp.flags & PURSUIT_ACTIVE) && peerHere) {
         View mine{};
@@ -418,23 +423,43 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         mine.ready = (g_sp.flags & PURSUIT_READY) != 0;
         mine.busted = busted;
         View theirs = FromWire(peer.s.pursuitFlags, peer.s.coolLeft10);
-        Decision d = DecideCooldown(mine, theirs, true);
+        bool was = g_sp.peerWasCooling;
+        Decision d = DecideCooldown(mine, theirs, true, was);
+        g_sp.peerWasCooling = theirs.cooling;
         coolNow = (int)d.what;
-        if (d.what == Cool::Wait && pursuit) {
-            // Keep the bar full: do not zero since-seen / search, and do not cancel a cooldown
-            // we already entered. Hold the 2.5 s unseen-in-state timer just under the threshold.
-            float thresh = COOLDOWN_UNSEEN_S;
-            Mem::Read(0x890D34, thresh);
-            if (!(thresh > 0.f) || thresh > 30.f) thresh = COOLDOWN_UNSEEN_S;
-            PWrite<float>(pursuit, P_UnseenInState, WaitUnseenInState(thresh));
+        if (pursuit && status == PS_COOLDOWN && !mine.seen &&
+            (d.what == Cool::Freeze || d.what == Cool::Reset || d.what == Cool::HoldEscape)) {
+            float search = PRead<float>(pursuit, P_Search), since = PRead<float>(pursuit, P_SinceSeen);
+            float need = PRead<float>(pursuit, P_CoolNeed);
+            if (d.what == Cool::Reset) {
+                ResetCooldownProgress(search, since);
+                g_sp.haveFreeze = true; g_sp.freezeSearch = search; g_sp.freezeSince = since;
+            } else if (d.what == Cool::Freeze) {
+                if (!g_sp.haveFreeze) {
+                    if (since < COOLDOWN_FLOOR_S) since = COOLDOWN_FLOOR_S;
+                    g_sp.haveFreeze = true; g_sp.freezeSearch = search; g_sp.freezeSince = since;
+                }
+                FreezeProgress(g_sp.freezeSearch, g_sp.freezeSince, search, since);
+            } else {
+                g_sp.haveFreeze = false;
+                DelayProgress(need, d.left > 0.f ? d.left : ESCAPE_HOLD_LEFT_S, search, since);
+            }
+            PWrite<float>(pursuit, P_Search, search);
+            PWrite<float>(pursuit, P_SinceSeen, since);
+        } else {
+            g_sp.haveFreeze = false;
         }
         if (coolNow != g_sp.lastCool) {
-            if (d.what == Cool::Wait) LOG("Pursuit: our evade bar is full - cooldown waits until the other player is ready too (%s there)",
-                                          theirs.seen ? "still seen" : "hidden, bar not full");
+            if (d.what == Cool::Freeze) LOG("Pursuit: in cooldown - meter frozen until the other player is in cooldown too");
+            else if (d.what == Cool::Reset) LOG("Pursuit: the other player was spotted - we stay in cooldown, meter reset and frozen");
+            else if (d.what == Cool::HoldEscape) LOG("Pursuit: our cooldown is finished - waiting for the other player to finish before we escape");
             else if (theirs.inPursuit) LOG("Pursuit: cooldown runs as usual (%s here, %s there)",
-                                           mine.seen ? "seen" : (mine.cooling ? "in cooldown" : (mine.ready ? "ready" : "hiding")),
-                                           theirs.seen ? "seen" : (theirs.cooling ? "in cooldown" : (theirs.ready ? "ready" : "hiding")));
+                                           mine.seen ? "seen" : (mine.cooling ? "in cooldown" : "hiding"),
+                                           theirs.seen ? "seen" : (theirs.cooling ? "in cooldown" : "hiding"));
         }
+    } else {
+        g_sp.haveFreeze = false;
+        if (!peerHere) g_sp.peerWasCooling = false;
     }
     g_sp.lastCool = coolNow;
 
