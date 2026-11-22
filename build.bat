@@ -46,4 +46,5 @@ if exist "..\scripts\CoopMod.asi" del "..\scripts\CoopMod.asi"
 if not exist "..\scripts\MWTogether.ini" if exist "..\scripts\CoopMod.ini" copy /y "..\scripts\CoopMod.ini" "..\scripts\MWTogether.ini" >nul
 copy /y "build\MWTogether.asi" "..\scripts\MWTogether.asi" >nul || (echo copy failed - is the game running? & exit /b 1)
 if not exist "..\scripts\MWTogether.ini" copy /y "MWTogether.ini" "..\scripts\MWTogether.ini" >nul
+if exist "assets\MWTogether-logo.dds" copy /y "assets\MWTogether-logo.dds" "..\scripts\MWTogether-logo.dds" >nul
 echo Built and installed scripts\MWTogether.asi

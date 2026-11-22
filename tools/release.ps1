@@ -32,6 +32,8 @@ New-Item -ItemType Directory -Force (Join-Path $pkg 'scripts') | Out-Null
 Copy-Item build\MWTogether.asi (Join-Path $pkg 'scripts')
 # settings ship as a default only: unpacking an update over an install never overwrites the player's MWTogether.ini
 Copy-Item MWTogether.ini (Join-Path $pkg 'scripts\MWTogether.default.ini')
+# main menu Together logo (optional at runtime: the plugin uses it if this file is present)
+Copy-Item assets\MWTogether-logo.dds (Join-Path $pkg 'scripts\MWTogether-logo.dds')
 Copy-Item README.md, LICENSE, THIRD-PARTY-NOTICES.txt $pkg
 # launcher (shared with the GitHub workflow): the exe, and its pictures as files in scripts\launcher\
 & (Join-Path $PSScriptRoot 'build-launcher.ps1') -Version $Version
