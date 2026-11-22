@@ -46,8 +46,12 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
     // A short notice for the player: in the game's own banner (the EA Trax chyron) when it can show one,
     // otherwise as a line in the corner (drawn by the overlay, also when the overlay is hidden).
     // The game's C++ runtime reports a fatal error (e.g. R6025 "pure virtual function call") in a box
-    // with Abort / Retry / Ignore, none of which can save the game. The runtime finds MessageBoxA at run
-    // time, so hook it at its entry (hot-patch prologue 8B FF 55 8B EC) and show one plain box instead.
+    // with Abort / Retry / Ignore, none of which can save the game. Show one plain box instead.
+    // speed.exe v1.3 has the VC7.1 static runtime: __crtMessageBoxA (0x7DE140) loads MessageBoxA with
+    // GetProcAddress the first time it is needed and keeps it in a static (0x9BAEDC, .data, 0 until
+    // then): "cmp dword ptr [0x9BAEDC], 0" at 0x7DE154, "call dword ptr [0x9BAEDC]" at 0x7DE2A4
+    // (found from the push of the "MessageBoxA" string at 0x7DE175). Storing our function there sends
+    // the runtime's box to us; nothing in user32 or in the game's code is changed.
     bool IsRuntimeError(const char* text, const char* caption) {
         auto has = [](const char* s, const char* w) { return s && strstr(s, w) != nullptr; };
         return has(caption, "Visual C++") || has(text, "Runtime Error") || has(text, "Debug Error") || has(text, "R6025") || has(text, "R6016");
@@ -65,12 +69,15 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         return MessageBoxExA(h, text, caption, type, 0);
     }
     void InstallCrashDialog() {
-        uint8_t* f = (uint8_t*)GetProcAddress(GetModuleHandleA("user32.dll"), "MessageBoxA");
-        const uint8_t pro[5] = { 0x8B, 0xFF, 0x55, 0x8B, 0xEC };
-        if (!f || memcmp(f, pro, 5)) { LOG("Crash dialog: MessageBoxA not hooked (unexpected bytes)"); return; }
-        uint8_t jmp[5] = { 0xE9 }; *(int32_t*)(jmp + 1) = (int32_t)((uintptr_t)&hk_MessageBoxA - ((uintptr_t)f + 5));
-        DWORD old;
-        if (VirtualProtect(f, 5, PAGE_EXECUTE_READWRITE, &old)) { memcpy(f, jmp, 5); VirtualProtect(f, 5, old, &old); FlushInstructionCache(GetCurrentProcess(), f, 5); LOG("Crash dialog: plain error box installed"); }
+        static const uint8_t cmpSlot[7] = { 0x83, 0x3D, 0xDC, 0xAE, 0x9B, 0x00, 0x00 };   // cmp dword ptr [0x9BAEDC], 0
+        static const uint8_t callSlot[6] = { 0xFF, 0x15, 0xDC, 0xAE, 0x9B, 0x00 };        // call dword ptr [0x9BAEDC]
+        uint8_t a[7], b[6]; void* cur = nullptr;
+        if (!Mem::SafeRead((const void*)0x7DE154, a, 7) || memcmp(a, cmpSlot, 7) || !Mem::SafeRead((const void*)0x7DE2A4, b, 6) || memcmp(b, callSlot, 6)) {
+            LOG("Crash dialog: runtime message box not found (unexpected bytes) - left as is"); return;
+        }
+        if (!Mem::Read(0x9BAEDC, cur) || cur) { LOG("Crash dialog: runtime message box already set (%p) - left as is", cur); return; }
+        void* hk = (void*)&hk_MessageBoxA;
+        if (Mem::Write(0x9BAEDC, hk)) LOG("Crash dialog: plain error box installed");
     }
     // A notice for the player: in the centre of the screen, green, or orange for a problem (Game::QueueNotice)
     void Toast(const std::string& s, bool warn = false) {
@@ -159,6 +166,13 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
             WritePrivateProfileStringA("Debug", "Overlay", Overlay::IsVisible() ? "1" : "0", (std::string(g_dir) + "MWTogether.ini").c_str());
         }
         g_keyWasDown = down;
+        {   // [UI] HideHudKey (F1): hide / show the minimap and the speedometer
+            static bool hudWas = false;
+            bool hd = (fg && g_cfg.hideHudKey && GetAsyncKeyState(g_cfg.hideHudKey) & 0x8000) != 0;
+            if (g_gameOk && hd && !hudWas) g_spawnMsg = Game::ToggleHud();
+            hudWas = hd;
+        }
+#ifdef MWT_DEVTOOLS   // test keys ([Debug] TestKeys=1): only in dev builds
         bool gdown = (fg && g_cfg.testKeys && GetAsyncKeyState(VK_F9) & 0x8000) != 0;   // test key only: players hid each other by accident
         if (gdown && !g_ghostKeyWasDown) {
             g_ghostOn = !g_ghostOn;
@@ -169,29 +183,25 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
 
         // Debug: F10 spawn a clone of my car, F11 remove it
         static bool f10 = false, f11 = false;
-        bool d10 = (fg && GetAsyncKeyState(VK_F10) & 0x8000) != 0, d11 = (fg && GetAsyncKeyState(VK_F11) & 0x8000) != 0;
+        bool d10 = (fg && g_cfg.testKeys && GetAsyncKeyState(VK_F10) & 0x8000) != 0, d11 = (fg && g_cfg.testKeys && GetAsyncKeyState(VK_F11) & 0x8000) != 0;
         if (g_cfg.testKeys && d10 && !f10) g_spawnMsg = Game::DebugSpawnClone();
         if (g_cfg.testKeys && d11 && !f11) g_spawnMsg = Game::DebugKillClone();
-        {   // [UI] HideHudKey (F1): hide / show the minimap and the speedometer
-            static bool hudWas = false;
-            bool hd = (fg && g_cfg.hideHudKey && GetAsyncKeyState(g_cfg.hideHudKey) & 0x8000) != 0;
-            if (g_gameOk && hd && !hudWas) g_spawnMsg = Game::ToggleHud();
-            hudWas = hd;
-        }
         static bool f7 = false;
-        bool d7 = (fg && GetAsyncKeyState(VK_F7) & 0x8000) != 0;
+        bool d7 = (fg && g_cfg.testKeys && GetAsyncKeyState(VK_F7) & 0x8000) != 0;
         if (g_cfg.testKeys && d7 && !f7) g_spawnMsg = Game::DebugStartEvent(g_cfg.testEvent.c_str());
         f7 = d7;
         static bool f5 = false;
-        bool d5 = (fg && GetAsyncKeyState(VK_F5) & 0x8000) != 0;
+        bool d5 = (fg && g_cfg.testKeys && GetAsyncKeyState(VK_F5) & 0x8000) != 0;
         if (g_cfg.testKeys && d5 && !f5 && Overlay::GameWindow() == GetForegroundWindow()) g_spawnMsg = Game::ToggleAutopilot();
         f5 = d5;
         static bool f12 = false;
-        bool d12 = (fg && GetAsyncKeyState(VK_F12) & 0x8000) != 0;
+        bool d12 = (fg && g_cfg.testKeys && GetAsyncKeyState(VK_F12) & 0x8000) != 0;
         if (g_cfg.testKeys && d12 && !f12) g_spawnMsg = Game::DebugSpawnCop();
         f12 = d12;
         f10 = d10; f11 = d11;
+#endif
 
+#ifdef MWT_DEVTOOLS   // test commands: only in dev builds (build.bat without MWT_RELEASE)
         // Test commands ([Debug] TestKeys=1): one command per line in scripts\MWTogether.cmd, the file is
         // deleted once read. Lets tests drive the game while it runs in the background.
         //   event <id> | events | restart | autopilot | cop | uncop | pursuit | clone | unclone | notice <text> | shot <file> | accept <package>
@@ -263,6 +273,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                 }
             }
         }
+#endif
 
         // --- networking ---
         CarState local{};
@@ -585,6 +596,9 @@ BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
         LOG("NFS MW Together %s loading (dir %s)", MWT_VERSION, g_dir);
 
         g_cfg.Load(iniPath.c_str());
+#ifndef MWT_DEVTOOLS
+        if (g_cfg.testKeys) LOG("Debug: TestKeys=1 has no effect - this is a release build without test keys and commands");
+#endif
         Net::SetDataDir(g_dir);
         Game::SetDataDir(g_dir);
 

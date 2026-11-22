@@ -4,10 +4,14 @@
 
 // Memory helpers. Reads go through SEH so a wrong pointer logs an error instead of crashing the game.
 namespace Mem {
-    // Replace a pointer-sized value (vtable / IAT slot), returning the old one.
+    // Replace a pointer-sized value (vtable / IAT slot), returning the old one. The slot is data: it is
+    // made read/write only (executable as well only if its page already was).
     inline void* PatchPointer(void* slot, void* value) {
+        MEMORY_BASIC_INFORMATION mbi;
+        if (!VirtualQuery(slot, &mbi, sizeof(mbi))) return nullptr;
+        const DWORD execBits = PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
         DWORD old;
-        if (!VirtualProtect(slot, sizeof(void*), PAGE_EXECUTE_READWRITE, &old)) return nullptr;
+        if (!VirtualProtect(slot, sizeof(void*), (mbi.Protect & execBits) ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE, &old)) return nullptr;
         void* prev = *(void**)slot;
         *(void**)slot = value;
         VirtualProtect(slot, sizeof(void*), old, &old);

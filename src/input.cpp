@@ -12,6 +12,16 @@
 #include "mem.h"
 #include "overlay.h"
 
+namespace {
+    // tap state (Input::Tap)
+    unsigned char g_dik = 0;
+    bool     g_down = false;        // key currently held
+    DWORD    g_downAt = 0;
+}
+
+// The DirectInput hooks only serve the test command "key" (a key the game sees without focus) and a log
+// line: dev builds only. A release build leaves the game's keyboard device alone.
+#ifdef MWT_DEVTOOLS
 // speed.exe v1.3: import address table slot for DINPUT8!DirectInput8Create (verified from the import table)
 static constexpr uintptr_t IAT_DirectInput8Create = 0x89001C;
 
@@ -31,11 +41,7 @@ namespace {
 
     void* g_keyboard = nullptr;   // the game's keyboard device
 
-    // tap state
-    unsigned char g_dik = 0;
     volatile unsigned char g_bgKey = 0; volatile DWORD g_bgKeyAt = 0;   // test command "key" (no focus needed)
-    bool     g_down = false;        // key currently held (for GetDeviceState)
-    DWORD    g_downAt = 0;
     bool     g_pendPress = false;   // event not yet delivered via GetDeviceData
     bool     g_pendRelease = false;
     DWORD    g_seq = 0;
@@ -119,6 +125,13 @@ bool Input::InstallHooks() {
     return o_DI8Create != nullptr;
 }
 
+#else
+bool Input::InstallHooks() {
+    LOG("Input: DirectInput hooks are only in dev builds (test commands)");
+    return true;
+}
+#endif
+
 // Keys are sent as real keyboard events (SendInput with scan codes). The game's menus read arrow keys
 // from real input only: DirectInput-state injection worked for Enter but not for arrows. SendInput goes
 // to whatever window is focused, so we ONLY send while the game window is in the foreground.
@@ -130,7 +143,9 @@ static void SendScan(unsigned char dik, bool up) {
     SendInput(1, &in, sizeof(in));
 }
 
+#ifdef MWT_DEVTOOLS
 void Input::TapBackground(unsigned char dik) { g_bgKeyAt = GetTickCount(); g_bgKey = dik; }
+#endif
 bool Input::Tap(unsigned char dik) {
     if (Busy()) return false;
     HWND w = Overlay::GameWindow();
@@ -333,7 +348,8 @@ void AutoStart::Tick(int flow) {
     if (g_as == AS::Done || g_as == AS::GaveUp || g_as == AS::Off) return;
 
     // A human pressing Esc cancels it, so it never fights a person in the menus.
-    if (g_presses > 0 && (GetAsyncKeyState(VK_ESCAPE) & 0x8000)) {
+    // Only Esc, and only while the game window is focused (Esc typed in another app doesn't count).
+    if (g_presses > 0 && Overlay::GameWindow() && Overlay::GameWindow() == GetForegroundWindow() && (GetAsyncKeyState(VK_ESCAPE) & 0x8000)) {
         g_as = AS::GaveUp; strcpy_s(g_status, "cancelled (Esc)"); LOG("AutoStart: cancelled by Esc"); return;
     }
 

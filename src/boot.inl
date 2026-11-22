@@ -329,6 +329,7 @@ static void PursuitLoadFixSafe() {
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 void Game::PursuitLoadFixTick() { if (g_ok && Game::GameFlowState() == 6) PursuitLoadFixSafe(); }
+#ifdef MWT_DEVTOOLS   // the "watchload" test command (a hardware write watch, loading-gate logging): dev builds only
 // test (with "watchload"): who sets the cop manager's "no new cops" timer (vtable 0x891900 slot 11,
 // 0x411410 thiscall(bool on): on = 60 s, or a tuning value outside races; off = 0)
 namespace {
@@ -419,6 +420,9 @@ void Game::LoadStateTick() {
     LogLoadStateSafe();
 }
 std::string Game::DebugWatchLoad(const char* arg) { InstallCopTimerLog(); { void* o = nullptr; Mem::Read(0x92C67C, o); ArmTimerWatch(o); } int s = atoi(arg); if (s <= 0) s = 60; g_watchLoadUntil = GetTickCount() + s * 1000; return "logging the loading gates for " + std::to_string(s) + " s"; }
+#else
+void Game::LoadStateTick() {}
+#endif
 
 // test command "freeroam": from the front end with a career profile loaded (main menu, the safe house after a
 // story movie) load career free roam, as the quick start does. No focus needed.

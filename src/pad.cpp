@@ -388,11 +388,16 @@ bool Pad::InstallHooks() {
     // 0x63CD80 starts with "mov eax, [0x91F150]" (5 bytes): replace with a jmp, the trampoline runs it.
     // Hooked even with KeepPadBindings off: hot-plug uses it to know what the bindings are made for.
     static const uint8_t expect[5] = { 0xA1, 0x50, 0xF1, 0x91, 0x00 };
-    uint8_t* tramp = (uint8_t*)VirtualAlloc(nullptr, 16, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    // The trampoline page is written while read/write, then made execute/read-only (never writable and
+    // executable at once).
+    uint8_t* tramp = (uint8_t*)VirtualAlloc(nullptr, 16, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    DWORD oldProt = 0;
     if (tramp && memcmp((const void*)0x63CD80, expect, 5) == 0) {
         memcpy(tramp, expect, 5);
         tramp[5] = 0xE9;
         *(int32_t*)(tramp + 6) = (int32_t)(0x63CD85 - ((uintptr_t)tramp + 10));
+    }
+    if (tramp && memcmp((const void*)0x63CD80, expect, 5) == 0 && VirtualProtect(tramp, 16, PAGE_EXECUTE_READ, &oldProt)) {
         FlushInstructionCache(GetCurrentProcess(), tramp, 10);
         g_defaultsTramp = (Thiscall0)tramp;
         uint8_t jmp[5] = { 0xE9 };

@@ -1,6 +1,8 @@
 @echo off
 rem Builds MWTogether.asi (32-bit). If the game folder is the parent (..\speed.exe), also installs it
-rem into ..\scripts. Set MWT_VERSION to stamp a version (CI does this).
+rem into ..\scripts. Set MWT_VERSION to stamp a version (CI does this). Set MWT_RELEASE=1 for a release
+rem build (tools\release.ps1 and CI do this): without it the test commands and debug tools
+rem ([Debug] TestKeys, scripts\MWTogether.cmd) are compiled in (MWT_DEVTOOLS).
 setlocal
 cd /d "%~dp0"
 
@@ -15,13 +17,28 @@ call "%VCVARS%" >nul || (echo vcvars32 not found & exit /b 1)
 
 if not exist build mkdir build
 set VERDEF=
-if defined MWT_VERSION set VERDEF=/DMWT_VERSION=\"%MWT_VERSION%\"
+set RCDEF=
+if defined MWT_VERSION (
+  set VERDEF=/DMWT_VERSION=\"%MWT_VERSION%\"
+  rem file details: "1.6.18" or "0.0.0-abc1234" -> 1,6,18,0 / 0,0,0,0
+  for /f "tokens=1-3 delims=.-" %%a in ("%MWT_VERSION%") do set RCDEF=/d MWT_VERSION_STR=\"%MWT_VERSION%\" /d MWT_VERSION_NUM=%%a,%%b,%%c,0
+)
+set DEVDEF=/DMWT_DEVTOOLS
+if "%MWT_RELEASE%"=="1" set DEVDEF=
 
-cl /nologo /O2 /MT /EHsc /std:c++17 /W3 /DWIN32_LEAN_AND_MEAN /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS %VERDEF% ^
+rc /nologo %RCDEF% /fo "build\version.res" src\version.rc || exit /b 1
+
+rem /Gy + /OPT:REF: code nothing calls is left out. /OPT:NOICF: identical functions stay separate
+rem (with /OPT:ICF the game crashed at 0x46578C loading career free roam). /DYNAMICBASE: the plugin is
+rem relocatable (the game's addresses are constants, ours are fixed up by the loader). /SAFESEH: only
+rem our own registered exception handlers.
+cl /nologo /O2 /Gy /MT /EHsc /std:c++17 /W3 /DWIN32_LEAN_AND_MEAN /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS %VERDEF% %DEVDEF% ^
    /Fo"build\\" /Fd"build\\" ^
    src\main.cpp src\log.cpp src\config.cpp src\net.cpp src\overlay.cpp src\mem.cpp src\game.cpp src\input.cpp src\pad.cpp ^
+   build\version.res ^
    /LD /Fe"build\MWTogether.asi" ^
-   /link /SAFESEH:NO /DYNAMICBASE:NO ws2_32.lib user32.lib gdi32.lib dxguid.lib shell32.lib || exit /b 1
+   /link /SAFESEH /DYNAMICBASE /NXCOMPAT /OPT:REF /OPT:NOICF ws2_32.lib user32.lib gdi32.lib dxguid.lib shell32.lib || exit /b 1
+if defined DEVDEF (echo Dev build: test commands included) else (echo Release build: no test commands)
 
 if not exist "..\speed.exe" (echo Built build\MWTogether.asi & exit /b 0)
 rem renamed from CoopMod: remove the old plugin (both would load) and keep its settings

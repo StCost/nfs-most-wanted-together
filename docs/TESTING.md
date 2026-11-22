@@ -20,7 +20,8 @@ Exit code 0 and `N test(s) run, 0 failed` is a pass. Protocol changes must updat
 
 ## 2. Test tools inside the mod
 
-Set `[Debug] TestKeys=1` in `scripts\MWTogether.ini`. Nothing below works without it.
+Set `[Debug] TestKeys=1` in `scripts\MWTogether.ini`. Nothing below works without it, and only in a dev build
+(`build.bat` without `MWT_RELEASE=1`): release builds leave the test keys and commands out.
 
 **Keys** (only while the game window is focused): `F5` autopilot on/off, `F7` start the test event
 (`[Debug] TestEvent`), `F10`/`F11` spawn/remove a copy of the other player's car, `F12` spawn a cop.
