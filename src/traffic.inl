@@ -715,6 +715,12 @@ static int WantTrailer(const Mirror& m) {
     return (m.n && NetUtil::TrailerDataFresh(m.tn, m.tn ? m.ts[m.tn - 1].t : 0.0, m.s[m.n - 1].sendMs)) ? 1 : 0;
 }
 
+// The other player's own car (ghost, or the racer built as their model) must never be bound as a
+// traffic or opponent mirror, and must not be sent as one of our own racers.
+static bool IsPeerReservedCar(void* iv) {
+    return iv && (iv == g_ghost || iv == g_replacedRacer);
+}
+
 // A host traffic car shown during a race (client, SharedInRaces): not a cop, not a racer.
 static bool IsRaceTrafficMirror(const Mirror& m) {
     if (m.racer || (m.n && (m.s[m.n - 1].e.flags & 2))) return false;
@@ -745,7 +751,7 @@ static void BindRaceTraffic() {
     int cnt = ListSize(VL_AITRAFFIC, &b);
     for (int i = 0; i < cnt && nc < 64; ++i) {
         void* t = ListGet(VL_AITRAFFIC, i);
-        if (!t || t == g_ghost || t == me || !IsVehicle(t) || IsKeptCar(t)) continue;
+        if (!t || t == me || !IsVehicle(t) || IsKeptCar(t) || IsPeerReservedCar(t)) continue;
         void* rb = RigidBodyOf(t);
         if (!rb) continue;
         cars[nc] = t;
@@ -965,18 +971,25 @@ static int MaintainMirrors(double now) {
                 LOG("Race: the racer that followed host opponent %u is a new car now - binding again", m.id);
                 m.iv = nullptr; m.wid = 0; m.fails = 0;
             }
+            // never drive the other player's own car as an opponent / traffic slot
+            if (m.iv && IsPeerReservedCar(m.iv)) {
+                LOG("Race: opponent mirror %u was bound to the other player's car - letting go", m.id);
+                m.iv = nullptr; m.wid = 0; m.bound = false; m.fails = 0;
+            }
             // bind to one of our own AI racers - the same model, else (after a moment) any free one -
-            // switch its AI off and drive it
+            // switch its AI off and drive it. The peer ghost / factory peer racer is never a candidate.
             if (!m.iv && m.n) {
                 if (!m.unboundSince || m.unboundSince > now) m.unboundSince = now;
                 void** b = nullptr;
                 int cnt = ListSize(VL_AIRACERS, &b);
                 if (cnt > 16) cnt = 16;
                 CoopRace::RacerCand cand[16]; void* cars[16];
+                void* me = LocalVehicle();
                 for (int i = 0; i < cnt; ++i) {
                     void* r = ListGet(VL_AIRACERS, i);
                     cars[i] = r;
-                    cand[i].free = r && r != g_ghost && !IsMirrorCar(r) && RigidBodyOf(r);
+                    cand[i].free = r && !IsMirrorCar(r) && RigidBodyOf(r) &&
+                                   CoopRace::MayBindAsRaceMirror(r == me, r == g_ghost, r == g_replacedRacer);
                     cand[i].model = cand[i].free ? ModelKeyOf(r) : 0;
                 }
                 int k = CoopRace::PickRacer(cand, cnt, m.model, now - m.unboundSince > CoopRace::ANY_MODEL_AFTER_MS);
@@ -1047,7 +1060,7 @@ static int CollectOwned(std::initializer_list<int> lists, const float* to, Traff
         int cnt = ListSize(list, &b);
         for (int i = 0; i < cnt && nc < 64; ++i) {
             void* t = ListGet(list, i);
-            if (!t || t == g_ghost || t == me || IsMirrorCar(t)) continue;
+            if (!t || t == me || IsMirrorCar(t) || IsPeerReservedCar(t)) continue;
             void* rb = RigidBodyOf(t);
             if (!rb) continue;
             cand[nc].iv = t;
@@ -1214,7 +1227,7 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
             int cnt = ListSize(VL_AIRACERS, &b);
             for (int i = 0; i < cnt; ++i) {
                 void* r = ListGet(VL_AIRACERS, i);
-                if (!r || r == g_ghost || IsMirrorCar(r)) continue;
+                if (!r || IsMirrorCar(r) || IsPeerReservedCar(r)) continue;
                 void* ri = RacerInfoOf(r);
                 const char* nm = nullptr;
                 if (!ri || !Mem::Read((uintptr_t)ri + 0x08, nm) || !nm || !Mem::IsReadable(nm, 2)) continue;

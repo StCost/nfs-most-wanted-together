@@ -68,6 +68,33 @@ TEST(race_pick_racer_rival_of_another_model) {
     CHECK(ANY_MODEL_AFTER_MS > 0);
 }
 
+TEST(race_peer_ghost_is_never_a_racer_or_traffic_slot) {
+    // the other player's car (ghost, or the racer built as their model) is not a bind candidate
+    CHECK(MayBindAsRaceMirror(false, false, false));
+    CHECK(!MayBindAsRaceMirror(true, false, false));   // local player
+    CHECK(!MayBindAsRaceMirror(false, true, false));   // current ghost
+    CHECK(!MayBindAsRaceMirror(false, false, true));   // factory-built peer racer
+    CHECK(!MayBindAsRaceMirror(true, true, true));
+    // PickRacer must not take a reserved slot even when "any model" is allowed
+    RacerCand c[3] = { { 0x11, false }, { 0x22, false }, { 0x33, true } };
+    CHECK_EQ(PickRacer(c, 3, 0x11, true), 2);         // reserved first two: only the free AI racer
+    c[2].free = false;
+    CHECK_EQ(PickRacer(c, 3, 0x11, true), -1);         // nothing left: do not steal the peer car
+}
+
+TEST(race_ghost_model_is_always_the_peers_car) {
+    const uint32_t peer = 0xAABB0001u, ai = 0x79054B53u;
+    CHECK(GhostModelIsPeers(peer, peer, true));
+    CHECK(!GhostModelIsPeers(ai, peer, true));        // an AI racer body must not stand in
+    CHECK(GhostModelIsPeers(ai, peer, false));        // peer model not known yet: don't drop
+    CHECK(GhostModelIsPeers(0, peer, true));          // model unread: don't drop
+    CHECK(MayAcquireGhostRacer(true, peer, peer, true));
+    CHECK(!MayAcquireGhostRacer(true, ai, peer, true));
+    CHECK(!MayAcquireGhostRacer(false, peer, peer, true));  // ordinary AI racer, even if the model happens to match
+    CHECK(AcceptReplacedRacer(true));
+    CHECK(!AcceptReplacedRacer(false));                // construct of their model failed: keep the AI opponent
+}
+
 TEST(race_boss_helper_car_list) {
     CHECK(CoopRace::BossHelperCar(6) && strcmp(CoopRace::BossHelperCar(6), "imprezawrx") == 0);
     CHECK(CoopRace::BossHelperCar(11) && strcmp(CoopRace::BossHelperCar(11), "eclipsegt") == 0);

@@ -47,6 +47,25 @@ namespace CoopRace {
         return -1;
     }
 
+    // The other player's car must never be borrowed as a racer or traffic mirror (same class of
+    // mix-up as a racer also listed as traffic): that swapped the ghost onto an AI racer and showed
+    // the wrong model at their position, while the standings still named them correctly.
+    inline bool MayBindAsRaceMirror(bool isLocalPlayer, bool isGhost, bool isPeerRacer) {
+        return !isLocalPlayer && !isGhost && !isPeerRacer;
+    }
+    // A ghost may only be the factory-built peer racer, or a spawned copy, of THEIR model.
+    // An AI racer body of another model must not stand in for them (not even to keep a standings slot).
+    inline bool GhostModelIsPeers(uint32_t vehicleModel, uint32_t peerModel, bool peerModelKnown) {
+        if (!peerModelKnown || peerModel == 0 || vehicleModel == 0) return true;
+        return vehicleModel == peerModel;
+    }
+    inline bool MayAcquireGhostRacer(bool isFactoryPeerRacer, uint32_t vehicleModel, uint32_t peerModel,
+                                     bool peerModelKnown) {
+        return isFactoryPeerRacer && GhostModelIsPeers(vehicleModel, peerModel, peerModelKnown);
+    }
+    // If constructing their model as a racer failed, do not keep the original AI body as "their" racer.
+    inline bool AcceptReplacedRacer(bool builtAsPeerModel) { return builtAsPeerModel; }
+
     // Rival races together: the helper's car for Blacklist rival #bin - a car the rival's race intro shows
     // besides the rival's own; null = none: the game's own pick. Seen by starting each rival's first race
     // and logging the cars its intro cutscene builds: all others build only traffic / police props

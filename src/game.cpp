@@ -985,24 +985,25 @@ static void* __cdecl hk_VehicleConstruct(SimParam p) {
         r.name[0] = 0;
     }
     if (replaced && !simable) {
-        // Their model isn't loaded here (seen when they started the event far away from us). The racer
-        // is built as the game wanted it and still becomes theirs - their name, their progress, driven
-        // by their position - so they are in the standings, only in this AI car's body. (Before, no
-        // racer was theirs: they were missing from the standings and their car was spawned outside.)
+        // Their model isn't loaded here (they started the event far away). Do not keep this AI racer's
+        // body as "their" car: that put the wrong model at their position while the standings still
+        // named them. Build the opponent as the game wanted, and let UpdateGhost spawn their real car.
         uint32_t want = vp->carType;
         vp->carType = g_origRacer[0];
         vp->customization = g_origRacerCustom;
         vp->matched = g_origRacerMatched;
         simable = ((Fn)Addr::PVehicleConstruct)(p);
-        if (simable) LOG("Race: the other player's car model %08X isn't loaded here - their racer keeps this AI car's model (%08X)", want, vp->carType);
-        else { replaced = false; g_racerReplacedThisLoad = false; LOG("Race: racer for the other player could not be built (model %08X)", want); }
+        replaced = false;
+        if (simable) LOG("Race: the other player's car model %08X isn't loaded here - this racer stays an AI opponent (%08X); their car will be spawned", want, vp->carType);
+        else { g_racerReplacedThisLoad = false; LOG("Race: racer for the other player could not be built (model %08X)", want); }
     }
-    if (replaced && simable) {
+    if (replaced && simable && CoopRace::AcceptReplacedRacer(true)) {
         void* object = nullptr;
         if (Mem::Read((uintptr_t)simable + 4, object) && object) {
             using FindFn = void* (__thiscall*)(void*, uint32_t);
             g_replacedRacer = ((FindFn)Addr::UCOM_Find)(object, 0x4040E0);
         }
+        if (g_replacedRacer) KeepCar(g_replacedRacer);
         LOG("Race: AI racer built as peer car (key %08X) -> %p", vp->carType, g_replacedRacer);
         g_peerSlotValid = vp->initialPos && Mem::SafeRead(vp->initialPos, g_peerSlot, sizeof(g_peerSlot)) &&
                           NetUtil::FiniteWithin(g_peerSlot, 3, NetUtil::MAX_POS) &&
@@ -1257,7 +1258,8 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
     if (Game::GameFlowState() != 6) { g_ghost = nullptr; Game::ReleaseGhost(); for (auto& o : g_aiOv) o.iv = nullptr; RET("waiting (not in game)"); }
     // The game may delete our copy of their car (to build a race car) and build another car in its memory:
     // then the pointer is someone else's car (seen: the rival's GTI). Let go of it, never touch it again.
-    if (g_ghost && g_ghostKind == GK_SPAWNED && !StillOurCar(g_ghost)) {
+    // Also drop a racer whose address was reused, or whose model is no longer the other player's.
+    if (g_ghost && !StillOurCar(g_ghost)) {
         LOG("Ghost: the game replaced our copy of their car with another car - letting go of it");
         ForgetCar(g_ghost);
         g_ghost = nullptr; g_ghostKind = GK_NONE; g_spawnedKey = g_spawnedHash = 0;
@@ -1304,6 +1306,15 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
 
     // The peer switched cars: respawn ours as their new model / tuning.
     const CarInfo* pc = Net::PeerCar();
+    if (g_ghost && pc && !CoopRace::GhostModelIsPeers(ModelKeyOf(g_ghost), pc->carKey, true)) {
+        LOG("Ghost: this car is model %08X, the other player's is %08X - letting go (will spawn their car)",
+            ModelKeyOf(g_ghost), pc->carKey);
+        Game::ReleaseGhost();
+    }
+    if (g_ghost && g_ghostKind == GK_RACER && g_replacedRacer != g_ghost) {
+        LOG("Ghost: racer %p is not the factory-built peer racer - letting go", g_ghost);
+        Game::ReleaseGhost();
+    }
     {   // their car info never came (seen once over a VPN): show them in a car like ours meanwhile
         static CarInfo fallback{}; static DWORD waitSince = 0; static bool told = false;
         if (pc) { waitSince = 0; told = false; }
@@ -1324,10 +1335,12 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
 
     if (!g_ghost) {
         void* iv = nullptr;
-        // 1) in a race: the racer the factory hook built as the peer's car, else any racer
-        if (g_replacedRacer && ListContains(VL_AIRACERS, g_replacedRacer) && RigidBodyOf(g_replacedRacer)) iv = g_replacedRacer;
-        // (no "any AI racer" fallback any more: it would take over the rival in a boss race, or an
-        //  opponent of a race the other player isn't even in. Without our racer, their car is spawned.)
+        // 1) in a race: only the racer the factory hook built as the peer's own model. Never an
+        // ordinary AI racer or traffic car (that showed the wrong model at their position).
+        if (g_replacedRacer && ListContains(VL_AIRACERS, g_replacedRacer) && RigidBodyOf(g_replacedRacer) &&
+            CoopRace::MayAcquireGhostRacer(true, ModelKeyOf(g_replacedRacer), pc ? pc->carKey : 0, pc != nullptr) &&
+            StillOurCar(g_replacedRacer))
+            iv = g_replacedRacer;
         if (iv) {
             g_ghostList = VL_AIRACERS;
             g_ghostKind = GK_RACER;
