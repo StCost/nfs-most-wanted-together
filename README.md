@@ -8,7 +8,7 @@ A **co-op mod for Need for Speed: Most Wanted 2005** (PC, v1.3). Two players go 
 **career together**: free roam with traffic, races against the AI, the Blacklist, police chases,
 each in their own car. Works over LAN or a VPN (Hamachi, Radmin VPN, ZeroTier).
 
-**Get it:** [GitHub releases](https://github.com/StCost/nfs-most-wanted-together/releases/latest) · [Nexus Mods](https://www.nexusmods.com/needforspeedmostwanted2005/mods/366) · [ModDB](https://www.moddb.com/mods/nfs-most-wanted-together-2-player-co-op-career) · [NFSMods](https://nfsmods.xyz/mod/8207)
+**Get it:** [GitHub releases](https://github.com/StCost/nfs-most-wanted-together/releases/latest) · [Nexus Mods](https://www.nexusmods.com/needforspeedmostwanted2005/mods/366) · [NFSMods](https://nfsmods.xyz/mod/8207)
 
 **Tested by the developers:** the co-op career up to the 13th Blacklist rival. More playtesting soon.
 
