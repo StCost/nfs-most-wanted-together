@@ -187,7 +187,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 <details><summary><h2>Configuration</h2></summary>
 
 All options are in `scripts\MWTogether.ini`, with a comment on each. Sections:
-`[Network]`, `[Player]`, `[Ghost]`, `[Traffic]`, `[Coop]`, `[Start]`, `[AutoStart]`, `[UI]`, `[Window]`, `[Debug]`.
+`[Network]`, `[Player]`, `[Ghost]`, `[Traffic]`, `[Coop]`, `[Start]`, `[UI]`, `[Window]`, `[Debug]`.
 
 
 </details>
@@ -263,7 +263,7 @@ The code is in `src/`:
 | `nativeui.cpp` | Together in the game's menus (Options and Main menu entries, the settings list, text entry, the profile box) |
 | `logo.cpp` | the main menu logo from `scripts\MWTogether-logo.dds` (taller Together variant, original lettering size kept) |
 | `boot.inl` | skip the load-complete screen, last profile, final pursuit load fix |
-| `input.*`, `pad.cpp` | DirectInput, menu automation (AutoStart), gamepad hot-plug and bindings |
+| `input.*`, `pad.cpp` | DirectInput, gamepad hot-plug and bindings; AutoStart menu automation in dev builds only |
 | `overlay.*` | D3D9 hooks and the status overlay |
 | `*util.h` | the rules that don't need the game (pursuit, race, ground, milestones, prologue, profiles, notices, saves), covered by `tests\` |
 

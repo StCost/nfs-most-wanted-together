@@ -105,6 +105,7 @@ namespace {
     bool __fastcall hk_CopSpotOk(void* self, void*, const float* pos, int a, int b, int c, int d) {
         if (!((bool(__fastcall*)(void*, void*, const float*, int, int, int, int))CopSpotOkFn)(self, nullptr, pos, a, b, c, d)) return false;
         if (g_localChased) return true;   // a pursuit on us: its cops may come from anywhere (as in the plain game)
+        if (Game::CurrentEventHash() != 0) return true;  // both on the same route; first pursuit cops must be able to spawn
         return !SpotNearPeer(pos, true);
     }
 
@@ -181,6 +182,12 @@ namespace {
     void OnTrafficPacket(const TrafficEntry* e, int count, double sendMs) {
         double now = Net::LocalClockMs();
         g_lastTrafficPkt = now;
+        TrafficEntry tmp[MAX_TRAFFIC_PER_PACKET];
+        if (count > MAX_TRAFFIC_PER_PACKET) count = MAX_TRAFFIC_PER_PACKET;
+        if (count <= 0) return;
+        memcpy(tmp, e, (size_t)count * sizeof(TrafficEntry));
+        count = NetUtil::DedupTrafficEntries(tmp, count);
+        e = tmp;
         for (int i = 0; i < count; ++i) {
             // the host accepts only the client's own cops; the client accepts the host's cars
             if (!NetUtil::TrafficIdAccepted(e[i].id, g_cfg.isHost)) continue;
@@ -188,6 +195,16 @@ namespace {
             if (!g_cfg.isHost && !racer && !g_trafficNear) continue;   // far from the host: own traffic
             if (!g_cfg.isHost && !racer && g_clientRacing && !g_cfg.trafficSharedInRaces && !(e[i].flags & 1)) continue;   // in a race: own traffic too
             Mirror* m = FindMirror(e[i].id);
+            if (m && m->n) {
+                uint16_t oldF = m->s[m->n - 1].e.flags;
+                if (m->racer) oldF = (uint16_t)(oldF | 2);
+                uint16_t newF = (uint16_t)(e[i].flags | (racer ? 2 : 0));
+                if (NetUtil::TrafficRoleChanged(oldF, m->bound, newF)) {
+                    // do not keep driving a traffic car as a racer (stacked spawn / unsynced opponents)
+                    if (m->bound) { m->iv = nullptr; m->bound = false; m->wid = 0; }
+                    else if (m->iv) { RemoveMirror(*m); m = nullptr; }
+                }
+            }
             // the owner reuses ids: a new car (another model - e.g. a cop where a traffic car was) under an id we
             // already show must be built fresh, not shown by the old car (it carried the cop's light bar and
             // counted as their cop - a pursuit started on a traffic car - until it was rebuilt later)
@@ -603,6 +620,52 @@ namespace {
     int g_hoRetiredGone = 0;  // let-go cars we removed once they were out of view
     int g_viewWaiting = 0;    // NoSpawnNearPlayers: copies not created yet because their spot is in our view
                               // within 60 m (last MaintainMirrors)
+
+    int FillPlayerViews(NetUtil::PlayerView* views, int maxN) {
+        int n = 0;
+        if (!views || maxN <= 0) return 0;
+        NetUtil::CamView cam = ReadCamera(nullptr);
+        if (cam.valid) {
+            memcpy(views[n].pos, cam.pos, 12);
+            memcpy(views[n].dir, cam.dir, 12);
+            views[n].valid = true; ++n;
+        } else if (void* lrb = RigidBodyOf(LocalVehicle())) {
+            memcpy(views[n].pos, RB_GetVec(lrb, RB_GetPosition), 12);
+            float f[3] = {};
+            VCall<void(__thiscall*)(void*, float*)>(lrb, 13 /*GetForwardVector*/)(lrb, f);
+            memcpy(views[n].dir, f, 12);
+            views[n].valid = true; ++n;
+        }
+        if (n >= maxN) return n;
+        if (void* grb = RigidBodyOf(g_ghost)) {
+            memcpy(views[n].pos, RB_GetVec(grb, RB_GetPosition), 12);
+            float f[3] = {};
+            VCall<void(__thiscall*)(void*, float*)>(grb, 13 /*GetForwardVector*/)(grb, f);
+            memcpy(views[n].dir, f, 12);
+            views[n].valid = true; ++n;
+        } else {
+            const Net::Snapshot& p = Net::Latest();
+            if (p.valid && p.s.hasCar && p.s.gameFlowState == 6) {
+                memcpy(views[n].pos, p.s.pos, 12);
+                memcpy(views[n].dir, p.s.linVel, 12);
+                views[n].valid = true; ++n;
+            }
+        }
+        return n;
+    }
+    bool CarShouldStayAt(const float* pos) {
+        if (!pos) return false;
+        NetUtil::PlayerView views[2]{};
+        int n = FillPlayerViews(views, 2);
+        return n > 0 && NetUtil::CarProtectedFromEvict(views, n, pos);
+    }
+    bool CarShouldStay(void* iv) {
+        if (!iv) return false;
+        if (iv == LocalVehicle() || iv == g_ghost) return true;
+        void* rb = RigidBodyOf(iv);
+        return rb && CarShouldStayAt(RB_GetVec(rb, RB_GetPosition));
+    }
+
 }
 
 static void OnCarHitImpl(uint16_t id, const float* dv);
@@ -611,14 +674,10 @@ static void SharedPursuitCopHit(uint16_t mirrorId);   // pursuit.inl
 bool Game::InstallTrafficHooks() {
     // the game deleted one of our mirror cars to make room (and may build a new car in its memory): forget it now
     // (and wait 3 s before building it again: two copies over the car budget evicted each other every frame)
-    // free roam: the copies within 150 m of our car stay when the game needs room for a new car (it takes a far
-    // car instead, or doesn't build its new one - as when the world is full). In events the event code frees them.
+    // Any car either player can still see (close, front cone, or rear / mirrors) is kept when the
+    // 20-car budget looks for something to evict - including the game's own traffic and cops.
     g_keepMirror = [](void* iv) -> bool {
-        if (!iv || Game::CurrentEventHash()) return false;
-        void* lrb = RigidBodyOf(LocalVehicle()); void* rb = RigidBodyOf(iv);
-        if (!lrb || !rb) return false;
-        for (auto& m : g_mirrors) if (m.used && !m.bound && !m.racer && m.iv == iv) return Dist(RB_GetVec(lrb, RB_GetPosition), RB_GetVec(rb, RB_GetPosition)) < 150.f;
-        return false;
+        __try { return CarShouldStay(iv); } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     };
     g_onMirrorRemoved = [](void* iv) {
         for (auto& m : g_mirrors) if (m.used && !m.bound && m.iv == iv) { m.iv = nullptr; m.noSpawnUntil = Net::LocalClockMs() + 3000.0; }
@@ -658,7 +717,9 @@ static int WantTrailer(const Mirror& m) {
 
 // A host traffic car shown during a race (client, SharedInRaces): not a cop, not a racer.
 static bool IsRaceTrafficMirror(const Mirror& m) {
-    return m.bound || (SharedRaceTraffic() && !m.racer && m.n && !(m.s[m.n - 1].e.flags & 1));
+    if (m.racer || (m.n && (m.s[m.n - 1].e.flags & 2))) return false;
+    if (m.n && (m.s[m.n - 1].e.flags & 1)) return false;
+    return m.bound || (SharedRaceTraffic() && m.n);
 }
 
 static int g_raceBindLogs = 0;   // binding lines logged in this race (only the first few)
@@ -996,6 +1057,14 @@ static int CollectOwned(std::initializer_list<int> lists, const float* to, Traff
             ++nc;
         }
     }
+    // a racer often also sits in the traffic list: one entry, racer flags, or the client binds a
+    // traffic car to that id and the real racer stays on the grid (stacked / unsynced)
+    {
+        NetUtil::OwnedCarCand dc[64];
+        for (int i = 0; i < nc; ++i) { dc[i].key = (uintptr_t)cand[i].iv; dc[i].d = cand[i].d; dc[i].flags = cand[i].flags; }
+        nc = NetUtil::DedupOwnedCars(dc, nc);
+        for (int i = 0; i < nc; ++i) { cand[i].iv = (void*)dc[i].key; cand[i].d = dc[i].d; cand[i].flags = (uint8_t)dc[i].flags; }
+    }
     for (int i = 0; i < nc; ++i)
         for (int j = i + 1; j < nc; ++j)
             if (cand[j].d < cand[i].d) { C x = cand[i]; cand[i] = cand[j]; cand[j] = x; }
@@ -1236,11 +1305,13 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
         for (int i = cnt - 1; i >= 0 && killed < 3; --i) {
             void* t = ListGet(VL_AITRAFFIC, i);
             if (!t || t == g_ghost || IsMirrorCar(t) || !IsVehicle(t)) continue;
+            void* rb = RigidBodyOf(t);
             if (smooth) {
-                void* rb = RigidBodyOf(t);
                 float d = rb ? Dist(RB_GetVec(rb, RB_GetPosition), cam.pos) : 0.f;
                 if (!NetUtil::OwnCarMayGo(OnScreenS(t), OffScreenS(t), d)) { ++ownInView; continue; }
             }
+            // rear-view / the other player's view: the game's on-screen timer is the local camera only
+            if (rb && CarShouldStayAt(RB_GetVec(rb, RB_GetPosition))) { ++ownInView; continue; }
             KillVehicle(t); ++killed; ++g_killedOwn;
         }
     }
@@ -1342,6 +1413,24 @@ void Game::TrafficTick(bool connected, const Net::Snapshot& peer) {
 
 int  Game::TrafficCount() { return g_mirrorCount; }
 bool Game::TrafficSuppressed() { return g_suppressTraffic; }
+
+// Race restart: vanilla unloads the pursuit, but our mirrored remote cops (and leftover local
+// cops if the unload missed them) stayed in the world with no radar blips. Drop them now.
+void Game::OnRaceRestart() {
+    int mirrors = 0, local = 0;
+    for (auto& m : g_mirrors) {
+        if (!m.used) continue;
+        bool cop = m.n && (m.s[m.n - 1].e.flags & 1);
+        if (cop && !m.racer) { RemoveMirror(m); ++mirrors; }
+    }
+    void** b = nullptr;
+    for (int i = ListSize(VL_AICOPS, &b) - 1; i >= 0; --i) {
+        void* c = ListGet(VL_AICOPS, i);
+        if (c && IsVehicle(c) && c != g_ghost && !IsMirrorCar(c)) { KillVehicle(c); ++local; }
+    }
+    if (mirrors || local) LOG("Race: restart - removed %d mirrored cop(s) and %d of our police car(s)", mirrors, local);
+    else LOG("Race: restart - no leftover cops to remove");
+}
 
 // Test: spawn an AI police car (copmidsize, DRIVER_COP) 25 m ahead of the local player.
 // (AICopManager::SpawnPatrolCar refuses near the safe house, so we build one directly.)

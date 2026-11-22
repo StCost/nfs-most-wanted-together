@@ -294,7 +294,7 @@ A pass looks like this (both PCs on fresh careers, linked):
 5. Install the release zip into a copy of the game **without** the Widescreen Fix (and once with it), start
    `speed.exe` as usual: the plain game's title screen is `MW_LS_Splash.fng`, the fixed
    game's `WS_MW_LS_Splash.fng`. A release ASI does not honour `TestSkipIntro` / `TestPressStart`; press
-   START yourself (or use AutoStart with a focused window). Dev in-game runs use the helper in section 2
+   START yourself. AutoStart and TestSkipIntro / TestPressStart exist only in dev builds (see section 2).
    and should not stall at intro or Press START.
 6. Update the checklist in `README.md`: a new feature gets `(?)` until it was seen working on two PCs.
 

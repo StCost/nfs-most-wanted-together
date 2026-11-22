@@ -24,10 +24,14 @@ void Config::Load(const char* ini) {
     port         = ReadInt(ini, "Network", "Port", 47555);
     sendRateHz   = ReadInt(ini, "Network", "SendRate", 60);
     playerName   = ReadStr(ini, "Player", "Name", "Player");
-    autoStart    = ReadInt(ini, "AutoStart", "Enabled", 1) != 0;
     autoStartDelayMs    = ReadInt(ini, "AutoStart", "DelayMs", 2500);
     autoStartIntervalMs = ReadInt(ini, "AutoStart", "IntervalMs", 1500);
     autoStartSequence   = ReadStr(ini, "AutoStart", "Sequence", "@WS_MW_LS_Splash.fng,ENTER,@MC_Main.fng,ENTER,@MainMenu.fng,ENTER,@MainMenu_Sub.fng,ENTER,WAIT,WAIT,WAIT,WAIT,ENTER,@Dialog.fng,LEFT,ENTER");
+#ifdef MWT_DEVTOOLS
+    autoStart = ReadInt(ini, "AutoStart", "Enabled", 0) != 0;
+#else
+    autoStart = false;   // release ignores [AutoStart] even if a leftover ini still has it
+#endif
     hideCursor   = ReadInt(ini, "Window", "HideCursor", 1) != 0;
     showOverlay  = ReadInt(ini, "Debug", "Overlay", 0) != 0;
     testKeys     = ReadInt(ini, "Debug", "TestKeys", 0) != 0;

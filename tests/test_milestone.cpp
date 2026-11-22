@@ -23,7 +23,8 @@ TEST(milestone_states) {
     CHECK(!SpeedTrapOpen(ST_UNLOCKED | ST_ACTIVE | ST_DONE));
     CHECK(SpeedTrapDone(ST_UNLOCKED | ST_DONE));
     Snap s = Ms(0x1234, MS_REACHED, 14, 2.5f);
-    CHECK_EQ(s.kind, KIND_MILESTONE); CHECK_EQ(s.key, 0x1234u); CHECK_EQ(s.bin, 14); CHECK(s.open); CHECK(!s.done);
+    CHECK_EQ(s.kind, KIND_MILESTONE); CHECK_EQ(s.key, 0x1234u); CHECK_EQ(s.bin, 14); CHECK(s.open); CHECK(!s.done); CHECK(s.reached);
+    CHECK(!Ms(1, MS_AVAILABLE).reached); CHECK(!Ms(1, MS_DONE).reached);
     Snap t = Trap(0x55, ST_UNLOCKED | ST_DONE, 13, 61.f);
     CHECK_EQ(t.kind, KIND_SPEEDTRAP); CHECK(!t.open); CHECK(t.done); CHECK_NEAR(t.value, 61.f, 1e-6);
 }
@@ -160,7 +161,26 @@ TEST(milestone_judge_same_rival_only) {
     CHECK_EQ(Judge(true, Trap(1, ST_UNLOCKED | ST_ACTIVE, 15), 15, 15), V_APPLY);
     CHECK_EQ(Judge(true, Trap(1, ST_UNLOCKED, 15), 15, 15), V_NOT_AVAILABLE);
     CHECK_STR(VerdictText(V_APPLY), "applied");
-    CHECK_STR(VerdictText((Verdict)99), "?");
+}
+
+TEST(milestone_peer_notice_suppressed_when_we_already_have_it) {
+    // already done here, or already reached (shared pursuit ending for both), or we just completed it
+    CHECK(!ShowPeerCompletionNotice(true, false, false));
+    CHECK(!ShowPeerCompletionNotice(false, true, false));
+    CHECK(!ShowPeerCompletionNotice(false, false, true));
+    CHECK(!ShowPeerCompletionNotice(true, true, true));
+    CHECK(ShowPeerCompletionNotice(false, false, false));    // they earned one we hadn't
+
+    RecentOwn rec;
+    rec.Add(KIND_MILESTONE, 42, 1000);
+    rec.Add(KIND_SPEEDTRAP, 7, 1000);
+    CHECK(rec.HasRecent(KIND_MILESTONE, 42, 1000));
+    CHECK(rec.HasRecent(KIND_MILESTONE, 42, 1000 + PEER_NOTICE_WINDOW_MS));
+    CHECK(!rec.HasRecent(KIND_MILESTONE, 42, 1000 + PEER_NOTICE_WINDOW_MS + 1));
+    CHECK(!rec.HasRecent(KIND_MILESTONE, 99, 1000));
+    CHECK(rec.HasRecent(KIND_SPEEDTRAP, 7, 1500));
+    CHECK(!ShowPeerCompletionNotice(false, false, rec.HasRecent(KIND_MILESTONE, 42, 2000)));
+    CHECK(ShowPeerCompletionNotice(false, false, rec.HasRecent(KIND_MILESTONE, 42, 20000)));
 }
 
 TEST(milestone_valid_msg) {

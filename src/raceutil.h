@@ -69,4 +69,53 @@ namespace CoopRace {
         if (!since) { since = now ? now : 1; return false; }
         return now - since >= RacedTogetherMs;
     }
+
+    // ---- when a finish is actually a win (career "event won") ----
+    // CarState::finished is the sender's rank at the finish (0 = still racing). Only 1 means they won.
+    // Rank 1 is not enough on its own: a Tollbooth loss (timer expired) leaves the leader in 1st
+    // with the course unfinished. Reporting that as 1 made the host's career mark the race
+    // COMPLETED after a shared loss; the client, often 2nd, was left un-marked.
+    // Losing, restarting or quitting must never count as a win, and a win of event A must never
+    // complete event B.
+    constexpr int kTypeSprint = 0, kTypeCircuit = 1, kTypeDrag = 2, kTypeKnockout = 3,
+                  kTypeTollbooth = 4, kTypeSpeedtrap = 5;
+    constexpr float kCourseCompletePct = 99.f;   // GRacerInfo +0x18 is 0-100
+
+    inline bool CourseCompleted(float racePct) { return racePct >= kCourseCompletePct; }
+
+    // Lap knockout can be won mid-lap when the last opponent is eliminated. Every other finish-line
+    // type (and an unknown type) needs the course actually completed; rank 1 at a timeout is a loss.
+    inline bool RankOneNeedsCourseComplete(int raceType) { return raceType != kTypeKnockout; }
+
+    inline bool LocalObjectiveWin(int rank, float racePct, int raceType) {
+        if (rank != 1) return false;
+        if (RankOneNeedsCourseComplete(raceType)) return CourseCompleted(racePct);
+        return true;
+    }
+
+    // What CarState::finished should carry once GRacerInfo +0x21 is set.
+    // 0 = still racing (flag not set). 1 = won. 2+ = finished and did not win (their rank, or 2
+    // when they were leading but did not complete the course — a Tollbooth timeout).
+    inline uint8_t FinishRankToReport(uint8_t finishedFlag, int rank, float racePct, int raceType) {
+        if (!finishedFlag) return 0;
+        if (rank < 1 || rank > 255) return 255;   // unreadable: never a win
+        if (rank == 1 && !LocalObjectiveWin(rank, racePct, raceType)) return 2;
+        return (uint8_t)rank;
+    }
+
+    // The other player's reported finish is a shared win only for this same event, after we raced
+    // it together, and only if they reported rank 1 (a real win, not a loss / quit leftover).
+    inline bool PeerReportedWin(uint32_t localEvent, uint32_t peerEvent, bool peerInRace,
+                                uint8_t peerFinished, bool racedTogether, bool scriptedLoss,
+                                bool restartPending) {
+        if (scriptedLoss || restartPending) return false;
+        if (!localEvent || !peerEvent || localEvent != peerEvent) return false;
+        if (!peerInRace || !racedTogether) return false;
+        return peerFinished == 1;
+    }
+
+    // A remembered peer win still applies only to the event we are in now, never a previous one.
+    inline bool LatchedPeerWin(uint32_t localEvent, uint32_t latchedEvent, bool scriptedLoss) {
+        return !scriptedLoss && localEvent && latchedEvent && localEvent == latchedEvent;
+    }
 }

@@ -201,7 +201,8 @@ std::string Game::DebugForcePursuit() {
 // ---------------------------------------------------------------------------
 namespace {
     constexpr uint32_t P_BustTimer = 0xDC, P_PerpBusted = 0xE8, P_Bailed = 0xE9, P_CoolLeft = 0x100,
-                       P_CoolNeed = 0x104, P_Search = 0x124, P_SinceSeen = 0x128, P_Status = 0x218;
+                       P_CoolNeed = 0x104, P_Search = 0x124, P_SinceSeen = 0x128,
+                       P_UnseenInState = 0x130, P_Status = 0x218;
     enum { PS_CHASE = 0, PS_BACKUP = 1, PS_COOLDOWN = 2, PS_BUSTED = 3, PS_EVADED = 4 };
     constexpr uintptr_t DrawCopsCall = 0x59DCFD, DrawCopsFn = 0x579E00;
     constexpr uintptr_t RadarCall = 0x6F2170, RadarFn = 0x6EDE30;
@@ -264,6 +265,20 @@ namespace {
         uint16_t f = m.s[m.n - 1].e.flags;
         return (f & 1) && (!inPursuitOnly || (f & 4)) && IsVehicle(m.iv);
     }
+    // Local interpolated positions only (not the owner's remote coords, not a traffic id).
+    bool PeerCopsSeeUs() {
+        void* me = LocalVehicle();
+        void* rb = me ? RigidBodyOf(me) : nullptr;
+        if (!rb) return false;
+        const float* mp = RB_GetVec(rb, RB_GetPosition);
+        for (auto& m : g_mirrors) {
+            if (!IsPeerCop(m, true)) continue;
+            void* crb = RigidBodyOf(m.iv);
+            if (!crb) continue;
+            if (SharedPursuit::PeerCopSeesPlayer(true, true, RB_GetVec(crb, RB_GetPosition), mp)) return true;
+        }
+        return false;
+    }
 }
 
 static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
@@ -277,9 +292,13 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     Game::PrologueState pst = Game::PrologueNow();
     bool on = g_cfg.sharedPursuits && connected && g_coopLinked && Prologue::SameStep(pst.inPrologue, pst.step, PeerPrologue());
     bool here = on && FreeRoamHere();
-    void* me = here ? LocalVehicle() : nullptr;
-    void* pursuit = me ? PursuitOf(me) : nullptr;
-    g_localChased = pursuit != nullptr;
+    // A pursuit in a race must still be able to spawn cops next to the other player: this flag is
+    // the local pursuit, not "shared free-roam pursuit is active".
+    void* meAll = LocalVehicle();
+    void* pursuitAll = meAll ? PursuitOf(meAll) : nullptr;
+    g_localChased = pursuitAll != nullptr;
+    void* me = here ? meAll : nullptr;
+    void* pursuit = here ? pursuitAll : nullptr;
 
     // ---- the other player is chased: so are we, wherever we are (one shared pursuit) ----
     // Only a pursuit that has just started there pulls us in (within 30 s of its start), and never right after
@@ -332,7 +351,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         left = PRead<float>(pursuit, P_CoolLeft);
         if (!busted && !bailed && status != PS_BUSTED && status != PS_EVADED) {
             g_sp.flags |= PURSUIT_ACTIVE;
-            if (SeenByOwnCops(pursuit)) g_sp.flags |= PURSUIT_SEEN;
+            if (SeenByOwnCops(pursuit) || PeerCopsSeeUs()) g_sp.flags |= PURSUIT_SEEN;
             if (status == PS_COOLDOWN) g_sp.flags |= PURSUIT_COOLDOWN;
             g_sp.left10 = LeftToWire(left);
         }
@@ -406,8 +425,13 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         Decision d = DecideCooldown(mine, theirs);
         coolNow = (int)d.what;
         if (d.what == Cool::Hold) {
-            PWrite<float>(pursuit, P_SinceSeen, 0.f);
-            PWrite<float>(pursuit, P_Search, 0.f);
+            // Do not pretend the local player is seen (that made the HUD say "they see you" with
+            // no cops around). Reset the 2.5 s "unseen in this state" timer so cooldown cannot start.
+            PWrite<float>(pursuit, P_UnseenInState, 0.f);
+            if (status == PS_COOLDOWN) {
+                PWrite<float>(pursuit, P_SinceSeen, 0.f);
+                PWrite<float>(pursuit, P_Search, 0.f);
+            }
         } else if (d.what == Cool::Delay) {
             float need = PRead<float>(pursuit, P_CoolNeed), search = PRead<float>(pursuit, P_Search), since = PRead<float>(pursuit, P_SinceSeen);
             DelayProgress(need, d.left, search, since);
@@ -487,7 +511,7 @@ static void DrawPeerCopsImpl(void* mm, void* playerIv) {
 }
 void __fastcall hk_DrawCops(void* mm, void*, void* playerIv) {
     ((void(__thiscall*)(void*, void*))DrawCopsFn)(mm, playerIv);
-    if (!g_cfg.sharedPursuits || !g_coopLinked) return;
+    if (!g_cfg.sharedPursuits || !g_coopLinked || !FreeRoamHere()) return;
     __try { DrawPeerCopsImpl(mm, playerIv); } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
@@ -522,7 +546,7 @@ static void RemovePeerCopsFromList(uint32_t oldSize, int n, void** saved) {
 }
 void __fastcall hk_RadarDetector(void* self, void*, uint32_t a, uint32_t b) {
     uint32_t oldSize = 0; void* saved[8] = {};
-    int added = (g_cfg.sharedPursuits && g_coopLinked) ? AddPeerCopsToList(&oldSize, saved) : 0;
+    int added = (g_cfg.sharedPursuits && g_coopLinked && FreeRoamHere()) ? AddPeerCopsToList(&oldSize, saved) : 0;
     ((void(__thiscall*)(void*, uint32_t, uint32_t))RadarFn)(self, a, b);
     if (added) RemovePeerCopsFromList(oldSize, added, saved);
     if (added != g_sp.radarCops && (added || g_sp.radarCops > 0)) {

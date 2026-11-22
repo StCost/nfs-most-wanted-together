@@ -10,9 +10,9 @@
 //     and Menu speed. The action stays on the screen (no extra info in the value column).
 //     Start Host / Connect saves and starts the session; Stop Host / Disconnect ends it.
 //     With Reconnect on launch on, the next start hosts or joins as last time.
-// Text is typed in the game's own text entry on the main menu (Enter keeps, Esc cancels).
-// On the pause Together screen, typing is handled by the plugin so the value stays visible.
-// Leaving the screen saves.
+// Nickname and Connect to IP are typed in the visible row (soft edit) on both the main-menu
+// and pause Together screens. Enter keeps, Esc cancels the edit; Back then leaves. Leaving
+// the screen saves. The game's own text-entry page is not used (it can open blank on a click).
 // Labels come from a copy of the game's string table with our strings added (the game's own pointer to
 // its table is pointed at the copy; the copy is rebuilt when the game loads another language).
 namespace NativeUI {

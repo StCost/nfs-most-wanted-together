@@ -88,3 +88,61 @@ TEST(race_win_counts_only_when_raced_together) {
     CHECK(!CoopRace::RacedTogether(false, true, s2, 1500));       // they finished: no overlap any more
     CHECK_EQ(s2, 0UL);
 }
+
+TEST(race_loss_restart_quit_never_mark_a_win) {
+    const int types[] = { kTypeSprint, kTypeCircuit, kTypeDrag, kTypeTollbooth, kTypeSpeedtrap };
+    for (int t : types) {
+        // leading when the timer expires / a DNF: 1st place, course not finished
+        CHECK(!LocalObjectiveWin(1, 80.f, t));
+        CHECK_EQ((int)FinishRankToReport(1, 1, 80.f, t), 2);
+        // 2nd, even with the course done
+        CHECK(!LocalObjectiveWin(2, 100.f, t));
+        CHECK_EQ((int)FinishRankToReport(1, 2, 100.f, t), 2);
+        // still racing, in the lead
+        CHECK(!LocalObjectiveWin(1, 50.f, t));
+        CHECK_EQ((int)FinishRankToReport(0, 1, 50.f, t), 0);
+        CHECK(!CourseCompleted(80.f));
+    }
+    const uint32_t ev = 0x11111111u, other = 0x22222222u;
+    // peer lost (finished 2nd)
+    CHECK(!PeerReportedWin(ev, ev, true, 2, true, false, false));
+    // peer quit (left the race, or their event hash dropped to 0)
+    CHECK(!PeerReportedWin(ev, ev, false, 1, true, false, false));
+    CHECK(!PeerReportedWin(ev, 0, true, 1, true, false, false));
+    // restart
+    CHECK(!PeerReportedWin(ev, ev, true, 1, true, false, true));
+    // not a race we drove together
+    CHECK(!PeerReportedWin(ev, ev, true, 1, false, false, false));
+    // a win of event A must not complete event B (wrong / leftover event)
+    CHECK(!PeerReportedWin(ev, other, true, 1, true, false, false));
+    CHECK(!LatchedPeerWin(ev, other, false));
+    CHECK(!LatchedPeerWin(other, ev, false));
+    CHECK(!LatchedPeerWin(0, ev, false));
+    CHECK(!LatchedPeerWin(ev, 0, false));
+    // the prologue's scripted loss
+    CHECK(!PeerReportedWin(ev, ev, true, 1, true, true, false));
+    CHECK(!LatchedPeerWin(ev, ev, true));
+}
+
+TEST(race_win_same_event_host_and_client) {
+    const uint32_t ev = 0xABCD0001u;
+    // the decision is the same in both roles: host seeing the client, or client seeing the host
+    for (int role = 0; role < 2; ++role) {
+        (void)role;
+        CHECK(PeerReportedWin(ev, ev, true, 1, true, false, false));
+        CHECK(LatchedPeerWin(ev, ev, false));
+        CHECK(!PeerReportedWin(ev, ev, true, 2, true, false, false));  // they finished, they lost
+        FinishInputs noWin = Ready(); noWin.peerWon = false; noWin.restartPending = true;
+        CHECK(!ShouldFinishAsWinner(noWin));
+    }
+    for (int t : { kTypeSprint, kTypeCircuit, kTypeDrag, kTypeTollbooth, kTypeSpeedtrap }) {
+        CHECK(LocalObjectiveWin(1, 100.f, t));
+        CHECK(LocalObjectiveWin(1, 99.f, t));
+        CHECK_EQ((int)FinishRankToReport(1, 1, 100.f, t), 1);
+        CHECK(!LocalObjectiveWin(1, 98.5f, t));   // just short of the line / the booth
+    }
+    // lap knockout: last opponent out mid-lap is still a win
+    CHECK(LocalObjectiveWin(1, 40.f, kTypeKnockout));
+    CHECK_EQ((int)FinishRankToReport(1, 1, 40.f, kTypeKnockout), 1);
+    CHECK(!LocalObjectiveWin(2, 40.f, kTypeKnockout));
+}

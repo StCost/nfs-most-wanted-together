@@ -111,6 +111,7 @@ namespace Game {
     std::string DebugStartEvent(const char* eventId);   // F7 test
     std::string DebugListEvents();   // test command 'events': log every event ID with race type / boss / preset car
     void TrafficTick(bool connected, const Net::Snapshot& peer);
+    void OnRaceRestart();           // drop mirrored / leftover cops (vanilla unload can miss co-op copies)
     void PursuitTick(bool connected, const Net::Snapshot& peer);   // cops may chase the other player
     int16_t LocalPursuitHeat();
     bool InstallPursuitHooks();                 // [Coop] SharedPursuits (minimap / radar)

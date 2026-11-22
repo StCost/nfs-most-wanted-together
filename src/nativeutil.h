@@ -87,6 +87,28 @@ inline const char* ConnectionActionTitle(bool host, bool running) {
     return running ? "Disconnect" : "Connect";
 }
 
+// Type into the visible row (do not open the game's text-entry page). The game's
+// BeginTextInput hides the value on Pause_Options.fng and, on a mouse click, can
+// open a blank page on Options.fng too. Esc ends the edit; Back then leaves.
+inline bool SoftEditPackage(const char* pkg) {
+    if (!pkg || !pkg[0]) return false;
+    auto eq = [](const char* a, const char* b) {
+        while (*a && *b) {
+            unsigned char ca = (unsigned char)*a++, cb = (unsigned char)*b++;
+            if (ca >= 'A' && ca <= 'Z') ca = (unsigned char)(ca + 32);
+            if (cb >= 'A' && cb <= 'Z') cb = (unsigned char)(cb + 32);
+            if (ca != cb) return false;
+        }
+        return !*a && !*b;
+    };
+    return eq(pkg, "Pause_Options.fng") || eq(pkg, "Options.fng");
+}
+
+// A blocked EXITCOMPLETE must not start or finish a text edit. A mouse click on
+// an Options row can raise EXITCOMPLETE without PAD_ACCEPT; treating that as
+// Enter opened a soft-edit and left the player stuck on a blank screen.
+inline bool BeginEditOnBlockedLeave() { return false; }
+
 // A window of `slots` rows over `count` rows. MoveScroll steps `focus` by `dir` and
 // shifts `scroll` only when the new focus would leave the window (including wrap).
 // When every row fits, moved is false so the game can change the highlight itself.

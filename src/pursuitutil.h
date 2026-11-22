@@ -10,6 +10,17 @@ namespace SharedPursuit {
     constexpr float SEEN_LIMIT_S = 7.0f;
     constexpr float HEAT_EPS = 0.02f;          // heat travels x100: smaller differences are rounding
     constexpr float DELAY_SLACK_S = 0.25f;     // cooldowns this close count as "together"
+    // A mirrored in-pursuit cop counts as seeing the local player when it is close enough in the
+    // LOCAL world (the copy's interpolated body, not the owner's remote coordinates or a traffic id).
+    constexpr float PEER_COP_SEES_PLAYER_M = 45.f;
+    inline bool PeerCopSeesPlayer(bool isCop, bool inPursuit, const float* copPos, const float* playerPos,
+                                  float maxDist = PEER_COP_SEES_PLAYER_M) {
+        if (!isCop || !inPursuit || !copPos || !playerPos || !(maxDist > 0.f)) return false;
+        float dx = copPos[0] - playerPos[0], dy = copPos[1] - playerPos[1], dz = copPos[2] - playerPos[2];
+        float d2 = dx * dx + dy * dy + dz * dz;
+        if (!(d2 == d2)) return false;
+        return d2 <= maxDist * maxDist;
+    }
 
     // ---- heat ------------------------------------------------------------------------------------
     // Called with every state from the other player. Returns the heat our car should take, or 0 to

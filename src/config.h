@@ -9,7 +9,7 @@ struct Config {
     int         port = 47555;         // [Network] Port (both sides bind it)
     int         sendRateHz = 60;      // [Network] SendRate
     std::string playerName = "Player";// [Player] Name
-    bool        autoStart = true;      // [AutoStart] Enabled - title screen -> career automatically
+    bool        autoStart = false;     // [AutoStart] Enabled - dev builds only; release ignores this section
     int         autoStartDelayMs = 2500;   // [AutoStart] DelayMs - wait in the menu before the first press
     int         autoStartIntervalMs = 1500;// [AutoStart] IntervalMs - between presses
     std::string autoStartSequence = "@WS_MW_LS_Splash.fng,ENTER,@MC_Main.fng,ENTER,@MainMenu.fng,ENTER,@MainMenu_Sub.fng,ENTER,WAIT,WAIT,WAIT,WAIT,ENTER,@Dialog.fng,LEFT,ENTER"; // [AutoStart] Sequence

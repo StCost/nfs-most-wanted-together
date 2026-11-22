@@ -33,6 +33,7 @@ namespace {
     SM::Outbox  g_msOut;
     SM::Inbox   g_msIn;
     SM::KeyRing g_msApplied;                // completed here because the other player did: not sent back
+    SM::RecentOwn g_msRecentOwn;            // we earned these ourselves: no "other player completed" notice
     uint32_t    g_msNextId = 0;
     DWORD       g_msNextPoll = 0;
     char        g_msNotice[128] = "";
@@ -136,6 +137,7 @@ namespace {
         for (int i = 0; i < k; ++i) {
             const SM::Msg& m = done[i];
             if (g_msApplied.Has(m.kind, m.key)) continue;              // the other player's, applied here
+            g_msRecentOwn.Add(m.kind, m.key, GetTickCount());
             if (!linked) { LOG("Milestones: we completed %s %08X (rival %u) - not shared (co-op is off)", MsKindName(m.kind), m.key, m.bin); continue; }
             uint32_t id = ++g_msNextId;
             g_msOut.Push(m, id, GetTickCount());
@@ -149,6 +151,12 @@ namespace {
         uint8_t ourBin = MsOurBin();
         while (!g_msIn.items.empty()) {
             SM::Msg m = g_msIn.items[0].m;
+            // the entry as it is now, before we apply their completion (REACHED = we earned it too)
+            SM::Snap mine{};
+            { uint8_t* arr = nullptr; int n = 0;
+              if (MsList(m.kind, arr, n))
+                  for (int i = 0; i < n; ++i)
+                      if (*(const uint32_t*)(arr + i * MS_ENTRY + 4) == m.key) { mine = MsSnapOf(m.kind, arr + i * MS_ENTRY); break; } }
             int after = -1;
             SM::Verdict v = MsApplyRaw(m, ourBin, &after);
             g_msIn.Done(0);
@@ -160,7 +168,11 @@ namespace {
             if (ok) g_msApplied.Add(m.kind, m.key);
             LOG("Milestones: the other player's %s %08X (rival %u) %s here (state now %d)", MsKindName(m.kind), m.key, m.bin,
                 ok ? "completed" : "NOT completed", after);
-            if (ok) sprintf_s(g_msNotice, "%s", m.kind == SM::KIND_MILESTONE ? "completed a milestone" : "passed a speed trap");
+            bool show = ok && SM::ShowPeerCompletionNotice(mine.done, mine.reached,
+                g_msRecentOwn.HasRecent(m.kind, m.key, GetTickCount()));
+            if (show) sprintf_s(g_msNotice, "%s", m.kind == SM::KIND_MILESTONE ? "completed a milestone" : "passed a speed trap");
+            else if (ok) LOG("Milestones: no notice - we already had this one (done %d, reached %d, just completed it ourselves)",
+                              (int)mine.done, (int)mine.reached);
         }
     }
 }

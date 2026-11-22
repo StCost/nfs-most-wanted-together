@@ -55,6 +55,44 @@ TEST(util_traffic_id_allocation_wraps) {
     }
 }
 
+TEST(util_traffic_role_prefers_racer_over_traffic) {
+    CHECK_EQ(TrafficRoleRank(0), 0);
+    CHECK_EQ(TrafficRoleRank(1), 1);
+    CHECK_EQ(TrafficRoleRank(2), 2);
+    CHECK_EQ(TrafficRoleRank(3), 2);                 // racer+cop flags: still a racer
+    CHECK_EQ(PreferTrafficFlags(0, 2), 2);
+    CHECK_EQ(PreferTrafficFlags(2, 0), 2);
+    CHECK_EQ(PreferTrafficFlags(1, 0), 1);
+    CHECK(!TrafficRoleChanged(2, false, 2));
+    CHECK(TrafficRoleChanged(0, false, 2));          // traffic became a racer
+    CHECK(TrafficRoleChanged(2, false, 0));          // racer became traffic
+    CHECK(TrafficRoleChanged(0, true, 2));           // bound traffic must not keep the car as a racer
+    CHECK(!TrafficRoleChanged(0, true, 0));          // still traffic, still bound: not a role change
+
+    OwnedCarCand c[4] = {
+        { 0xA, 100.f, 0 },   // traffic
+        { 0xA, -20000.f, 2 },// same car in the racer list (sorts first)
+        { 0xB, 10.f, 1 },
+        { 0xB, 11.f, 0 },
+    };
+    CHECK_EQ(DedupOwnedCars(c, 4), 2);
+    CHECK_EQ(c[0].key, (uintptr_t)0xA);
+    CHECK_EQ(c[0].flags, (uint16_t)2);
+    CHECK(c[0].d < 0.f);                             // kept the more urgent (racer) distance
+    CHECK_EQ(c[1].key, (uintptr_t)0xB);
+    CHECK_EQ(c[1].flags, (uint16_t)1);
+
+    TrafficEntry e[3]{};
+    e[0].id = 7; e[0].flags = 2; e[0].model = 0x11; e[0].pos[0] = 1.f;
+    e[1].id = 7; e[1].flags = 0; e[1].model = 0x11; e[1].pos[0] = 99.f;  // same racer, also in traffic
+    e[2].id = 8; e[2].flags = 0; e[2].model = 0x22;
+    CHECK_EQ(DedupTrafficEntries(e, 3), 2);
+    CHECK_EQ(e[0].id, (uint16_t)7);
+    CHECK_EQ(e[0].flags, (uint16_t)2);               // racer role kept
+    CHECK_NEAR(e[0].pos[0], 1.f, 1e-4);             // racer motion kept (not the traffic copy)
+    CHECK_EQ(e[1].id, (uint16_t)8);
+}
+
 TEST(util_race_traffic_partner_prefers_same_model) {
     const float at[3] = { 0, 0, 0 };
     TrafficCandidate c[4] = {
@@ -161,6 +199,45 @@ TEST(util_handover_own_car_may_go) {
     CHECK(OwnCarMayGo(3.f, 0.f, 600.f));                      // far beyond drawing range
     const float nan = std::numeric_limits<float>::quiet_NaN();
     CHECK(!OwnCarMayGo(nan, 5.f, 20.f));                      // garbage timer: keep
+}
+
+TEST(util_evict_guard_front_rear_and_both_players) {
+    PlayerView a{}; a.valid = true;
+    a.pos[0] = 0; a.pos[1] = 0; a.pos[2] = 0;
+    a.dir[0] = 0; a.dir[1] = 0; a.dir[2] = 1;                  // facing +Z
+    auto at = [](float x, float z) { static float p[3]; p[0] = x; p[1] = 0; p[2] = z; return p; };
+
+    // close: any direction, including beside
+    CHECK(CarVisibleToPlayer(a, at(0, 20)));
+    CHECK(CarVisibleToPlayer(a, at(30, 0)));
+    CHECK(CarVisibleToPlayer(a, at(0, -20)));
+
+    // front cone, farther than the close sphere
+    CHECK(CarVisibleToPlayer(a, at(0, 120)));
+    CHECK(!CarVisibleToPlayer(a, at(0, 200)));                 // beyond front far
+    CHECK(!CarVisibleToPlayer(a, at(150, 120)));               // off to the side, out of the cone
+
+    // rear cone (mirrors / look-back), shorter than the front
+    CHECK(CarVisibleToPlayer(a, at(0, -60)));
+    CHECK(!CarVisibleToPlayer(a, at(0, -100)));                // beyond rear far
+    CHECK(InHeadingCone(a.pos, a.dir, at(0, 80), EVICT_FRONT_FAR_M, EVICT_FRONT_COS));
+    float back[3] = { -a.dir[0], -a.dir[1], -a.dir[2] };
+    CHECK(InHeadingCone(a.pos, back, at(0, -50), EVICT_REAR_FAR_M, EVICT_REAR_COS));
+
+    // the other player: a car in THEIR front, behind us, is still protected
+    PlayerView b{}; b.valid = true;
+    b.pos[0] = 0; b.pos[1] = 0; b.pos[2] = 400;
+    b.dir[0] = 0; b.dir[1] = 0; b.dir[2] = -1;                 // facing us, -Z
+    float aheadOfB[3] = { 0, 0, 320 };                         // 80 m in front of B, far from A
+    PlayerView views[2] = { a, b };
+    CHECK(CarProtectedFromEvict(views, 2, aheadOfB));
+    CHECK(!CarVisibleToPlayer(a, aheadOfB));
+    CHECK(CarVisibleToPlayer(b, aheadOfB));
+    float farAway[3] = { 0, 0, 800 };
+    CHECK(!CarProtectedFromEvict(views, 2, farAway));
+    PlayerView none{}; none.valid = false;
+    CHECK(!CarVisibleToPlayer(none, at(0, 10)));
+    CHECK(!CarProtectedFromEvict(nullptr, 0, at(0, 10)));
 }
 
 TEST(util_handover_takeover_partner) {

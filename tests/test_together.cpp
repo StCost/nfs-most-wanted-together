@@ -206,6 +206,18 @@ TEST(native_connection_action_title) {
     CHECK_STR(ConnectionActionTitle(false, true), "Disconnect");
 }
 
+TEST(native_soft_edit_package) {
+    CHECK(SoftEditPackage("Options.fng"));
+    CHECK(SoftEditPackage("Pause_Options.fng"));
+    CHECK(SoftEditPackage("options.fng"));
+    CHECK(SoftEditPackage("PAUSE_OPTIONS.FNG"));
+    CHECK(!SoftEditPackage("MainMenu.fng"));
+    CHECK(!SoftEditPackage("SMS_Message.fng"));
+    CHECK(!SoftEditPackage(""));
+    CHECK(!SoftEditPackage(nullptr));
+    CHECK(!BeginEditOnBlockedLeave());
+}
+
 
 // The logo replacement's .dds reader: src/ddsutil.h
 #include "../src/ddsutil.h"

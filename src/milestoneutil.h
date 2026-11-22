@@ -37,11 +37,13 @@ namespace SharedMilestones {
         uint16_t bin = 0;
         bool     open = false;  // can still be completed here
         bool     done = false;
+        bool     reached = false; // milestone goal met, award pending (MS_REACHED)
         float    value = 0;     // recorded value (milestone) / recorded speed (speed trap)
     };
     inline Snap FromMilestone(uint32_t key, uint8_t state, uint16_t bin, float recorded) {
         Snap s; s.kind = KIND_MILESTONE; s.key = key; s.bin = bin;
-        s.open = MilestoneOpen(state); s.done = MilestoneDone(state); s.value = recorded;
+        s.open = MilestoneOpen(state); s.done = MilestoneDone(state);
+        s.reached = (state == MS_REACHED); s.value = recorded;
         return s;
     }
     inline Snap FromSpeedTrap(uint32_t key, uint16_t flags, uint16_t bin, float recorded) {
@@ -164,6 +166,36 @@ namespace SharedMilestones {
         }
         void Clear() { items.clear(); seen.Clear(); }
     };
+
+    // Completions we earned ourselves, kept for a short window so a packet from the
+    // other player about the same entry (a shared pursuit ending for both at once) does
+    // not show "the other player completed a milestone".
+    constexpr uint32_t PEER_NOTICE_WINDOW_MS = 8000;
+    struct RecentOwn {
+        struct E { uint8_t kind; uint32_t key; uint32_t at; };
+        E e[32] = {};
+        int n = 0, head = 0;
+        void Add(uint8_t kind, uint32_t key, uint32_t now) {
+            e[head] = { kind, key, now };
+            head = (head + 1) % 32;
+            if (n < 32) ++n;
+        }
+        bool HasRecent(uint8_t kind, uint32_t key, uint32_t now, uint32_t windowMs = PEER_NOTICE_WINDOW_MS) const {
+            for (int i = 0; i < n; ++i) {
+                if (e[i].kind != kind || e[i].key != key) continue;
+                if ((uint32_t)(now - e[i].at) <= windowMs) return true;
+            }
+            return false;
+        }
+        void Clear() { n = head = 0; }
+    };
+
+    // "The other player completed this" is only shown when it is news here: not already
+    // done, not already reached (we earned it too, award is pending), and not one we
+    // ourselves completed in the last PEER_NOTICE_WINDOW_MS.
+    inline bool ShowPeerCompletionNotice(bool alreadyDone, bool alreadyReached, bool weCompletedRecently) {
+        return !alreadyDone && !alreadyReached && !weCompletedRecently;
+    }
 
     // What to do with one received completion, given our own entry (if any).
     enum Verdict { V_APPLY, V_NOT_FOUND, V_ALREADY_DONE, V_NOT_AVAILABLE, V_OTHER_RIVAL };

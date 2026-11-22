@@ -69,6 +69,21 @@ TEST(pursuit_heat_bad_values) {
     CHECK_EQ(HeatToWire(1.0e9f), MAX_HEAT100);
 }
 
+TEST(pursuit_peer_cop_sees_player_uses_local_positions) {
+    const float me[3] = { 0, 0, 0 };
+    const float nearCop[3] = { 20, 0, 20 };          // ~28 m
+    const float farCop[3] = { 80, 0, 0 };
+    const float nanPos[3] = { std::numeric_limits<float>::quiet_NaN(), 0, 0 };
+    CHECK(PeerCopSeesPlayer(true, true, nearCop, me));
+    CHECK(!PeerCopSeesPlayer(true, true, farCop, me));
+    CHECK(!PeerCopSeesPlayer(false, true, nearCop, me));     // a traffic car, not a cop
+    CHECK(!PeerCopSeesPlayer(true, false, nearCop, me));    // not in a pursuit
+    CHECK(!PeerCopSeesPlayer(true, true, nullptr, me));
+    CHECK(!PeerCopSeesPlayer(true, true, nearCop, nullptr));
+    CHECK(!PeerCopSeesPlayer(true, true, nanPos, me));
+    CHECK(PeerCopSeesPlayer(true, true, farCop, me, 100.f));
+}
+
 // ---- cooldown ------------------------------------------------------------------------------------
 namespace {
     View V(bool in, bool seen, bool cooling, float left) { return View{ in, seen, cooling, left }; }

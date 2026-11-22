@@ -599,6 +599,7 @@ static void RestartTickImpl(bool connected) {
     uint8_t flag = 0;
     Mem::Read(0x91CF28, flag);
     if (flag && !g_lastRestartFlag) {
+        Game::OnRaceRestart();
         // we did it because the peer did (a Restart pressed on our results screen fires only when its winner's
         // photo closes - the player may sit there a while, so that one counts for 2 minutes)
         if (g_restartFromPeer && (!g_restartFromPeerAt || GetTickCount() - g_restartFromPeerAt < 120000)) { g_restartFromPeer = false; g_restartFromPeerAt = 0; }

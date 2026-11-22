@@ -32,6 +32,52 @@ namespace NetUtil {
         return (id == 0 || id >= CLIENT_ID_BIT) ? (uint16_t)1 : id;
     }
 
+    // CollectOwned flags: bit 0 = cop, bit 1 = racer. A racer can also still sit in the
+    // traffic list; if the same car is sent twice (racer then traffic) the client used to
+    // treat it as traffic, bind a traffic car to that id, and leave the real racer stacked.
+    inline int TrafficRoleRank(uint16_t flags) {
+        if (flags & 2) return 2;
+        if (flags & 1) return 1;
+        return 0;
+    }
+    inline uint16_t PreferTrafficFlags(uint16_t a, uint16_t b) {
+        return TrafficRoleRank(b) > TrafficRoleRank(a) ? b : a;
+    }
+    struct OwnedCarCand { uintptr_t key; float d; uint16_t flags; };
+    inline int DedupOwnedCars(OwnedCarCand* c, int n) {
+        if (!c || n <= 0) return 0;
+        int w = 0;
+        for (int i = 0; i < n; ++i) {
+            if (!c[i].key) continue;
+            int found = -1;
+            for (int j = 0; j < w; ++j) if (c[j].key == c[i].key) { found = j; break; }
+            if (found < 0) { c[w++] = c[i]; continue; }
+            c[found].flags = PreferTrafficFlags(c[found].flags, c[i].flags);
+            if (c[i].d < c[found].d) c[found].d = c[i].d;
+        }
+        return w;
+    }
+    // Same id twice in one packet: keep the higher-rank role and that entry's motion.
+    inline int DedupTrafficEntries(TrafficEntry* e, int count) {
+        if (!e || count <= 0) return 0;
+        int w = 0;
+        for (int i = 0; i < count; ++i) {
+            int found = -1;
+            for (int j = 0; j < w; ++j) if (e[j].id == e[i].id) { found = j; break; }
+            if (found < 0) { e[w++] = e[i]; continue; }
+            if (TrafficRoleRank(e[i].flags) > TrafficRoleRank(e[found].flags)) e[found] = e[i];
+            else e[found].flags = PreferTrafficFlags(e[found].flags, e[i].flags);
+        }
+        return w;
+    }
+    // The mirror must drop its old car when the role changes (a bound traffic car must
+    // not be driven as a racer).
+    inline bool TrafficRoleChanged(uint16_t oldFlags, bool hadBound, uint16_t newFlags) {
+        if (TrafficRoleRank(oldFlags) != TrafficRoleRank(newFlags)) return true;
+        if (hadBound && (newFlags & 2)) return true;
+        return false;
+    }
+
     // ---- shared traffic inside races -----------------------------------------------------------
     // In a race the client never deletes its own traffic (the race scripts own some of those cars).
     // Instead each host traffic car is bound to one of the client's own traffic cars, which then
@@ -88,6 +134,46 @@ namespace NetUtil {
         cosA = cosA > 1.f ? 1.f : cosA < -1.f ? -1.f : cosA;
         float margin = asinf(HANDOVER_CAR_M / dist);           // the car's own size widens the cone
         return acosf(cosA) <= acosf(HANDOVER_VIEW_COS) + margin;
+    }
+
+    // ---- do not evict / recycle a car either player can still see --------------------------------
+    // The 20-car budget (and our own cull when the client comes near the host) used to take cars
+    // that were right in front of someone, or only visible in the rear-view / mirrors. A car stays
+    // if it is close to a player, in their forward cone, or in the rear cone. `dir` is the camera
+    // heading, or the car heading when the camera is unknown (the other player's camera is not here).
+    constexpr float EVICT_CLOSE_M     = 40.f;
+    constexpr float EVICT_FRONT_FAR_M = 180.f;
+    constexpr float EVICT_REAR_FAR_M  = 80.f;
+    constexpr float EVICT_FRONT_COS   = 0.342f;  // cos 70 deg (same half-cone as handover)
+    constexpr float EVICT_REAR_COS    = 0.5f;    // cos 60 deg behind (mirrors / look-back)
+    struct PlayerView { float pos[3]; float dir[3]; bool valid; };
+
+    inline bool InHeadingCone(const float* origin, const float* dir, const float* p, float farM, float minCos) {
+        if (!origin || !dir || !p || !(farM > 0.f)) return false;
+        float d[3] = { p[0] - origin[0], p[1] - origin[1], p[2] - origin[2] };
+        float dist = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        if (!(dist == dist) || dist > farM) return false;
+        if (dist <= HANDOVER_CAR_M) return true;
+        float dl = sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+        if (!(dl > 1e-3f)) return false;
+        float cosA = (d[0] * dir[0] + d[1] * dir[1] + d[2] * dir[2]) / (dist * dl);
+        return cosA >= minCos;
+    }
+    inline bool CarVisibleToPlayer(const PlayerView& v, const float* carPos) {
+        if (!v.valid || !carPos) return false;
+        float dist = Dist3(carPos, v.pos);
+        if (!(dist == dist)) return true;                 // NaN: keep the car
+        if (dist <= EVICT_CLOSE_M) return true;
+        if (InHeadingCone(v.pos, v.dir, carPos, EVICT_FRONT_FAR_M, EVICT_FRONT_COS)) return true;
+        float back[3] = { -v.dir[0], -v.dir[1], -v.dir[2] };
+        if (InHeadingCone(v.pos, back, carPos, EVICT_REAR_FAR_M, EVICT_REAR_COS)) return true;
+        return false;
+    }
+    inline bool CarProtectedFromEvict(const PlayerView* views, int nViews, const float* carPos) {
+        if (!views || nViews <= 0 || !carPos) return false;
+        for (int i = 0; i < nViews; ++i)
+            if (CarVisibleToPlayer(views[i], carPos)) return true;
+        return false;
     }
     // May a host car be created at p now without the player seeing it pop in: not right next to the
     // player, and outside the camera's view or far away.

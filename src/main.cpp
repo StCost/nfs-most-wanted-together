@@ -159,8 +159,10 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         if (g_gameOk) Game::PursuitResultTick();
         if (g_gameOk) Pad::Tick(flowNow);
         if (g_gameOk) Game::ChyronTick();
-        // the key-pressing AutoStart is only needed when the direct start is off (or for other targets)
+        // AutoStart (dev builds only): press keys through the title and menus. Release ignores it.
+#ifdef MWT_DEVTOOLS
         if (!hold && !atMenu) AutoStart::Tick(flowNow);
+#endif
         if (g_gameOk) Game::OnFlow(flowNow);
 
         // Tell the peer which car (model + tuning) I'm driving; Net resends on change / every 2 s.

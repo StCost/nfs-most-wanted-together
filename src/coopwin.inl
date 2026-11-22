@@ -12,7 +12,8 @@
 //    ShowPostRace(co-op won).
 //  The other player's racer never "finishes" in our game by itself: when they report finishing, we
 //  mark it finished (0x5E97B0, thiscall GRacerInfo), set 100 %, and re-sort (SortRacers 0x5FDE80).
-//  The sender's CarState::finished carries its own rank at the finish (0 = still racing).
+//  The sender's CarState::finished carries its own rank at the finish (0 = still racing, 1 = won,
+//  2+ = finished and did not win). A timeout / DNF / quit while leading is reported as 2, never 1.
 //
 // Finishing as the winner when the other player won (verified in the exe and in the race script).
 //  The race flow is a Lua 5.0 state graph ("basicrace") in GLOBAL\gameplay.bin: each handler is a
@@ -43,6 +44,12 @@ static bool ScriptedLossEvent() {
     const char* id = EventIdOf(CurrentParms());
     return id && strcmp(id, "16.2.1") == 0;
 }
+static int RaceTypeOfCurrent() {
+    void* rs = nullptr; void* parms = nullptr;
+    if (!Mem::Read(0x91E000, rs) || !rs) return -1;
+    if (!Mem::Read((uintptr_t)rs + 0x1968, parms) || !parms) return -1;
+    return ((int(__thiscall*)(void*))0x5FAA20)(parms);
+}
 namespace {
     bool g_coopWinLogged = false;
     uint32_t g_peerWonEvent = 0;    // event the other player has won (kept until our event changes)
@@ -53,28 +60,33 @@ namespace {
     void* GhostRacerInfo() { return (g_ghost && g_ghostKind == GK_RACER) ? RacerInfoOf(g_ghost) : nullptr; }
 
     bool CoopWonImpl(void* localRi) {
-        int rank = 0;
-        if (localRi && Mem::Read((uintptr_t)localRi + 0x10, rank) && rank == 1) return true;
+        int rank = 0; float pct = 0.f;
+        if (localRi) {
+            Mem::Read((uintptr_t)localRi + 0x10, rank);
+            Mem::Read((uintptr_t)localRi + 0x18, pct);
+        }
+        // Rank 1 is a win only if the course was actually completed (a Tollbooth timeout
+        // leaves the leader in 1st with the timer expired — that must not pay or mark the career).
+        if (CoopRace::LocalObjectiveWin(rank, pct, RaceTypeOfCurrent())) return true;
         if (!g_cfg.sharedWins) return false;
         if (ScriptedLossEvent()) return false;      // the prologue's Razor race: the story needs the loss
-        if (g_peerWonEvent && g_peerWonEvent == Game::CurrentEventHash()) {
+        uint32_t ev = Game::CurrentEventHash();
+        if (CoopRace::LatchedPeerWin(ev, g_peerWonEvent, false)) {
             if (!g_coopWinLogged) { g_coopWinLogged = true; g_coopWinNotice = true; LOG("Race: the other player won - counted as our win too"); }
             return true;
         }
         if (!Net::Stats().connected || !g_coopLinked) return false;
         const Net::Snapshot& p = Net::Latest();
-        if (!p.valid || !p.s.inRace || !p.s.eventHash || p.s.eventHash != Game::CurrentEventHash()) return false;   // same event only
-        void* gri = GhostRacerInfo();
-        // (gri is null in rival races: there the other player's car isn't a racer in our game, and
-        // their own result - sent with their state - decides)
-        uint8_t fin = 0; int grank = 0;
-        if (gri) { Mem::Read((uintptr_t)gri + 0x21, fin); Mem::Read((uintptr_t)gri + 0x10, grank); }
-        if (!g_peerRacedHere) return false;         // still showing the result of an earlier run
-        if (p.s.finished == 1) g_peerWonEvent = Game::CurrentEventHash();   // remembered: they may leave the race before we finish
-        (void)fin; (void)grank;
-        bool won = p.s.finished == 1;             // their own result decides (our sort of their car may differ)
-        if (won && !g_coopWinLogged) { g_coopWinLogged = true; g_coopWinNotice = true; LOG("Race: the other player won - counted as our win too"); }
-        return won;
+        if (!p.valid) return false;
+        uint8_t restart = 0; Mem::Read(0x91CF28, restart);
+        // their own result decides (our sort of their car may differ); same event only
+        if (CoopRace::PeerReportedWin(ev, p.s.eventHash, p.s.inRace != 0, p.s.finished,
+                                      g_peerRacedHere, false, restart != 0)) {
+            g_peerWonEvent = ev;   // remembered: they may leave the race before we finish
+            if (!g_coopWinLogged) { g_coopWinLogged = true; g_coopWinNotice = true; LOG("Race: the other player won - counted as our win too"); }
+            return true;
+        }
+        return false;
     }
     bool __cdecl CoopWinCheck(void* localRi) {
         __try { return CoopWonImpl(localRi); } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
@@ -124,10 +136,11 @@ namespace {
 
 // Rank of the local racer once finished, for the state packet (0 = still racing / not in a race).
 uint8_t Game::LocalFinishRank(void* localRi) {
-    uint8_t fin = 0; int rank = 0;
+    uint8_t fin = 0; int rank = 0; float pct = 0.f;
     if (!localRi || !Mem::Read((uintptr_t)localRi + 0x21, fin) || !fin) return 0;
     Mem::Read((uintptr_t)localRi + 0x10, rank);
-    return (uint8_t)(rank < 1 || rank > 255 ? 255 : rank);   // an unreadable rank is never a win
+    Mem::Read((uintptr_t)localRi + 0x18, pct);
+    return CoopRace::FinishRankToReport(fin, rank, pct, RaceTypeOfCurrent());
 }
 
 // Forget the other player's win when the event changes, the race is restarted (here or there: their
@@ -155,7 +168,9 @@ static void CoopWinLatchTick(bool connected, const Net::Snapshot& peer) {
     if (CoopRace::RacedTogether(ev && connected && sameEvent && peer.s.inRace && !peer.s.finished, weRace, togetherSince, GetTickCount()))
         g_peerRacedHere = true;
     // (never in the prologue's Razor race 16.2.1: the story needs that loss - the car breaks down on both)
-    if (ev && connected && sameEvent && peer.s.inRace && peer.s.finished == 1 && g_peerRacedHere && !ScriptedLossEvent()) g_peerWonEvent = ev;   // also without a ghost racer (rival races)
+    if (connected && CoopRace::PeerReportedWin(ev, sameEvent ? peer.s.eventHash : 0, sameEvent && peer.s.inRace != 0,
+                                               pfin, g_peerRacedHere, ScriptedLossEvent(), restart != 0))
+        g_peerWonEvent = ev;   // also without a ghost racer (rival races)
 }
 
 // ---- finish our racer as the winner (see the top of this file) ----

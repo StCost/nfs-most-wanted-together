@@ -43,7 +43,7 @@ TEST(config_defaults_when_file_is_missing) {
     CHECK(c.trafficSmoothHandover);
     CHECK(c.trafficNoSpawnNearPlayers);
     CHECK(c.noSpeedbreaker); CHECK(c.noPause); CHECK(c.runInBackground); CHECK(c.streamAroundPeer);
-    CHECK(c.autoStart);
+    CHECK(!c.autoStart);
     CHECK_STR(c.autoStartTarget, "freeroam");
     CHECK(c.uiIntroInput);
     CHECK_EQ(c.uiMenuSpeed, 2);
@@ -109,6 +109,16 @@ TEST(config_parses_values) {
     CHECK_EQ(c.toggleKey, 0x7A);                     // hex is accepted
     CHECK_STR(c.testEvent, "1.2.3");
 }
+
+TEST(config_release_ignores_autostart_enabled) {
+    // tests.exe is built without MWT_DEVTOOLS, same as a release plugin. Enabled=1 must not arm AutoStart.
+    Config c = LoadText("[AutoStart]\r\nEnabled=1\r\nDelayMs=10\r\nIntervalMs=20\r\nSequence=ENTER\r\n");
+    CHECK(!c.autoStart);
+    CHECK_EQ(c.autoStartDelayMs, 10);
+    CHECK_EQ(c.autoStartIntervalMs, 20);
+    CHECK_STR(c.autoStartSequence, "ENTER");
+}
+
 
 TEST(config_mode_is_case_insensitive_and_defaults_to_host) {
     CHECK(!LoadText("[Network]\nMode=CLIENT\n").isHost);
@@ -182,7 +192,7 @@ TEST(config_long_and_odd_strings) {
 
 TEST(config_shipped_ini_matches_built_in_defaults) {
     // MWTogether.ini in the repository is what players get: it must load to the same values as no
-    // file at all (apart from the AutoStart timings it tunes on purpose).
+    // file at all. AutoStart is not shipped (dev builds may still read it from a local ini).
     char exe[MAX_PATH];
     GetModuleFileNameA(nullptr, exe, MAX_PATH);
     std::string dir = exe;

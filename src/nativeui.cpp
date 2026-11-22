@@ -204,9 +204,7 @@ namespace {
     std::string& Text(int r) { return r == W_NAME ? g_ed.name : g_ed.hostIp; }
     Field FieldOf(int r) { return r == W_NAME ? Field::Name : Field::Host; }
     bool SoftEditPkg() {
-        if (!g_screen) return false;
-        const char* pkg = PkgName(g_screen);
-        return pkg && _stricmp(pkg, kPauseOptionsFng) == 0;
+        return g_screen && NativeUtil::SoftEditPackage(PkgName(g_screen));
     }
 
     const char* TitleOf(int r) {
@@ -299,7 +297,8 @@ namespace {
         *(g_screen + 0x120) = 0;     // bAllowScroll: no row changes while typing
         g_editRow = r;
         if (SoftEditPkg()) {
-            // Pause_Options hides the value string under the game's text entry; type into the row ourselves.
+            // Type into the row ourselves: the game's text entry hides the value on pause
+            // and a mouse click can open a blank page on the main-menu Options screen.
             g_softEdit = true;
             g_softWaitRelease = true;
             memset(g_softPrev, 0x80, sizeof(g_softPrev));  // every key currently down is already down
@@ -700,6 +699,7 @@ namespace {
             case DECLINE_EDITED: EndEdit(false); return;
             case PAD_BUTTON5: case PC_DISPLAY: return;       // no "restore defaults" / display toggles here
             case PAD_BACK:
+                if (g_softEdit) { EndEdit(false); return; }
                 if (Capturing() || GetTickCount() - g_editEnd < 300) return;
                 g_stayOnAccept = false;
                 WidgetMenuNotify(s, msg, obj, p1, p2);
@@ -725,7 +725,10 @@ namespace {
                 break;
             case EXITCOMPLETE:
                 if (!g_allowLeave) {
-                    if (GetTickCount() - g_acceptAt >= 200) HandleEnterInPlace();
+                    // Mouse clicks often arrive as EXITCOMPLETE without PAD_ACCEPT.
+                    // Do not treat that as Enter (it opened a blank edit and trapped the player).
+                    if (NativeUtil::BeginEditOnBlockedLeave() && GetTickCount() - g_acceptAt >= 200)
+                        HandleEnterInPlace();
                     LOG("Native: stayed on the Together screen (EXITCOMPLETE, leave not allowed)");
                     return;
                 }
@@ -756,7 +759,12 @@ namespace {
             void* o = GameAlloc(0x4C);
             if (!o) return;
             if (mainMenu) IconOptionCtor(o, TEX_LAN, S_MAIN_NAME, S_MAIN_DESC);
-            else IconOptionCtor(o, TEX_ONLINE, S_OPT_NAME, S_OPT_DESC);
+            else {
+                // Pause Options does not add the game's Online entry, so TEX_ONLINE is
+                // often missing there (a blank icon at the end of the list). TEX_PLAYER
+                // is already used by a standard options category and by our header.
+                IconOptionCtor(o, TEX_PLAYER, S_OPT_NAME, S_OPT_DESC);
+            }
             *(void**)o = mainMenu ? g_mainIconVt : g_optionsIconVt;
             AddOption(menu, o);
         } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Native: exception adding the Together icon"); }
