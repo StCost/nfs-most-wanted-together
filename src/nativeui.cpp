@@ -312,7 +312,11 @@ namespace {
                 Change(r, data == PAD_RIGHT ? 1 : -1);
                 ToggleUpdate(w, data);
             } else if (data == BUTTON_PRESSED) {
-                if (IsText(r)) BeginEdit(w, r);
+                if (IsText(r)) {
+                    // ACCEPT also runs the package's own leave animation: typing starts once it has opened again
+                    if (GetTickCount() - g_acceptAt < 100) { g_reopenRow = r; g_editOnOpen = r; }
+                    else BeginEdit(w, r);
+                }
                 else if (r == W_START) Start();
                 else { Change(r, 1); if (GetTickCount() - g_acceptAt < 100) g_reopenRow = r; }
             }
@@ -433,7 +437,7 @@ namespace {
     }
 
     void EditOnOpenTick() {
-        if (g_editOnOpen < 0 || !g_screen || Capturing() || GetTickCount() - g_builtAt < 300) return;
+        if (g_editOnOpen < 0 || !g_screen || Capturing() || GetTickCount() - g_builtAt < 700) return;   // after its intro
         int r = g_editOnOpen; g_editOnOpen = -1;
         uint8_t* w = *(uint8_t**)(g_screen + 0x34);
         if (w && *(void**)w == g_widgetVt && RowOf(w) == r) BeginEdit(w, r);
