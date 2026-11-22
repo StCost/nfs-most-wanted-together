@@ -251,11 +251,13 @@ namespace {
             if (title) SetLangStr(title, S_TITLE + r);
             if (!data) return;
             if (r == g_editRow) {
-                // Pause_Options may write the caret to another object; keep the visible value in sync
+                // Pause_Options may write the caret to another object; keep the visible value in sync.
+                // If the live string is still empty this frame, keep the last known text (do not blank the row).
                 if (g_screen) {
                     const char* t = EditedText(g_screen);
-                    if (t) { strncpy_s(g_value[r], t, _TRUNCATE); SetLangStr(data, S_VALUE + r); }
+                    if (t && t[0]) strncpy_s(g_value[r], t, _TRUNCATE);
                 }
+                SetLangStr(data, S_VALUE + r);
                 return;
             }
             if (IsOnOff(r) && !(r == g_errRow && !g_err.empty())) { SetLangStr(data, *Flag(r) ? LANG_ON : LANG_OFF); return; }
@@ -868,6 +870,24 @@ void NativeUI::Tick() {
         ProfileTick();
         LeftTick();
         EditOnOpenTick();
+        // pause text entry may not redraw the row itself: push the live string onto the value object
+        if (g_editRow >= 0 && g_screen) {
+            const char* t = EditedText(g_screen);
+            if (t && t[0]) {
+                strncpy_s(g_value[g_editRow], t, _TRUNCATE);
+                uint8_t* w = *(uint8_t**)(g_screen + 0x34);
+                if (w && *(void**)w == g_widgetVt && RowOf(w) == g_editRow) {
+                    if (void* data = *(void**)(w + 0x30)) SetLangStr(data, S_VALUE + g_editRow);
+                }
+            }
+#ifdef MWT_DEVTOOLS
+            static DWORD lastEditLog = 0;
+            if (g_cfg.testKeys && GetTickCount() - lastEditLog > 250) {
+                lastEditLog = GetTickCount();
+                LOG("Native: edit row %d [%s]", g_editRow, t ? t : "");
+            }
+#endif
+        }
         // our category lives on in the game's options settings: back to Audio once our screen is gone
         int cat = Category();
         if (cat == CAT_SETTINGS || cat == CAT_CONNECT) {
