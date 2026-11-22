@@ -60,4 +60,43 @@ inline std::string ProfileLabel(const std::string& me, const std::string& peer, 
     return m.empty() ? f : m + " & " + f;
 }
 
+// Rows on the Together screen (main menu and Options > Together). The join IP row is only shown
+// when Connection = Join. The last action row's label depends on whether a session is running.
+enum Row {
+    W_NAME, W_MODE, W_HOSTIP, W_PORT, W_AUTO, W_COLOUR, W_DIRECT, W_SKIPINTRO, W_SAFEHOUSE, W_PURSUITRES,
+    W_INTROINPUT, W_PADHOTPLUG, W_NOPURSUITCAM, W_MENUSPEED, W_START, W_COUNT
+};
+enum class Screen { Settings, Connect };
+
+inline std::vector<int> TogetherRows(Screen screen, bool host) {
+    std::vector<int> v;
+    v.push_back(W_NAME);
+    v.push_back(W_MODE);
+    if (!host) v.push_back(W_HOSTIP);
+    if (screen == Screen::Settings) {
+        v.push_back(W_PORT);
+        v.push_back(W_AUTO);
+        v.push_back(W_START);
+        v.push_back(W_COLOUR);
+        v.push_back(W_DIRECT);
+        v.push_back(W_SKIPINTRO);
+        v.push_back(W_SAFEHOUSE);
+        v.push_back(W_PURSUITRES);
+        v.push_back(W_INTROINPUT);
+        v.push_back(W_PADHOTPLUG);
+        v.push_back(W_NOPURSUITCAM);
+        v.push_back(W_MENUSPEED);
+    } else {
+        v.push_back(W_AUTO);
+        v.push_back(W_START);
+    }
+    return v;
+}
+
+// The action row: Host mode uses Start Host / Stop Host; Join mode uses Connect / Disconnect.
+inline const char* ConnectionActionTitle(bool host, bool running) {
+    if (host) return running ? "Stop Host" : "Start Host";
+    return running ? "Disconnect" : "Connect";
+}
+
 }  // namespace NativeUtil

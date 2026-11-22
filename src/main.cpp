@@ -112,6 +112,10 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         // the in-game settings page saved a new name / colour / mode / address / port: reconnect (first thing in
         // the frame, before anything talks to the network)
         if (Together::TakeNetworkChange()) g_netOk = Net::Restart();
+        if (Together::TakeNetworkStop()) {
+            if (g_netOk) { Net::SendBye(); Net::Shutdown(); g_netOk = false; }
+            LOG("Net: session stopped from the Together menu");
+        }
         // [Window] StartInBackground: once the game window exists, hand the focus back to the window
         // that had it before launch, and tell the game it's inactive (it mutes itself, like alt-tab).
         static int bgFrames = 0;

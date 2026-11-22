@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 #include "nativeui.h"
@@ -100,8 +101,11 @@ namespace {
     constexpr uint32_t kStrBase = 0x6D775400;            // our string hashes ("mwT" + n)
     enum : uint32_t { S_OPT_NAME = kStrBase, S_OPT_DESC, S_MAIN_NAME, S_MAIN_DESC, S_HEADER, S_HEADER_CONNECT,
                       S_TITLE = kStrBase + 0x20, S_VALUE = kStrBase + 0x40 };
-    enum Row { W_NAME, W_MODE, W_HOSTIP, W_PORT, W_AUTO, W_COLOUR, W_DIRECT, W_SKIPINTRO, W_SAFEHOUSE, W_PURSUITRES,
-               W_INTROINPUT, W_PADHOTPLUG, W_NOPURSUITCAM, W_MENUSPEED, W_START, W_COUNT };
+    using NativeUtil::W_NAME; using NativeUtil::W_MODE; using NativeUtil::W_HOSTIP; using NativeUtil::W_PORT;
+    using NativeUtil::W_AUTO; using NativeUtil::W_COLOUR; using NativeUtil::W_DIRECT; using NativeUtil::W_SKIPINTRO;
+    using NativeUtil::W_SAFEHOUSE; using NativeUtil::W_PURSUITRES; using NativeUtil::W_INTROINPUT;
+    using NativeUtil::W_PADHOTPLUG; using NativeUtil::W_NOPURSUITCAM; using NativeUtil::W_MENUSPEED;
+    using NativeUtil::W_START; using NativeUtil::W_COUNT;
     char g_title[W_COUNT][48], g_value[W_COUNT][96];
     std::vector<StringRec> g_ours;
     StringRec* g_table = nullptr; int g_tableN = 0;      // our merged copy (what RecordTable points at)
@@ -158,14 +162,15 @@ namespace {
     int      g_cat = 0;
     uint8_t* g_screen = nullptr;          // the options list screen showing our rows
     int      g_editRow = -1;
-    // Options.fng itself leaves on ACCEPT (a response in the package, as "keep and go back" on the
-    // game's own lists), except while a text entry captures it. So ACCEPT on an on/off row changes it
-    // and the screen opens again on that row; ACCEPT on Start just lets it leave.
+    // Options.fng / Pause_Options.fng treat ACCEPT as "keep and go back" (a package response).
+    // Enter on a Together row must stay: we don't forward ACCEPT to the widget menu, and we drop
+    // LEAVE_SCREEN for this package while g_stayOnAccept is set. Reopen is only a fallback.
     DWORD    g_acceptAt = 0;              // when ACCEPT reached the screen
-    int      g_reopenRow = -1;            // open the screen again on this row after it leaves
+    bool     g_stayOnAccept = false;      // this ACCEPT is an in-place row action: do not leave
+    int      g_reopenRow = -1;            // fallback: open again on this row if the package still left
     bool     g_reopening = false;         // ... keeping the edits not saved yet
-    DWORD    g_startAt = 0;               // Start pressed: the screen should be leaving
-    // Pause_Options.fng leaves first and sends ACCEPT after: where to go is decided a moment later
+    DWORD    g_startAt = 0;               // unused for Start now (the action stays on the screen)
+    // Pause_Options.fng may leave first and send ACCEPT after: where to go is decided a moment later
     uint8_t* g_leftScreen = nullptr;      // the screen that has left (it may still get that ACCEPT)
     DWORD    g_leftAt = 0;                // 0 = nothing pending
     int      g_leftCat = 0;
@@ -175,7 +180,6 @@ namespace {
     DWORD    g_editEnd = 0;               // when the text entry ended (its Enter / Esc mustn't act again)
     std::string g_err; int g_errRow = -1; bool g_backWarned = false;
     bool     g_mainPicked = false;        // main menu: our icon was picked
-    std::string g_ips;
 
     bool IsText(int r) { return r == W_NAME || r == W_HOSTIP || r == W_PORT; }
     bool IsOnOff(int r) { return r == W_AUTO || (r >= W_DIRECT && r <= W_NOPURSUITCAM); }
@@ -192,14 +196,14 @@ namespace {
 
     const char* TitleOf(int r) {
         switch (r) {
-        case W_NAME: return "Nickname"; case W_MODE: return "Play as";
-        case W_HOSTIP: return g_ed.host ? "Your IP (to join you)" : "Host's IP address";
-        case W_PORT: return "UDP port"; case W_AUTO: return "Do the same on restart"; case W_COLOUR: return "Map colour";
+        case W_NAME: return "Nickname"; case W_MODE: return "Connection";
+        case W_HOSTIP: return "Connect to IP";
+        case W_PORT: return "UDP port"; case W_AUTO: return "Keep connection on restart"; case W_COLOUR: return "Map colour";
         case W_DIRECT: return "Quick career start"; case W_SKIPINTRO: return "Skip intros (next start)";
         case W_SAFEHOUSE: return "Quick safe house exit (next start)"; case W_PURSUITRES: return "Auto-close pursuit results";
         case W_INTROINPUT: return "Fast menus (next start)"; case W_PADHOTPLUG: return "Detect new gamepads";
         case W_NOPURSUITCAM: return "No pursuit start camera"; case W_MENUSPEED: return "Menu speed (next start)";
-        case W_START: return "Start";
+        case W_START: return NativeUtil::ConnectionActionTitle(g_ed.host, Together::SessionActive());
         }
         return "";
     }
@@ -208,11 +212,18 @@ namespace {
         switch (r) {
         case W_NAME: return g_ed.name.empty() ? "(type a nickname)" : g_ed.name;
         case W_MODE: return g_ed.host ? "Host" : "Join";
-        case W_HOSTIP: return g_ed.host ? g_ips : (Trim(g_ed.hostIp).empty() ? "(type the host's IP)" : g_ed.hostIp);
+        case W_HOSTIP: return Trim(g_ed.hostIp).empty() ? "(type the host's IP)" : g_ed.hostIp;
         case W_PORT: return g_ed.port;
         case W_COLOUR: { int i = ColourIndex(g_ed.colour); return i < 0 ? "Custom " + ColourText(g_ed.colour) : kColourNames[i]; }
         case W_MENUSPEED: return std::to_string(g_ed.menuSpeed) + "x";
-        case W_START: return g_ed.host ? "Host now" : "Join " + (Trim(g_ed.hostIp).empty() ? std::string("...") : Trim(g_ed.hostIp));
+        case W_START: {
+            if (!Together::SessionActive()) return g_ed.host ? std::string() : (Trim(g_ed.hostIp).empty() ? "..." : Trim(g_ed.hostIp));
+            if (Together::Connected()) {
+                std::string n = Net::Stats().peerName;
+                return n.empty() ? "Connected" : n;
+            }
+            return g_ed.host ? "Running" : "Connecting...";
+        }
         }
         return "";
     }
@@ -231,6 +242,7 @@ namespace {
             strncpy_s(g_title[r], TitleOf(r), _TRUNCATE);
             if (title) SetLangStr(title, S_TITLE + r);
             if (!data) return;
+            if (r == g_editRow) return;     // the game's text entry owns this string while typing
             if (IsOnOff(r) && !(r == g_errRow && !g_err.empty())) { SetLangStr(data, *Flag(r) ? LANG_ON : LANG_OFF); return; }
             strncpy_s(g_value[r], ValueOf(r).c_str(), _TRUNCATE);
             SetLangStr(data, S_VALUE + r);
@@ -249,15 +261,17 @@ namespace {
         Refresh();
     }
 
+    void RebuildRows();   // defined after BuildScreen
+
     void Change(int r, int dir) {
         ClearError();
         switch (r) {
-        case W_MODE: g_ed.host = !g_ed.host; break;
+        case W_MODE: g_ed.host = !g_ed.host; RebuildRows(); return;
         case W_COLOUR: g_ed.colour = NextColour(g_ed.colour, dir); break;
         case W_MENUSPEED: g_ed.menuSpeed = (g_ed.menuSpeed - 1 + dir + 3) % 3 + 1; break;
         default: if (bool* f = Flag(r)) *f = !*f; break;
         }
-        Refresh();      // the mode changes the address row too
+        Refresh();
     }
 
     void BeginEdit(uint8_t* w, int r) {
@@ -266,8 +280,7 @@ namespace {
         if (!data) return;
         uint32_t objHash = *(uint32_t*)((uint8_t*)data + 0x10);
         ClearError();
-        // what's in the field now (the address row shows this PC's addresses while hosting)
-        std::string start = r == W_HOSTIP && g_ed.host ? "" : Text(r);
+        std::string start = Text(r);
         strncpy_s(g_value[r], start.c_str(), _TRUNCATE);
         SetLangStr(data, S_VALUE + r);
         // edit modes of the game's text entry: 0 = any key, 4 = letters, digits, '.', '@', '_'
@@ -294,10 +307,16 @@ namespace {
     }
 
     void Start() {
+        if (Together::SessionActive()) {
+            Together::StopSession();
+            LOG("Native: %s stopped", g_ed.host ? "host" : "join");
+            Refresh();
+            return;
+        }
         std::string err = Together::Apply(g_ed, true);
-        if (!err.empty()) { ShowError(err); g_reopenRow = W_START; return; }     // (shown again with the error)
-        LOG("Native: %s from the main menu", g_ed.host ? "hosting" : "joining");
-        g_startAt = GetTickCount();       // the package leaves by itself on ACCEPT; Tick makes sure
+        if (!err.empty()) { ShowError(err); return; }
+        LOG("Native: %s from the Together screen", g_ed.host ? "hosting" : "joining");
+        Refresh();
     }
 
     void __fastcall WidgetAct(uint8_t* w, void*, const char* /*pkg*/, uint32_t data) {
@@ -310,15 +329,12 @@ namespace {
             if (data == PAD_LEFT || data == PAD_RIGHT) {
                 if (IsText(r) || r == W_START) return;
                 Change(r, data == PAD_RIGHT ? 1 : -1);
-                ToggleUpdate(w, data);
+                // Change(W_MODE) rebuilds the rows, so the widget pointer is no longer valid
+                if (r != W_MODE) ToggleUpdate(w, data);
             } else if (data == BUTTON_PRESSED) {
-                if (IsText(r)) {
-                    // ACCEPT also runs the package's own leave animation: typing starts once it has opened again
-                    if (GetTickCount() - g_acceptAt < 100) { g_reopenRow = r; g_editOnOpen = r; }
-                    else BeginEdit(w, r);
-                }
+                if (IsText(r)) BeginEdit(w, r);
                 else if (r == W_START) Start();
-                else { Change(r, 1); if (GetTickCount() - g_acceptAt < 100) g_reopenRow = r; }
+                else Change(r, 1);
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Native: exception in a row"); }
     }
@@ -345,8 +361,6 @@ namespace {
         g_screen = s; g_cat = cat; g_builtAt = GetTickCount();
         if (g_leftScreen == s) g_leftScreen = nullptr;      // a new screen where the old one was
         if (!g_reopening) g_ed = Together::Current();
-        g_ips = Together::LocalAddresses();
-        size_t c = g_ips.find(','); if (c != std::string::npos) g_ips = g_ips.substr(0, c);
         g_editRow = -1; g_backWarned = false;
         if (!g_reopening) { g_err.clear(); g_errRow = -1; }
         const char* pkg = PkgName(s);
@@ -355,19 +369,16 @@ namespace {
             if (void* p = FindPackage(fe, pkg))
                 if (uint8_t* o = (uint8_t*)FindObjectByHash(p, HEADER_ICON))
                     if (*(int*)(o + 0x18) == 1) { *(uint32_t*)(o + 0x24) = TEX_PLAYER; *(uint32_t*)(o + 0x1C) |= 0x2400000; }
-        static const int kSettingsRows[] = { W_NAME, W_MODE, W_HOSTIP, W_PORT, W_AUTO, W_COLOUR, W_DIRECT, W_SKIPINTRO,
-                                             W_SAFEHOUSE, W_PURSUITRES, W_INTROINPUT, W_PADHOTPLUG, W_NOPURSUITCAM, W_MENUSPEED };
-        static const int kConnectRows[] = { W_NAME, W_MODE, W_HOSTIP, W_AUTO, W_START };
-        const int* rows = cat == CAT_CONNECT ? kConnectRows : kSettingsRows;
-        int n = cat == CAT_CONNECT ? (int)(sizeof(kConnectRows) / sizeof(int)) : (int)(sizeof(kSettingsRows) / sizeof(int));
+        std::vector<int> rows = NativeUtil::TogetherRows(
+            cat == CAT_CONNECT ? NativeUtil::Screen::Connect : NativeUtil::Screen::Settings, g_ed.host);
         int added = 0;
-        for (int i = 0; i < n; ++i) {
+        for (int r : rows) {
             if (!RowFits(s)) { LOG("Native: the screen has room for %d rows", added); break; }
             uint8_t* w = (uint8_t*)GameAlloc(kWidgetSize + 4);
             if (!w) break;
             ToggleCtor(w, true);
             *(void**)w = g_widgetVt;
-            *(int*)(w + kWidgetSize) = rows[i];
+            *(int*)(w + kWidgetSize) = r;
             AddToggleOption(s, w, true);
             ++added;
         }
@@ -376,6 +387,20 @@ namespace {
         g_reopening = false; g_reopenRow = -1;
         SetInitialOption(s, first + 1);   // 1-based (0 = the first enabled row)
         LOG("Native: Together screen (%s, %d rows)", cat == CAT_CONNECT ? "main menu" : "options", added);
+    }
+
+    void RebuildRows() {
+        if (!g_screen) return;
+        int keep = W_MODE;
+        uint8_t* w = *(uint8_t**)(g_screen + 0x34);
+        if (w && *(void**)w == g_widgetVt) {
+            int r = RowOf(w);
+            if (r != W_HOSTIP || !g_ed.host) keep = r;
+        }
+        g_reopening = true;
+        g_reopenRow = keep;
+        ((Setup_t)kOrigOptionsScreenSetup)(g_screen);   // clears the rows; adds nothing for our categories
+        BuildScreen(g_screen, g_cat);
     }
 
     void BuildScreenSafe(uint8_t* s, int cat) {
@@ -409,14 +434,14 @@ namespace {
         else QueuePackageSwitch(fe, kMainMenuSubFng, 0, 0, false);
     }
 
-    // ACCEPT reaching a screen that has left (Pause_Options.fng): do the row's action, then open again
+    // ACCEPT reaching a screen that has left (Pause_Options.fng fallback): do the row's action, then open again
     void AcceptAfterLeaving(uint8_t* s) {
         uint8_t* w = *(uint8_t**)(s + 0x34);
         if (!w || *(void**)w != g_widgetVt || Capturing() || GetTickCount() - g_editEnd < 300) return;
         int r = RowOf(w);
         if (r < 0 || r >= W_COUNT) return;
         g_acceptAt = GetTickCount();
-        if (r == W_START) { g_screen = nullptr; Start(); return; }
+        if (r == W_START) { Start(); g_reopenRow = W_START; return; }
         if (IsText(r)) g_editOnOpen = r; else Change(r, 1);
         g_reopenRow = r;
     }
@@ -462,6 +487,7 @@ namespace {
             case PAD_BUTTON5: case PC_DISPLAY: return;       // no "restore defaults" / display toggles here
             case PAD_BACK:
                 if (Capturing() || GetTickCount() - g_editEnd < 300) return;
+                g_stayOnAccept = false;
                 WidgetMenuNotify(s, msg, obj, p1, p2);
                 if (cat == CAT_CONNECT || SaveOnLeave())
                     if (void* fe = FE()) QueueMessage(fe, LEAVE_SCREEN, PkgName(s), (void*)(intptr_t)-4, 0xFF);
@@ -469,16 +495,21 @@ namespace {
             case PAD_START:
                 if (cat == CAT_SETTINGS && *(s + 0x124)) { SaveQuietly(); ((Notify_t)kOrigOptionsScreenNotify)(s, msg, obj, p1, p2); return; }
                 break;
-            case PAD_ACCEPT: {                              // the rows' own action
-                g_acceptAt = GetTickCount(); g_reopenRow = -1;
-                WidgetMenuNotify(s, msg, obj, p1, p2);
+            case PAD_ACCEPT: {                              // the rows' own action; stay on this screen
+                g_acceptAt = GetTickCount(); g_reopenRow = -1; g_stayOnAccept = true;
                 uint8_t* w = *(uint8_t**)(s + 0x34);          // pCurrentOption
                 if (w && *(void**)w == g_widgetVt) WidgetAct(w, nullptr, PkgName(s), BUTTON_PRESSED);
                 return; }
             case EXITCOMPLETE:
+                if (g_stayOnAccept && GetTickCount() - g_acceptAt < 1500) {
+                    // the package still tried to leave: don't pop; typing / the new value stays here
+                    LOG("Native: stayed on the Together screen after ACCEPT");
+                    return;
+                }
                 WidgetMenuNotify(s, msg, obj, p1, p2);
                 g_leftScreen = s; g_leftAt = GetTickCount(); if (!g_leftAt) g_leftAt = 1;
                 g_leftCat = cat; g_leftPause = *(s + 0x124) != 0;
+                g_stayOnAccept = false;
                 g_screen = nullptr;
                 return;     // LeftTick: open again, or back to the menu it came from
             }
@@ -563,6 +594,40 @@ namespace {
         g_profileShown = label == me ? std::string() : label;
     }
 
+    // Drop LEAVE_SCREEN while Enter on a Together row should stay on this screen.
+    constexpr uintptr_t kQueueMessageAddr = 0x516BE0;
+    const uint8_t kQueueMessageHead[6] = { 0x8B, 0x44, 0x24, 0x08, 0x85, 0xC0 };
+    void* g_qmTramp = nullptr;
+
+    void __fastcall hk_QueueMessage(void* fe, void*, uint32_t msg, const char* pkg, void* obj, uint32_t p) {
+        if (g_stayOnAccept && msg == LEAVE_SCREEN && g_screen && pkg) {
+            const char* ours = PkgName(g_screen);
+            if (ours && _stricmp(pkg, ours) == 0) return;
+        }
+        using Fn = void(__thiscall*)(void*, uint32_t, const char*, void*, uint32_t);
+        ((Fn)g_qmTramp)(fe, msg, pkg, obj, p);
+    }
+
+    bool HookQueueMessage() {
+        uint8_t have[6] = {};
+        if (!Mem::SafeRead((const void*)kQueueMessageAddr, have, 6) || memcmp(have, kQueueMessageHead, 6) != 0) return false;
+        void* tr = VirtualAlloc(nullptr, 32, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        if (!tr) return false;
+        memcpy(tr, kQueueMessageHead, 6);
+        uint8_t* back = (uint8_t*)tr + 6;
+        back[0] = 0xE9;
+        *(int32_t*)(back + 1) = (int32_t)((kQueueMessageAddr + 6) - ((uintptr_t)back + 5));
+        uint8_t hook[6] = { 0xE9, 0, 0, 0, 0, 0x90 };
+        *(int32_t*)(hook + 1) = (int32_t)((uintptr_t)&hk_QueueMessage - (kQueueMessageAddr + 5));
+        if (!Mem::PatchBytes(kQueueMessageAddr, kQueueMessageHead, hook, 6)) {
+            VirtualFree(tr, 0, MEM_RELEASE);
+            return false;
+        }
+        FlushInstructionCache(GetCurrentProcess(), (void*)kQueueMessageAddr, 6);
+        g_qmTramp = tr;
+        return true;
+    }
+
     bool CallTargets(uintptr_t at, uintptr_t target) {
         uint8_t b[5];
         if (!Mem::SafeRead((const void*)at, b, 5) || b[0] != 0xE8) return false;
@@ -590,8 +655,9 @@ bool NativeUI::Install() {
     uint8_t nameHash[5] = {};
     ok = ok && CallTargets(0x528D27, kFEPrintf) && Mem::SafeRead((const void*)0x528D21, nameHash, 5)
             && nameHash[0] == 0x68 && *(uint32_t*)(nameHash + 1) == PROFILE_NAME;
-    uint8_t ctorHead[3] = {};
+    uint8_t ctorHead[3] = {}, qmHead[6] = {};
     ok = ok && Mem::SafeRead((const void*)0x586FA0, ctorHead, 3) && ctorHead[0] == 0x8B && ctorHead[1] == 0x54;   // IconOption ctor
+    ok = ok && Mem::SafeRead((const void*)kQueueMessageAddr, qmHead, 6) && memcmp(qmHead, kQueueMessageHead, 6) == 0;
     if (!ok) { LOG("Native: this speed.exe isn't the one the menu entries are made for - the game's menus stay as they are (F2 page)"); return false; }
 
     InitStrings();
@@ -611,6 +677,7 @@ bool NativeUI::Install() {
     // the icons last: nothing can open our screens before everything else is in place
     done = done && PatchCallTo(kCallOptionsAdd, (uintptr_t)AddOption, (void*)&hk_OptionsAdd);
     done = done && PatchCallTo(kCallMainAdd, (uintptr_t)AddOption, (void*)&hk_MainAdd);
+    done = done && HookQueueMessage();
     if (!done) { LOG("Native: a menu patch failed half way"); return false; }
     g_active = true;
     LOG("Native: Together in the main menu and in Options");
@@ -636,10 +703,6 @@ void NativeUI::Tick() {
             if (up) goneSince = 0;
             else if (!goneSince) goneSince = GetTickCount();
             else if (GetTickCount() - goneSince > 2000) { SetCategory(0); goneSince = 0; }
-            if (g_startAt && g_screen && GetTickCount() - g_startAt > 600 && fe) {     // still showing after Start
-                g_startAt = 0;
-                QueueMessage(fe, LEAVE_SCREEN, PkgName(g_screen), (void*)(intptr_t)-4, 0xFF);
-            }
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
@@ -679,3 +742,4 @@ std::string NativeUI::DebugCommand(const std::string& a) {
     return "usage: native type <text> | enter | esc | options | main | state";
 }
 #endif
+

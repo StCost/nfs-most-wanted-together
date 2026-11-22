@@ -146,6 +146,30 @@ TEST(native_auto_connect_ini) {
     CHECK_STR(IniValue(ToIni(s), "Network", "AutoConnect").c_str(), "0");
 }
 
+TEST(native_together_rows) {
+    auto hostSet = TogetherRows(Screen::Settings, true);
+    auto joinSet = TogetherRows(Screen::Settings, false);
+    auto hostCon = TogetherRows(Screen::Connect, true);
+    auto joinCon = TogetherRows(Screen::Connect, false);
+    CHECK(std::find(hostSet.begin(), hostSet.end(), W_HOSTIP) == hostSet.end());
+    CHECK(std::find(hostCon.begin(), hostCon.end(), W_HOSTIP) == hostCon.end());
+    CHECK(std::find(joinSet.begin(), joinSet.end(), W_HOSTIP) != joinSet.end());
+    CHECK(std::find(joinCon.begin(), joinCon.end(), W_HOSTIP) != joinCon.end());
+    CHECK(std::find(hostSet.begin(), hostSet.end(), W_START) != hostSet.end());
+    CHECK(std::find(joinCon.begin(), joinCon.end(), W_START) != joinCon.end());
+    CHECK_EQ((int)joinCon.size(), 5);
+    CHECK_EQ((int)hostCon.size(), 4);
+    CHECK_EQ((int)joinSet.size(), (int)hostSet.size() + 1);
+}
+
+TEST(native_connection_action_title) {
+    CHECK_STR(ConnectionActionTitle(true, false), "Start Host");
+    CHECK_STR(ConnectionActionTitle(true, true), "Stop Host");
+    CHECK_STR(ConnectionActionTitle(false, false), "Connect");
+    CHECK_STR(ConnectionActionTitle(false, true), "Disconnect");
+}
+
+
 // The logo replacement's .dds reader: src/ddsutil.h
 #include "../src/ddsutil.h"
 static std::vector<uint8_t> MakeDds(uint32_t w, uint32_t h, uint32_t mips, bool dxt5, size_t cut = 0) {

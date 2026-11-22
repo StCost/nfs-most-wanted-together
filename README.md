@@ -25,9 +25,9 @@ Wanted online free roam with a friend, Need for Speed Most Wanted two player mod
 
 1. Download **[MWTogether.zip](https://github.com/StCost/nfs-most-wanted-together/releases/latest/download/MWTogether.zip)** (the latest release) and unpack it into your game folder, next to `speed.exe`.
 2. Run `speed.exe` as usual. The game stops at the main menu: pick the **Together** icon there, type a
-   nickname, choose **Host** or **Join** (to join, enter the host's IP address - the host sees theirs on the
-   same screen) and press **Start**. With **Do the same on restart** on, the next start hosts or joins by
-   itself. All settings are also in **Options > Together**, and on the overlay page (**F2** or hold **BACK** on a
+   nickname, set **Connection** to **Host** or **Join**, and (if joining) enter the host's IP under
+   **Connect to IP**. Press **Start Host** or **Connect**. **Stop Host** / **Disconnect** end the session.
+   With **Keep connection on restart** on, the next start hosts or joins by itself. All settings are also in **Options > Together**, and on the overlay page (**F2** or hold **BACK** on a
    pad). (`MWTogetherLauncher.exe` still works too and sets the same things.)
 3. Do the same on the other PC. The game loads your career into free roam and connects you on its own.
 4. To update, unpack the new zip over the old one. Your nickname and settings (`scripts\MWTogether.ini`) stay.
@@ -70,7 +70,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Stays connected while paused, minimized or alt-tabbed, and the game keeps running in the background
 - [x] Status overlay on F8 (remembers if you hid it)
 - [x] **Together** in the game's own menus: Main menu > Together to host or join (the game's text entry for the name and IP), Options > Together for every setting; the main menu's profile box shows both names while connected. If this `speed.exe` differs, the menus stay as they are and the page below is used
-- [x] Main menu logo from `scripts\MWTogether-logo.dds` if it is there (no game files changed)
+- [x] Main menu logo from `scripts\MWTogether-logo.dds` if it is there (no game files changed); the logo object is made taller so the original lettering stays the same size
 - [x] In-game **Together** overlay page (F2, or hold BACK on a pad): name, host or join, host IP, port, map colour, start and menu options, your IP address and the connection state. Saving reconnects right away when needed (`[UI] TogetherKey`)
 - [x] Launcher (`MWTogetherLauncher.exe`, next to `speed.exe`) styled like the game: the same settings before the game starts (optional)
 - [x] Join / leave notices, even with the overlay hidden
@@ -263,7 +263,7 @@ The code is in `src/`:
 | `minimap.inl`, `worldmap.inl` | player blips |
 | `hud.inl` | F1: hide the minimap and the gauges |
 | `nativeui.cpp` | Together in the game's menus (Options and Main menu entries, the settings list, text entry, the profile box) |
-| `logo.cpp` | the main menu logo from `scripts\MWTogether-logo.dds` |
+| `logo.cpp` | the main menu logo from `scripts\MWTogether-logo.dds` (taller Together variant, original lettering size kept) |
 | `boot.inl` | fast start (skip intro, direct free roam, no safe-house dialog, last profile), final pursuit load fix |
 | `input.*`, `pad.cpp` | DirectInput, menu automation (AutoStart), gamepad hot-plug and bindings |
 | `overlay.*` | D3D9 hooks and the status overlay |

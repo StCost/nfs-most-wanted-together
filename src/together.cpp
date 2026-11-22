@@ -36,6 +36,7 @@ namespace {
     bool     g_chosen = false;         // Host / Join picked (main menu or the page) this run
     bool     g_netRunning = false;
     bool     g_netChange = false;
+    bool     g_netStop = false;
     bool     g_dirty = true;
     int      g_sel = R_NAME;
     bool     g_padEdit = false;        // pad: up / down change the last character of the selected field
@@ -184,7 +185,7 @@ namespace {
         if (connect) g_chosen = true;
         g_setupDone = true;
         LOG("Together: saved - name %s, %s%s, port %s%s%s%s", Trim(ed.name).c_str(), ed.host ? "host" : "join ",
-            ed.host ? "" : Trim(ed.hostIp).c_str(), Trim(ed.port).c_str(), ed.autoConnect ? ", same on restart" : "",
+            ed.host ? "" : Trim(ed.hostIp).c_str(), Trim(ed.port).c_str(), ed.autoConnect ? ", keep connection on restart" : "",
             net ? ", connecting" : "", restartNeeded ? ", some options apply at the next start" : "");
         g_saved = ed; g_haveSaved = true;
         if (restartNeededOut) *restartNeededOut = restartNeeded;
@@ -430,11 +431,28 @@ Settings Together::Current() {
 std::string Together::Apply(const Settings& s, bool connect) { return ApplySettings(s, connect, nullptr); }
 std::string Together::LocalAddresses() { return LocalIps(); }
 bool Together::Connected() { return g_netRunning && Net::Stats().connected; }
+bool Together::SessionActive() { return g_netRunning || g_netChange; }
+
+std::string Together::StopSession() {
+    if (!g_netRunning && !g_netChange) return "";
+    g_netChange = false;
+    if (g_netRunning) g_netStop = true;
+    g_netRunning = false;
+    LOG("Together: session stopped");
+    return "";
+}
+
 bool Together::TakeNetworkChange() {
     if (!g_netChange) return false;
     g_netChange = false;
+    g_netStop = false;
     ApplyNetwork(g_pendingNet);     // right before the reconnect, so the old connection never sees the new settings
     g_netRunning = true;
+    return true;
+}
+bool Together::TakeNetworkStop() {
+    if (!g_netStop) return false;
+    g_netStop = false;
     return true;
 }
 bool Together::Visible() { return g_open || g_hint; }
@@ -466,8 +484,8 @@ namespace {
 
     const char* RowLabel(int r) {
         switch (r) {
-        case R_NAME: return "Nickname"; case R_MODE: return "Play as"; case R_HOSTIP: return "Host's IP address"; case R_PORT: return "UDP port";
-        case R_AUTOCONNECT: return "Do the same on restart";
+        case R_NAME: return "Nickname"; case R_MODE: return "Connection"; case R_HOSTIP: return "Connect to IP"; case R_PORT: return "UDP port";
+        case R_AUTOCONNECT: return "Keep connection on restart";
         case R_COLOUR: return "My colour on the map"; case R_SKIPINTRO: return "Skip intros (next start)";
         case R_DIRECT: return "Quick career start"; case R_SAFEHOUSE: return "Quick leave the safe house (next start)";
         case R_PURSUITRES: return "Auto-close pursuit results in free roam"; case R_INTROINPUT: return "Menus respond during animations (next start)";

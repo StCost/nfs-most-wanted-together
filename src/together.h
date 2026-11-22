@@ -32,7 +32,10 @@ namespace Together {
     std::string Apply(const TogetherUtil::Settings& s, bool connect);
     std::string LocalAddresses();         // this PC's IPv4 addresses, for the other player to join
     bool Connected();
+    bool SessionActive();                 // hosting, or a join is in progress / connected
+    std::string StopSession();            // bye + shut the session down (Stop Host / Disconnect)
     bool TakeNetworkChange();             // true once after a save that needs a new connection
+    bool TakeNetworkStop();               // true once: the game should SendBye + Shutdown
 
     // Drawing (overlay.cpp): Visible() = something to draw (the page, or the front-end hint);
     // Paint fills an A8R8G8B8 image (top-down, pitch in pixels) when Dirty(); Centered() = the page.
