@@ -106,14 +106,14 @@ namespace Game {
     void SaveTick(bool connected);
     const char* SaveStatus();
     void SetDataDir(const char* dir);   // scripts\ folder
-    const char* NisStatus();           // [UI] SkipPursuitResults                    // [Start] DirectFreeRoam
-    bool DirectStartActive();   // co-op rules (no speedbreaker)
+    const char* NisStatus();
+    bool DirectStartActive();   // always false (DirectFreeRoam removed)
     std::string DebugStartEvent(const char* eventId);   // F7 test
     std::string DebugListEvents();   // test command 'events': log every event ID with race type / boss / preset car
     void TrafficTick(bool connected, const Net::Snapshot& peer);
     void PursuitTick(bool connected, const Net::Snapshot& peer);   // cops may chase the other player
     int16_t LocalPursuitHeat();
-    bool InstallPursuitHooks();                 // [Coop] SharedPursuits (minimap / radar) and NoPursuitCams
+    bool InstallPursuitHooks();                 // [Coop] SharedPursuits (minimap / radar)
     void FillSharedPursuit(CarState& s);        // heat100 / pursuitFlags / bustSeq / coolLeft10 for the state packet
     int  TrafficCount();          // host: cars sent last tick; client: mirror cars alive
     bool TrafficSuppressed();     // client: own traffic switched off

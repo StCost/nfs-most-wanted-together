@@ -117,18 +117,18 @@ tools\coop-test.ps1 -Scenario solo -Solo
 | Truck trailers | both PCs this build. Free roam, H and C together on a road with semi trucks (industrial area / highway; `ground` lists cars). C watches H's trucks pass, overtakes one, drives away past 450 m and back. Then the same with C's build older than H's (or H's older than C's) | H: `Traffic: 1 truck trailer(s) sent with the traffic` when a truck is near C (`0 ...` when none). C: `Traffic: the host's truck N (...): its trailer ... follows the host's trailer (hitched there 1, here 1)`, every 10 s `Traffic: trailers - X frame(s) moved with the host's trailer data, 0 frame(s) pulled by our own hitch, 0 re-hitched, 0 put back ...`. Every truck on C pulls its trailer through turns, no trailer lying on the road, none left behind when a truck is removed (`KillVehicle` of the truck only). Hitting a trailer on C does not separate it. Mixed builds: the old side ignores the trailer packets; with an old host C logs `the trailer ... put back at the hitch (the truck was just placed; no trailer data from the host - an older build?)` once per truck and `pulled by our own hitch` frames |
 | Rival catch-up | rival race (`boss -Event 15.1.2`), one player drives well ahead, the other slowly | the rival's PC (H) logs every 15 s `Race: catch-up measured against A% (ours B%, partner C%, rival race)` with A = the larger of B and C; the rival stays near the leading player on both screens, it never drops back to the slower one. If H ever logs `catch-up measured against us only (...)` while both race, the values in it say why the partner didn't count |
 
-## Shared pursuits (`SharedPursuits`, `NoPursuitCams`)
+## Shared pursuits (`SharedPursuits`)
 
 Both PCs in free roam, linked, within ~300 m of each other, `TestKeys=1`, `AutoPilot=0` (parked unless a step
-says to drive), `SharedPursuits=1` and `NoPursuitCams=1` on both. At start-up both logs show
-`Pursuit: start camera in co-op off (NoPursuitCams=1)` and `Pursuit: shared pursuits on (minimap cops hooked, radar
+says to drive), `SharedPursuits=1` on both. At start-up both logs show
+`Pursuit: shared pursuits on (minimap cops hooked, radar
 detector hooked)`. While either player is chased, both logs print a status line every 5 s:
 `Pursuit: shared - here <state> [seen], <s> s left, heat <h> | there <state> [seen], <s> s left, heat <h>`.
 
 | Check | How | Pass |
 |---|---|---|
 | Heat | H: `pursuit` | H `Pursuit: ours none -> chase`. Within a second C logs `Pursuit: heat a -> b (the other player's heat)` with b = H's heat; as H's heat climbs, C follows. C's heat never goes down because of H. Same the other way round. |
-| No start camera | H: `pursuit`, drive away from a patrol so a cop starts the chase by itself | H's camera stays behind the car; H logs `Pursuit: start camera skipped (co-op, NoPursuitCams=1)`. Alone (C not connected) the camera flies to the cop as in the unmodded game. |
+
 | Radar / minimap | H: `cop` (a patrol cop 25 m from H), C drives within 300 m of it | C shows the cop (`Cops: showing the other player's police car`), C logs `Radar: 1 of the other player's cops in the radar detector` and the radar detector beeps. H: `pursuit`: C logs `Minimap: N of the other player's cops shown` and the cops blink red / blue on C's minimap, also while C is not chased. |
 | Ram their cop | H: `cop`. C: `ram cop`, 5 s later `ram cop` again | C `Collision: hit the other player's car <id>`, then `Pursuit: hit the other player's cop <id> - starting a pursuit on us` and `Pursuit: ours none -> chase`. (H's own game may start a chase on H too: its cop was hit) |
 | Busted together | both: `pursuit`; keep both parked | the first one busted (say H) logs `Pursuit: we were busted - the other player gets busted too (count 1)`; C logs `Pursuit: the other player was busted - busting us too` and `Pursuit: busted here too, as the other player was`; both get the game's busted screen. C not chased at that moment: `no pursuit here, starting one to bust us too`, then the same. |

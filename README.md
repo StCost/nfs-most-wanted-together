@@ -27,7 +27,7 @@ Wanted online free roam with a friend, Need for Speed Most Wanted two player mod
 2. Run `speed.exe` as usual. The game stops at the main menu: pick the **Together** icon there, type a
    nickname, set **Connection** to **Host** or **Join**, and (if joining) enter the host's IP under
    **Connect to IP**. Press **Start Host** or **Connect**. **Stop Host** / **Disconnect** end the session.
-   With **Keep connection on restart** on, the next start hosts or joins by itself. The same Connection screen is in the pause menu. The other settings are in **Options > Together**, and on the overlay page (**F2** or hold **BACK** on a
+   With **Reconnect on launch** on, the next start hosts or joins by itself. Main menu Together, pause Together, and **Options > Together** all open the same screen. Remaining options are also on the overlay page (**F2** or hold **BACK** on a
    pad). (`MWTogetherLauncher.exe` still works too and sets the same things.)
 3. Do the same on the other PC. The game loads your career into free roam and connects you on its own.
 4. To update, unpack the new zip over the old one. Your nickname and settings (`scripts\MWTogether.ini`) stay.
@@ -69,9 +69,9 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Quitting (Alt+F4 too) tells the other side right away; a game that just disappears times out
 - [x] Stays connected while paused, minimized or alt-tabbed, and the game keeps running in the background
 - [x] Status overlay on F8 (remembers if you hid it)
-- [x] **Together** in the game's own menus: Main menu > Together to host or join (the game's text entry for the name and IP), Options > Together for every setting; the main menu's profile box shows both names while connected. If this `speed.exe` differs, the menus stay as they are and the page below is used
+- [x] **Together** in the game's own menus: one screen from Main menu > Together, the pause menu, and Options > Together (nickname, Connection, Connect to IP when joining, Reconnect on launch, Start Host / Connect, Fast menus, Auto-detect gamepads, Menu speed); the main menu's profile box shows both names while connected. If this `speed.exe` differs, the menus stay as they are and the page below is used
 - [x] Main menu logo from `scripts\MWTogether-logo.dds` if it is there (no game files changed); the logo object is made taller so the original lettering stays the same size
-- [x] In-game **Together** overlay page (F2, or hold BACK on a pad): name, host or join, host IP, port, map colour, start and menu options, your IP address and the connection state. Saving reconnects right away when needed (`[UI] TogetherKey`)
+- [x] In-game **Together** overlay page (F2, or hold BACK on a pad): name, host or join, host IP, remaining menu options, your IP address and the connection state. Saving reconnects right away when needed (`[UI] TogetherKey`)
 - [x] Launcher (`MWTogetherLauncher.exe`, next to `speed.exe`) styled like the game: the same settings before the game starts (optional)
 - [x] Join / leave notices, even with the overlay hidden
 - [x] Notices use the game's own message line in the middle of the screen: joins and leaves in green, problems (connection, firewall, prologue) in orange. Long ones come in parts. In cutscenes and menus the EA Trax song banner shows them
@@ -87,7 +87,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Your own car with your full tuning, in free roam and in races
 - [x] The other player's car moves smoothly (1-10 mm of jitter)
 - [x] Spawn protection: two cars appearing on the same spot don't launch each other
-- [x] The other player on the minimap and on the world map, in a colour they pick (Together page or launcher: My colour on the map, `[Player] Color`)
+- [x] The other player on the minimap and on the world map (the blip uses the game's own colour; vehicle paint is already synced on the ghost car, but the customization record stores a paint index, not RGB)
 - [x] Car-to-car collisions with real impact: ram your partner and their car gets thrown on their screen too
 - [x] Your own names in the race standings
 - [x] Your partner's car shows brake lights, damage (dents, broken parts), steering and nitrous
@@ -150,20 +150,20 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Blacklist pursuits (milestones, bounty) started from the Blacklist screen take your partner along to the start (`[Coop] FollowToPursuits`)
 - [x] One of you gets busted, you both get busted
 - [x] Escaping: the cooldown only runs while neither of you is seen, restarts when either one is spotted, and you both escape at the same moment
-- [x] No pursuit-start camera: the camera stays on your car when a chase starts (`NoPursuitCams`)
+- [x] The pursuit-start camera follows the game's own cinematic camera option in Settings
 - [x] `SharedPursuits=0`: busted and escape only affect the player being chased
 
 
 </details>
 <details><summary><b>Quality of life (settings in <code>[Start]</code>, <code>[UI]</code> and <code>[Input]</code>)</b></summary>
 
-- [x] Goes straight into career free roam after the profile loads (`DirectFreeRoam`); can skip the intro logos and movie (`SkipIntro`, off by default)
+- [x] Can confirm the profile "load complete" screen by itself (`SkipLoadComplete`)
 - [x] Several profiles: the quick start loads the one you used last (`[Start] LastProfile`); the first time you pick it yourself
 - [x] **F1** hides the minimap, heat meter and speedometer, keeping the rear-view mirror. F1 again brings them back (`[UI] HideHudKey`)
 - [x] Confirms the "load complete" screen for you (`SkipLoadComplete`)
-- [x] No "leave the safe house?" question (`SkipLeaveSafeHouseDialog`)
+
 - [x] Menus react during their opening animation and animate twice as fast (`IntroInput`, `MenuSpeed`)
-- [x] Can close the pursuit result screens in free roam for you, off by default (`SkipPursuitResults`). The busted fine screen still shows
+
 - [x] Pads and wheels plugged in mid-game (USB or Bluetooth) work right away, reconnects too, and keep your bindings (`[Input] GamepadHotplug`)
 - [x] Your pad keeps its bindings even when the game starts without it (`[Input] KeepPadBindings`)
 
@@ -253,7 +253,7 @@ The code is in `src/`:
 | `event.inl` | shared event start, roster, co-op rules (speedbreaker, no pause, restart sync) |
 | `coopwin.inl` | shared wins |
 | `bosshelper.inl` | rival races together: the partner's racer slot and the extra AI racer |
-| `pursuit.inl` | cops chasing the other player, shared heat / busted / cooldown, their cops on the minimap and radar, no pursuit-start camera |
+| `pursuit.inl` | cops chasing the other player, shared heat / busted / cooldown, their cops on the minimap and radar |
 | `follow.inl` | going along to a Blacklist pursuit |
 | `milestone.inl` | shared milestones and speed traps |
 | `nis.inl`, `story.inl` | cutscene skip voting, story movies and scenes |
@@ -264,7 +264,7 @@ The code is in `src/`:
 | `hud.inl` | F1: hide the minimap and the gauges |
 | `nativeui.cpp` | Together in the game's menus (Options and Main menu entries, the settings list, text entry, the profile box) |
 | `logo.cpp` | the main menu logo from `scripts\MWTogether-logo.dds` (taller Together variant, original lettering size kept) |
-| `boot.inl` | fast start (skip intro, direct free roam, no safe-house dialog, last profile), final pursuit load fix |
+| `boot.inl` | skip the load-complete screen, last profile, final pursuit load fix |
 | `input.*`, `pad.cpp` | DirectInput, menu automation (AutoStart), gamepad hot-plug and bindings |
 | `overlay.*` | D3D9 hooks and the status overlay |
 | `*util.h` | the rules that don't need the game (pursuit, race, ground, milestones, prologue, profiles, notices, saves), covered by `tests\` |

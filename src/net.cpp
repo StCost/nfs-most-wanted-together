@@ -118,10 +118,9 @@ namespace {
         FillHeader(p.h, PKT_HELLO);
         strncpy_s(p.name, 16, g_cfg.playerName.c_str(), _TRUNCATE);
         uint32_t id = InstanceId(); memcpy(p.name + 20, &id, 4);
-        if (g_cfg.playerColor) {    // bytes 16..19 (after the 15-character name): R, G, B, marker 0xC0
-            p.name[16] = (char)((g_cfg.playerColor >> 16) & 0xFF); p.name[17] = (char)((g_cfg.playerColor >> 8) & 0xFF);
-            p.name[18] = (char)(g_cfg.playerColor & 0xFF); p.name[19] = (char)0xC0;
-        }
+        // Map blip colour is no longer sent here. The friend's paint lives in the car
+        // customization record (PKT_CAR) as a part index, not RGB, so the blip stays
+        // the game's own colour (peerColor = 0).
         SendRaw(&p, sizeof(p));
     }
 

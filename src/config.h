@@ -9,7 +9,6 @@ struct Config {
     int         port = 47555;         // [Network] Port (both sides bind it)
     int         sendRateHz = 60;      // [Network] SendRate
     std::string playerName = "Player";// [Player] Name
-    uint32_t    playerColor = 0;         // [Player] Color - RRGGBB the other player sees our map/minimap blip in; 0 = not set (game colour)
     bool        autoStart = true;      // [AutoStart] Enabled - title screen -> career automatically
     int         autoStartDelayMs = 2500;   // [AutoStart] DelayMs - wait in the menu before the first press
     int         autoStartIntervalMs = 1500;// [AutoStart] IntervalMs - between presses
@@ -20,26 +19,20 @@ struct Config {
     bool        noSpeedbreaker = true;   // [Coop] NoSpeedbreaker
     bool        noPause = true;          // [Coop] NoPause - the world keeps running while a pause menu / map is open (connected only)
     bool        streamAroundPeer = true; // [Coop] StreamAroundPeer - load the world around the other player (full physics there)
-    bool        skipIntro = false;       // [Start] SkipIntro - no logos / intro movie (off by default)
-    bool        directFreeRoam = true;
-    bool        skipLoadComplete = true; // [Start] SkipLoadComplete - confirm the "load complete" screen by itself   // [Start] DirectFreeRoam - load career free roam right after the profile
-    bool        skipLeaveSafeHouseDialog = true; // [Start] SkipLeaveSafeHouseDialog
-    std::string lastProfile;             // [Start] LastProfile - written by the mod: the profile loaded last; with DirectFreeRoam
-                                         // it is picked by itself in the profile list (several profiles)
+    bool        skipLoadComplete = true; // [Start] SkipLoadComplete - confirm the "load complete" screen by itself
+    std::string lastProfile;             // [Start] LastProfile - written by the mod: the profile loaded last
     std::string iniFile;                 // the ini this was loaded from (the mod writes LastProfile there)
     bool        gameNotices = true;       // [UI] GameNotices - notices in the game's message line (centre of the screen; banner in cutscenes / menus)
     int         hideHudKey = 0x70;       /* VK_F1 */      // [UI] HideHudKey - hides the minimap (with heat) and the speedometer; 0 = off
     int         noticeSeconds = 10;       // [UI] NoticeSeconds - how long a notice stays on screen (2..60)
     bool        gamepadHotplug = true;    // [Input] GamepadHotplug - pick up pads connected while the game runs
     bool        keepPadBindings = true;   // [Input] KeepPadBindings - starting without the pad keeps its bindings
-    bool        skipPursuitResults = false; // [UI] SkipPursuitResults - close the pursuit result screen in free roam
     bool        startInBackground = false; // [Window] StartInBackground - give focus back on start, game muted until clicked
     bool        restoreOnlyMissing = true; // [Career] RestoreOnlyMissing - the host restores our save only if it is gone
     bool        syncWeather = true;
     bool        followToPursuits = true; // [Coop] FollowToPursuits - come along when the other player starts a Blacklist pursuit      // [Coop] SyncWeather - the client shows the host's rain
     bool        sharedPursuits = true;   // [Coop] SharedPursuits - shared heat, busted together, cooldown / escape together,
                                          // the other player's cops on the radar, ramming their cop starts a pursuit
-    bool        noPursuitCams = true;    // [Coop] NoPursuitCams - no pursuit-start camera (look at the cop) while connected
     bool        noSlowMotion = false;    // [Coop] NoSlowMotion - 1: no slow-motion moments while connected (speed traps, finish, crash cams); 0 (default): as in the plain game
     bool        coopPrologue = true;     // [Coop] Prologue - co-op already in the prologue (both games run its chain, kept together at each start)
     bool        catchUpLeader = true;    // [Coop] CatchUpLeader - AI catch-up follows whichever player is ahead

@@ -35,22 +35,26 @@ TEST(together_validate) {
 }
 
 TEST(together_ini_lines) {
-    Settings s; s.name = " Kostya "; s.host = false; s.hostIp = "10.0.0.2"; s.port = "47556"; s.colour = 0xFF8C00;
+    Settings s; s.name = " Kostya "; s.host = false; s.hostIp = "10.0.0.2"; s.port = "47556";
     s.menuSpeed = 3; s.overlay = true;
     auto v = ToIni(s);
     CHECK_STR(IniValue(v, "Player", "Name").c_str(), "Kostya");
-    CHECK_STR(IniValue(v, "Player", "Color").c_str(), "FF8C00");
+    CHECK_STR(IniValue(v, "Player", "Color").c_str(), "<missing>");
+    CHECK_STR(IniValue(v, "Start", "SkipIntro").c_str(), "<missing>");
+    CHECK_STR(IniValue(v, "Start", "DirectFreeRoam").c_str(), "<missing>");
+    CHECK_STR(IniValue(v, "Start", "SkipLeaveSafeHouseDialog").c_str(), "<missing>");
+    CHECK_STR(IniValue(v, "UI", "SkipPursuitResults").c_str(), "<missing>");
+    CHECK_STR(IniValue(v, "Coop", "NoPursuitCams").c_str(), "<missing>");
     CHECK_STR(IniValue(v, "Network", "Mode").c_str(), "client");
     CHECK_STR(IniValue(v, "Network", "HostIP").c_str(), "10.0.0.2");
     CHECK_STR(IniValue(v, "Network", "Port").c_str(), "47556");
     CHECK_STR(IniValue(v, "UI", "MenuSpeed").c_str(), "3");
     CHECK_STR(IniValue(v, "Debug", "Overlay").c_str(), "1");
     CHECK_STR(IniValue(v, "UI", "TogetherSetupDone").c_str(), "1");
-    s.host = true; s.colour = 0;
+    s.host = true;
     v = ToIni(s);
     CHECK_STR(IniValue(v, "Network", "Mode").c_str(), "host");
     CHECK_STR(IniValue(v, "Network", "HostIP").c_str(), "<missing>");   // the host keeps the last typed address
-    CHECK_STR(IniValue(v, "Player", "Color").c_str(), "");
 }
 
 TEST(together_network_changed) {
@@ -61,16 +65,6 @@ TEST(together_network_changed) {
     b = a; b.host = false; CHECK(NetworkChanged(a, b));
     b = a; b.hostIp = "1.2.3.4"; CHECK(!NetworkChanged(a, b));            // host: the address isn't used
     a.host = b.host = false; b.hostIp = "1.2.3.4"; CHECK(NetworkChanged(a, b));
-    b = a; b.colour = 0x43A047; CHECK(NetworkChanged(a, b));
-}
-
-TEST(together_colours) {
-    CHECK_EQ(ColourIndex(0), 0);
-    CHECK_EQ(ColourIndex(0x123456), -1);
-    CHECK_EQ(NextColour(0, 1), kColours[1]);
-    CHECK_EQ(NextColour(0, -1), kColours[kColourCount - 1]);
-    CHECK_EQ(NextColour(0x123456, 1), kColours[1]);                    // custom -> the list
-    CHECK_STR(ColourText(0xFF00FF00u).c_str(), "00FF00");
 }
 
 TEST(together_keys) {
@@ -151,27 +145,25 @@ TEST(native_together_rows) {
     auto joinSet = TogetherRows(Screen::Settings, false);
     auto hostCon = TogetherRows(Screen::Connect, true);
     auto joinCon = TogetherRows(Screen::Connect, false);
-    // Connection screen: session rows only (join IP only when joining)
+    // One Together list for every entry (main, pause, Options): join IP only when joining
     CHECK(std::find(hostCon.begin(), hostCon.end(), W_HOSTIP) == hostCon.end());
     CHECK(std::find(joinCon.begin(), joinCon.end(), W_HOSTIP) != joinCon.end());
     CHECK(std::find(hostCon.begin(), hostCon.end(), W_START) != hostCon.end());
     CHECK(std::find(joinCon.begin(), joinCon.end(), W_START) != joinCon.end());
     CHECK(std::find(hostCon.begin(), hostCon.end(), W_NAME) != hostCon.end());
     CHECK(std::find(hostCon.begin(), hostCon.end(), W_AUTO) != hostCon.end());
-    CHECK(std::find(hostCon.begin(), hostCon.end(), W_PURSUITRES) == hostCon.end());
-    CHECK_EQ((int)joinCon.size(), 5);
-    CHECK_EQ((int)hostCon.size(), 4);
-    CHECK((int)hostCon.size() <= 10);
-    CHECK((int)joinCon.size() <= 10);
-    // Settings: gameplay / network options, no connection rows; Host and Join are the same list
-    CHECK(std::find(hostSet.begin(), hostSet.end(), W_HOSTIP) == hostSet.end());
-    CHECK(std::find(joinSet.begin(), joinSet.end(), W_HOSTIP) == joinSet.end());
-    CHECK(std::find(hostSet.begin(), hostSet.end(), W_START) == hostSet.end());
-    CHECK(std::find(hostSet.begin(), hostSet.end(), W_NAME) == hostSet.end());
-    CHECK(std::find(hostSet.begin(), hostSet.end(), W_PURSUITRES) != hostSet.end());
-    CHECK(std::find(hostSet.begin(), hostSet.end(), W_PORT) != hostSet.end());
-    CHECK_EQ((int)joinSet.size(), (int)hostSet.size());
-    CHECK_EQ((int)hostSet.size(), 10);
+    CHECK(std::find(hostCon.begin(), hostCon.end(), W_INTROINPUT) != hostCon.end());
+    CHECK(std::find(hostCon.begin(), hostCon.end(), W_PADHOTPLUG) != hostCon.end());
+    CHECK(std::find(hostCon.begin(), hostCon.end(), W_MENUSPEED) != hostCon.end());
+    CHECK_EQ((int)hostCon.size(), 7);
+    CHECK_EQ((int)joinCon.size(), 8);
+    CHECK((int)hostCon.size() <= 9);
+    CHECK((int)joinCon.size() <= 9);
+    // Options > Together is the same list
+    CHECK_EQ((int)hostSet.size(), (int)hostCon.size());
+    CHECK_EQ((int)joinSet.size(), (int)joinCon.size());
+    CHECK(hostSet == hostCon);
+    CHECK(joinSet == joinCon);
 }
 
 TEST(native_scroll_window) {
@@ -199,11 +191,12 @@ TEST(native_scroll_window) {
     CHECK_EQ(NativeUtil::ClampScroll(15, 10, 9), 5);
     CHECK_EQ(NativeUtil::ClampScroll(4, 10, 2), 0);
     auto set = TogetherRows(Screen::Settings, false);
-    CHECK(NativeUtil::VisibleIndex((int)set.size(), 10, 0, 0) == 0);
-    int purs = -1;
-    for (int i = 0; i < (int)set.size(); ++i) if (set[i] == W_PURSUITRES) purs = i;
-    CHECK(purs >= 0);
-    CHECK(NativeUtil::VisibleIndex((int)set.size(), 10, 0, purs) >= 0);
+    CHECK_EQ((int)set.size(), 8);
+    CHECK(NativeUtil::VisibleIndex((int)set.size(), 9, 0, 0) == 0);
+    int speed = -1;
+    for (int i = 0; i < (int)set.size(); ++i) if (set[i] == W_MENUSPEED) speed = i;
+    CHECK(speed >= 0);
+    CHECK(NativeUtil::VisibleIndex((int)set.size(), 9, 0, speed) >= 0);
 }
 
 TEST(native_connection_action_title) {

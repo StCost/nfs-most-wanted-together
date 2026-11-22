@@ -102,11 +102,10 @@ namespace {
     constexpr uint32_t kStrBase = 0x6D775400;            // our string hashes ("mwT" + n)
     enum : uint32_t { S_OPT_NAME = kStrBase, S_OPT_DESC, S_MAIN_NAME, S_MAIN_DESC, S_HEADER, S_HEADER_CONNECT,
                       S_TITLE = kStrBase + 0x20, S_VALUE = kStrBase + 0x40 };
-    using NativeUtil::W_NAME; using NativeUtil::W_MODE; using NativeUtil::W_HOSTIP; using NativeUtil::W_PORT;
-    using NativeUtil::W_AUTO; using NativeUtil::W_COLOUR; using NativeUtil::W_DIRECT; using NativeUtil::W_SKIPINTRO;
-    using NativeUtil::W_SAFEHOUSE; using NativeUtil::W_PURSUITRES; using NativeUtil::W_INTROINPUT;
-    using NativeUtil::W_PADHOTPLUG; using NativeUtil::W_NOPURSUITCAM; using NativeUtil::W_MENUSPEED;
-    using NativeUtil::W_START; using NativeUtil::W_COUNT;
+    using NativeUtil::W_NAME; using NativeUtil::W_MODE; using NativeUtil::W_HOSTIP;
+    using NativeUtil::W_AUTO; using NativeUtil::W_START;
+    using NativeUtil::W_INTROINPUT; using NativeUtil::W_PADHOTPLUG; using NativeUtil::W_MENUSPEED;
+    using NativeUtil::W_COUNT;
     char g_title[W_COUNT][48], g_value[W_COUNT][96];
     std::vector<StringRec> g_ours;
     StringRec* g_table = nullptr; int g_tableN = 0;      // our merged copy (what RecordTable points at)
@@ -188,29 +187,35 @@ namespace {
     const char* g_slotPkg = nullptr;
     bool     g_probing = false;           // CountSlots: don't log missing objects
     bool     g_eatingEnter = false, g_eatingUp = false, g_eatingDown = false;
+    bool     g_softEdit = false;          // pause Together: we own typing so the value stays visible
+    bool     g_softWaitRelease = false;   // ignore the Enter that opened the field
+    uint8_t  g_softPrev[256] = {};
 
-    bool IsText(int r) { return r == W_NAME || r == W_HOSTIP || r == W_PORT; }
-    bool IsOnOff(int r) { return r == W_AUTO || (r >= W_DIRECT && r <= W_NOPURSUITCAM); }
+    bool IsText(int r) { return r == W_NAME || r == W_HOSTIP; }
+    bool IsOnOff(int r) { return r == W_AUTO || r == W_INTROINPUT || r == W_PADHOTPLUG; }
     bool* Flag(int r) {
         switch (r) {
-        case W_AUTO: return &g_ed.autoConnect; case W_DIRECT: return &g_ed.directFreeRoam; case W_SKIPINTRO: return &g_ed.skipIntro;
-        case W_SAFEHOUSE: return &g_ed.skipLeaveSafeHouse; case W_PURSUITRES: return &g_ed.skipPursuitResults;
-        case W_INTROINPUT: return &g_ed.introInput; case W_PADHOTPLUG: return &g_ed.gamepadHotplug; case W_NOPURSUITCAM: return &g_ed.noPursuitCams;
+        case W_AUTO: return &g_ed.autoConnect;
+        case W_INTROINPUT: return &g_ed.introInput;
+        case W_PADHOTPLUG: return &g_ed.gamepadHotplug;
         }
         return nullptr;
     }
-    std::string& Text(int r) { return r == W_NAME ? g_ed.name : r == W_HOSTIP ? g_ed.hostIp : g_ed.port; }
-    Field FieldOf(int r) { return r == W_NAME ? Field::Name : r == W_HOSTIP ? Field::Host : Field::Port; }
+    std::string& Text(int r) { return r == W_NAME ? g_ed.name : g_ed.hostIp; }
+    Field FieldOf(int r) { return r == W_NAME ? Field::Name : Field::Host; }
+    bool SoftEditPkg() {
+        if (!g_screen) return false;
+        const char* pkg = PkgName(g_screen);
+        return pkg && _stricmp(pkg, kPauseOptionsFng) == 0;
+    }
 
     const char* TitleOf(int r) {
         switch (r) {
         case W_NAME: return "Nickname"; case W_MODE: return "Connection";
         case W_HOSTIP: return "Connect to IP";
-        case W_PORT: return "UDP port"; case W_AUTO: return "Keep connection on restart"; case W_COLOUR: return "Map colour";
-        case W_DIRECT: return "Quick career start"; case W_SKIPINTRO: return "Skip intros";
-        case W_SAFEHOUSE: return "Quick safe house exit"; case W_PURSUITRES: return "Auto-close pursuit results";
-        case W_INTROINPUT: return "Fast menus"; case W_PADHOTPLUG: return "Detect new gamepads";
-        case W_NOPURSUITCAM: return "No pursuit start camera"; case W_MENUSPEED: return "Menu speed";
+        case W_AUTO: return "Reconnect on launch";
+        case W_INTROINPUT: return "Fast menus"; case W_PADHOTPLUG: return "Auto-detect gamepads";
+        case W_MENUSPEED: return "Menu speed";
         case W_START: return NativeUtil::ConnectionActionTitle(g_ed.host, Together::SessionActive());
         }
         return "";
@@ -221,17 +226,8 @@ namespace {
         case W_NAME: return g_ed.name.empty() ? "(type a nickname)" : g_ed.name;
         case W_MODE: return g_ed.host ? "Host" : "Join";
         case W_HOSTIP: return Trim(g_ed.hostIp).empty() ? "(type the host's IP)" : g_ed.hostIp;
-        case W_PORT: return g_ed.port;
-        case W_COLOUR: { int i = ColourIndex(g_ed.colour); return i < 0 ? "Custom " + ColourText(g_ed.colour) : kColourNames[i]; }
         case W_MENUSPEED: return std::to_string(g_ed.menuSpeed) + "x";
-        case W_START: {
-            if (!Together::SessionActive()) return g_ed.host ? std::string() : (Trim(g_ed.hostIp).empty() ? "..." : Trim(g_ed.hostIp));
-            if (Together::Connected()) {
-                std::string n = Net::Stats().peerName;
-                return n.empty() ? "Connected" : n;
-            }
-            return g_ed.host ? "Running" : "Connecting...";
-        }
+        case W_START: return "";
         }
         return "";
     }
@@ -251,9 +247,9 @@ namespace {
             if (title) SetLangStr(title, S_TITLE + r);
             if (!data) return;
             if (r == g_editRow) {
-                // Pause_Options may write the caret to another object; keep the visible value in sync.
-                // If the live string is still empty this frame, keep the last known text (do not blank the row).
-                if (g_screen) {
+                // Main-menu text entry: copy the live string when it is non-empty.
+                // Pause soft-edit already keeps g_value; do not ask the game (BeginTextInput is not used).
+                if (!g_softEdit && g_screen) {
                     const char* t = EditedText(g_screen);
                     if (t && t[0]) strncpy_s(g_value[r], t, _TRUNCATE);
                 }
@@ -273,8 +269,8 @@ namespace {
 
     void ShowError(const std::string& e) {
         g_err = e;
-        g_errRow = e.find("nickname") != std::string::npos ? W_NAME : e.find("port") != std::string::npos ? W_PORT
-                 : (e.find("host") != std::string::npos || e.find("IP") != std::string::npos) ? W_HOSTIP : W_NAME;
+        g_errRow = e.find("nickname") != std::string::npos ? W_NAME
+                 : (e.find("host") != std::string::npos || e.find("IP") != std::string::npos || e.find("port") != std::string::npos) ? W_HOSTIP : W_NAME;
         Refresh();
     }
 
@@ -285,7 +281,6 @@ namespace {
         ClearError();
         switch (r) {
         case W_MODE: g_ed.host = !g_ed.host; RebuildRows(); return;
-        case W_COLOUR: g_ed.colour = NextColour(g_ed.colour, dir); break;
         case W_MENUSPEED: g_ed.menuSpeed = (g_ed.menuSpeed - 1 + dir + 3) % 3 + 1; break;
         default: if (bool* f = Flag(r)) *f = !*f; break;
         }
@@ -301,27 +296,80 @@ namespace {
         std::string start = Text(r);
         strncpy_s(g_value[r], start.c_str(), _TRUNCATE);
         SetLangStr(data, S_VALUE + r);
+        *(g_screen + 0x120) = 0;     // bAllowScroll: no row changes while typing
+        g_editRow = r;
+        if (SoftEditPkg()) {
+            // Pause_Options hides the value string under the game's text entry; type into the row ourselves.
+            g_softEdit = true;
+            g_softWaitRelease = true;
+            memset(g_softPrev, 0x80, sizeof(g_softPrev));  // every key currently down is already down
+            LOG("Native: typing %s (soft)", TitleOf(r));
+            return;
+        }
+        g_softEdit = false;
         // edit modes of the game's text entry: 0 = any key, 4 = letters, digits, '.', '@', '_'
         BeginTextInput(g_screen, objHash, r == W_NAME ? 0u : 4u, start.c_str(), TitleOf(r), (uint32_t)MaxLen(FieldOf(r)));
-        *(g_screen + 0x120) = 0;     // bAllowScroll: no row changes while typing (as the game's own text rows)
-        g_editRow = r;
         LOG("Native: typing %s", TitleOf(r));
     }
 
     void EndEdit(bool keep) {
-        int r = g_editRow; g_editRow = -1; g_editEnd = GetTickCount();
+        int r = g_editRow; bool soft = g_softEdit;
+        g_editRow = -1; g_softEdit = false; g_softWaitRelease = false; g_editEnd = GetTickCount();
         if (g_screen) *(g_screen + 0x120) = 1;
         if (r < 0) return;
-        if (keep && g_screen) {
-            const char* t = EditedText(g_screen);
-            if (t) {
-                std::string v = NativeUtil::CleanText(FieldOf(r), t);
-                if (r == W_HOSTIP && !v.empty()) g_ed.host = false;      // typing an address means joining it
-                if (!(r == W_HOSTIP && v.empty() && g_ed.host)) Text(r) = v;
-                LOG("Native: %s = %s", TitleOf(r), v.c_str());
-            }
+        if (keep) {
+            std::string raw;
+            if (soft) raw = g_value[r][0] ? g_value[r] : Text(r);
+            else if (g_screen) { const char* t = EditedText(g_screen); if (t) raw = t; }
+            std::string v = NativeUtil::CleanText(FieldOf(r), raw);
+            if (r == W_HOSTIP && !v.empty()) g_ed.host = false;      // typing an address means joining it
+            if (!(r == W_HOSTIP && v.empty() && g_ed.host)) Text(r) = v;
+            strncpy_s(g_value[r], v.c_str(), _TRUNCATE);
+            LOG("Native: %s = %s", TitleOf(r), v.c_str());
         }
         Refresh();
+    }
+
+    void SoftTypeChar(char c) {
+        if (g_editRow < 0) return;
+        Field f = FieldOf(g_editRow);
+        if (!c || !Accepts(f, c)) return;
+        std::string& t = Text(g_editRow);
+        if ((int)t.size() >= MaxLen(f)) return;
+        t += c;
+        strncpy_s(g_value[g_editRow], t.c_str(), _TRUNCATE);
+        Refresh();
+    }
+    void SoftBackspace() {
+        if (g_editRow < 0) return;
+        std::string& t = Text(g_editRow);
+        if (t.empty()) return;
+        t.pop_back();
+        strncpy_s(g_value[g_editRow], t.c_str(), _TRUNCATE);
+        Refresh();
+    }
+    void ProcessSoftEdit(uint8_t* state) {
+        if (!g_softEdit || g_editRow < 0 || !state) return;
+        if (g_softWaitRelease) {
+            memcpy(g_softPrev, state, 256);
+            if (((state[0x1C] | state[0x9C]) & 0x80) == 0) g_softWaitRelease = false;
+            return;
+        }
+        auto down = [&](int d) { return (state[d] & 0x80) != 0; };
+        auto pressed = [&](int d) { return down(d) && (g_softPrev[d] & 0x80) == 0; };
+        bool shift = down(0x2A) || down(0x36);
+        if (pressed(0x01)) EndEdit(false);
+        else if (pressed(0x1C) || pressed(0x9C)) EndEdit(true);
+        else if (pressed(0x0E)) SoftBackspace();
+        else {
+            for (int d = 1; d < 256; ++d) {
+                if (d == 0x01 || d == 0x1C || d == 0x9C || d == 0x0E || d == 0x2A || d == 0x36) continue;
+                if (!pressed(d)) continue;
+                SoftTypeChar(DikToChar((uint8_t)d, shift));
+                break;
+            }
+        }
+        if (g_softEdit) memcpy(g_softPrev, state, 256);
     }
 
     void Start() {
@@ -343,7 +391,7 @@ namespace {
 #ifdef MWT_DEVTOOLS
             if (g_cfg.testKeys) LOG("Native: row %d act %08X", r, data);
 #endif
-            if (r < 0 || r >= W_COUNT || Capturing() || GetTickCount() - g_editEnd < 300) return;
+            if (r < 0 || r >= W_COUNT || Capturing() || g_softEdit || GetTickCount() - g_editEnd < 300) return;
             if (data == PAD_LEFT || data == PAD_RIGHT) {
                 if (IsText(r) || r == W_START) return;
                 Change(r, data == PAD_RIGHT ? 1 : -1);
@@ -398,7 +446,7 @@ namespace {
         g_screen = s; g_cat = cat; g_builtAt = GetTickCount();
         if (g_leftScreen == s) g_leftScreen = nullptr;      // a new screen where the old one was
         if (!g_reopening) { g_ed = Together::Current(); g_scroll = 0; }
-        g_editRow = -1; g_backWarned = false; g_allowLeave = false;
+        g_editRow = -1; g_softEdit = false; g_softWaitRelease = false; g_backWarned = false; g_allowLeave = false;
         if (!g_reopening) { g_err.clear(); g_errRow = -1; }
         const char* pkg = PkgName(s);
         SetLangPkg(pkg, HEADER_TEXT, cat == CAT_CONNECT ? S_HEADER_CONNECT : S_HEADER);
@@ -485,6 +533,7 @@ namespace {
     // Enter on a Together row: do the row's action here, before FEng treats it as back.
     bool HandleEnterInPlace() {
         if (!OurScreenUp()) return false;
+        if (g_softEdit) { EndEdit(true); return true; }
         if (Capturing() || GetTickCount() - g_editEnd < 300) return false;
         if (GetTickCount() - g_acceptAt < 200) return true;   // this press already handled
         uint8_t* w = *(uint8_t**)(g_screen + 0x34);
@@ -500,6 +549,11 @@ namespace {
     void FilterKbState(uint8_t* state) {
         if (!state || !OurScreenUp()) {
             g_eatingEnter = g_eatingUp = g_eatingDown = false;
+            return;
+        }
+        if (g_softEdit) {
+            ProcessSoftEdit(state);
+            memset(state, 0, 256);
             return;
         }
         // 0x1C = DIK_RETURN, 0x9C = DIK_NUMPADENTER, 0xC8 = DIK_UP, 0xD0 = DIK_DOWN
@@ -522,6 +576,7 @@ namespace {
     void FilterKbData(void* rg, unsigned* inOut, unsigned cbObj) {
         if (!rg || !inOut || !*inOut || cbObj < 8) return;
         if (!OurScreenUp()) return;
+        if (g_softEdit) { *inOut = 0; return; }   // we already handle keys in FilterKbState
         unsigned n = *inOut, w = 0;
         auto* ev = (unsigned char*)rg;
         for (unsigned i = 0; i < n; ++i) {
@@ -872,19 +927,19 @@ void NativeUI::Tick() {
         EditOnOpenTick();
         // pause text entry may not redraw the row itself: push the live string onto the value object
         if (g_editRow >= 0 && g_screen) {
-            const char* t = EditedText(g_screen);
-            if (t && t[0]) {
-                strncpy_s(g_value[g_editRow], t, _TRUNCATE);
-                uint8_t* w = *(uint8_t**)(g_screen + 0x34);
-                if (w && *(void**)w == g_widgetVt && RowOf(w) == g_editRow) {
-                    if (void* data = *(void**)(w + 0x30)) SetLangStr(data, S_VALUE + g_editRow);
-                }
+            if (!g_softEdit) {
+                const char* t = EditedText(g_screen);
+                if (t && t[0]) strncpy_s(g_value[g_editRow], t, _TRUNCATE);
+            }
+            uint8_t* w = *(uint8_t**)(g_screen + 0x34);
+            if (w && *(void**)w == g_widgetVt && RowOf(w) == g_editRow) {
+                if (void* data = *(void**)(w + 0x30)) SetLangStr(data, S_VALUE + g_editRow);
             }
 #ifdef MWT_DEVTOOLS
             static DWORD lastEditLog = 0;
             if (g_cfg.testKeys && GetTickCount() - lastEditLog > 250) {
                 lastEditLog = GetTickCount();
-                LOG("Native: edit row %d [%s]", g_editRow, t ? t : "");
+                LOG("Native: edit row %d [%s]%s", g_editRow, g_value[g_editRow], g_softEdit ? " (soft)" : "");
             }
 #endif
         }
@@ -906,12 +961,24 @@ void NativeUI::Tick() {
 std::string NativeUI::DebugCommand(const std::string& a) {
     if (!g_active) return "native menus off";
     if (a.rfind("type ", 0) == 0) {
+        if (g_softEdit && g_editRow >= 0) {
+            for (char c : a.substr(5)) SoftTypeChar(c);
+            return "typed (soft)";
+        }
         if (!Capturing()) return "no text entry open";
         for (char c : a.substr(5)) NotifyChar((void*)kKeyboard, (unsigned char)c);
         return "typed";
     }
-    if (a == "enter") { if (!Capturing()) return "no text entry open"; NotifyChar((void*)kKeyboard, 13); return "enter"; }
-    if (a == "esc") { if (!Capturing()) return "no text entry open"; NotifyChar((void*)kKeyboard, 27); return "esc"; }
+    if (a == "enter") {
+        if (g_softEdit) { EndEdit(true); return "enter"; }
+        if (!Capturing()) return "no text entry open";
+        NotifyChar((void*)kKeyboard, 13); return "enter";
+    }
+    if (a == "esc") {
+        if (g_softEdit) { EndEdit(false); return "esc"; }
+        if (!Capturing()) return "no text entry open";
+        NotifyChar((void*)kKeyboard, 27); return "esc";
+    }
     if (a == "options" || a == "main" || a == "connect" || a == "settings") {
         void* fe = FE(); if (!fe) return "no front end";
         if (IsPackagePushed(fe, kOptionsFng) || IsPackagePushed(fe, kPauseOptionsFng)) return "an options screen is already open";
@@ -921,7 +988,7 @@ std::string NativeUI::DebugCommand(const std::string& a) {
         if (a == "settings") cat = CAT_SETTINGS;
         SetCategory(cat);
         QueuePackageSwitch(fe, pause ? kPauseOptionsFng : kOptionsFng, pause ? 1 : 0, 0, false);
-        return cat == CAT_CONNECT ? "opening the Connection screen" : "opening the Together settings";
+        return "opening the Together screen";
     }
     if (a == "act") {
         if (!g_screen) return "no screen";
@@ -933,8 +1000,8 @@ std::string NativeUI::DebugCommand(const std::string& a) {
     if (a.rfind("peer", 0) == 0) { g_fakePeer = a.size() > 5 ? a.substr(5) : std::string(); return g_fakePeer.empty() ? "pretend friend gone" : "pretend friend set"; }
     if (a == "state") {
         char b[200];
-        sprintf_s(b, "category %d, screen %p, editing %d, capturing %d, scroll %d/%d of %d, name %s, %s %s, auto %d",
-                  Category(), g_screen, g_editRow, (int)Capturing(), g_scroll, g_slots, (int)g_allRows.size(),
+        sprintf_s(b, "category %d, screen %p, editing %d, capturing %d, soft %d, scroll %d/%d of %d, name %s, %s %s, auto %d",
+                  Category(), g_screen, g_editRow, (int)Capturing(), (int)g_softEdit, g_scroll, g_slots, (int)g_allRows.size(),
                   g_ed.name.c_str(), g_ed.host ? "host" : "join", g_ed.hostIp.c_str(), (int)g_ed.autoConnect);
         return b;
     }

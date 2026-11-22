@@ -127,7 +127,7 @@ namespace {
                             ((int* (__cdecl*)(int*, void*))0x515830)(c, pci);              // FEngGetColor
                             argb = ((uint32_t(__thiscall*)(int*))0x5B2D80)(c);              // FEColor -> ARGB
                         }
-                        if (Net::Stats().peerColor) argb = Net::Stats().peerColor;      // the colour they picked
+                        if (Net::Stats().peerColor) argb = Net::Stats().peerColor;      // set only if a reliable RGB is known
                         ((void(__cdecl*)(void*, uint32_t))0x5157E0)(obj, argb);             // FEngSetColor
                         g_usedSpare = nm;
                         LOG("World map: added remote player icon using %s", nm);

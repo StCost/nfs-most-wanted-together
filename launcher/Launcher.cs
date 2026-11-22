@@ -138,10 +138,8 @@ class LauncherForm : Form {
     bool isHost = true;
     Panel hostIpRow, settings;
     Label myIps = new Label();
-    CheckBox skipIntro = Check("Skip intros"), direct = Check("Quick career start"),
-             noSafeHouse = Check("Quick leave the safe house"), pursuitRes = Check("Auto-close pursuit results in free roam"),
-             introInput = Check("Menus respond during animations"), padHotplug = Check("Detect gamepads connected while playing"),
-             overlay = Check("Show status overlay (F8)"), noPursuitCam = Check("No pursuit start camera");
+    CheckBox introInput = Check("Fast menus"), padHotplug = Check("Auto-detect gamepads"),
+             overlay = Check("Show status overlay (F8)");
     GameButton[] speedBtns = { new GameButton(), new GameButton(), new GameButton() };
     int menuSpeed = 2;
     Label status = new Label { AutoSize = false, ForeColor = Theme.Accent, Font = Theme.Small };
@@ -232,15 +230,10 @@ class LauncherForm : Form {
             TextRenderer.DrawText(e.Graphics, e.ToolTipText, Theme.Body, new Rectangle(8, 6, e.Bounds.Width - 16, e.Bounds.Height - 10), Theme.Text, TextFormatFlags.WordBreak);
         };
         string[] hints = {
-            "Skips the EA logo, the warning screen and the intro movie when the game starts. Off by default. If the Widescreen Fix is installed, its own SkipIntro is switched off: it would also skip every story movie in the career.",
-            "After launch the game presses START for you, loads your profile and goes straight into career free roam. No menus to click through.",
-            "\"Resume Free Roam\" in the safe house starts at once, without the \"are you sure you want to leave?\" question.",
-            "After a pursuit in free roam, the result screens (bounty achieved, pursuit summary) close by themselves. Only on this PC. The busted screen is left alone.",
             "Menu buttons react while a menu is still sliding in, so you don't have to wait for the animation.",
             "A gamepad or wheel you plug in (USB or Bluetooth) while the game is running works right away, and so does one that dropped out and came back. Without this the game only sees controllers that were connected when it started. Your controller bindings are kept.",
-            "Shows the mod's status box in the top-left corner of the game: connection, ping and the other player. F8 switches it in game.",
-            "While you play together, the camera stays on your car when the cops start a chase, instead of flying over to look at the police car. Playing alone, the game does what it always does." };
-        var checks = new CheckBox[] { skipIntro, direct, noSafeHouse, pursuitRes, introInput, padHotplug, overlay, noPursuitCam };
+            "Shows the mod's status box in the top-left corner of the game: connection, ping and the other player. F8 switches it in game." };
+        var checks = new CheckBox[] { introInput, padHotplug, overlay };
         for (int i = 0; i < checks.Length; ++i) { checks[i].Width = W - 24; sp.Controls.Add(checks[i]); tip.SetToolTip(checks[i], hints[i]); }
         var msRow = new BgPanel { Size = new Size(W - 24, 32), Margin = new Padding(0, 4, 0, 0) };
         msRow.Controls.Add(new Label { Text = "Menu animation speed", AutoSize = true, Location = new Point(0, 6), ForeColor = Theme.Text, BackColor = Color.Transparent, Font = Theme.Label });
@@ -251,20 +244,6 @@ class LauncherForm : Form {
             msRow.Controls.Add(speedBtns[i]);
         }
         sp.Controls.Add(msRow);
-        var colRow = new BgPanel { Size = new Size(W - 24, 32), Margin = new Padding(0, 2, 0, 0) };
-        var colLbl = new Label { Text = "My colour on the map", AutoSize = true, Location = new Point(0, 6), ForeColor = Theme.Text, BackColor = Color.Transparent, Font = Theme.Label };
-        colRow.Controls.Add(colLbl);
-        tip.SetToolTip(colLbl, "The colour the other player sees your blip in, on the minimap and the world map. Game = the game's own colour.");
-        swatch.SetBounds(200, 2, 58, 26); swatch.Cursor = Cursors.Hand;
-        swatch.Click += (s, e) => PickColour();
-        colRow.Controls.Add(swatch);
-        var pick = new GameButton(); StyleButton(pick, "Pick", false); pick.SetBounds(262, 0, 58, 28); pick.Click += (s, e) => PickColour(); colRow.Controls.Add(pick);
-        var gameCol = new GameButton(); StyleButton(gameCol, "Game", false); gameCol.SetBounds(324, 0, 58, 28); gameCol.Click += (s, e) => SetColour(""); colRow.Controls.Add(gameCol);
-        sp.Controls.Add(colRow);
-        var portRow = new BgPanel { Size = new Size(W - 24, 32), Margin = new Padding(0, 2, 0, 0) };
-        portRow.Controls.Add(new Label { Text = "UDP port", AutoSize = true, Location = new Point(0, 6), ForeColor = Theme.Text, BackColor = Color.Transparent, Font = Theme.Label });
-        StyleField(port); port.SetBounds(200, 2, 120, 26); portRow.Controls.Add(port);
-        sp.Controls.Add(portRow);
         var btnRow = new BgPanel { Size = new Size(W - 24, 36), Margin = new Padding(0, 8, 0, 0) };
         var log = new GameButton(); StyleButton(log, "Open log", false); log.SetBounds(0, 0, (W - 24) / 2 - 4, 32);
         log.Click += (s, e) => OpenFile(Path.Combine(gameDir, "scripts", "MWTogether.log"));
@@ -285,19 +264,6 @@ class LauncherForm : Form {
     }
 
 
-    Panel swatch = new Panel { BorderStyle = BorderStyle.FixedSingle };
-    string mapColour = "";       // RRGGBB, "" = the game's colour
-    void SetColour(string hex) {
-        mapColour = hex;
-        int v;
-        swatch.BackColor = hex.Length == 6 && int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out v)
-            ? Color.FromArgb(255, (v >> 16) & 255, (v >> 8) & 255, v & 255) : Color.FromArgb(60, 60, 60);
-    }
-    void PickColour() {
-        using (var d = new ColorDialog { FullOpen = true, Color = mapColour.Length == 6 ? swatch.BackColor : Color.Orange }) {
-            if (d.ShowDialog(this) == DialogResult.OK) SetColour(string.Format("{0:X2}{1:X2}{2:X2}", d.Color.R, d.Color.G, d.Color.B));
-        }
-    }
 
     public void ForceMode(bool host) { SetMode(host); }
     public void ShowSettings() { settings.Visible = true; settingsBtn.Arrow = 2; }
@@ -324,17 +290,11 @@ class LauncherForm : Form {
 
     void LoadSettings() {
         name.Text = Ini.Get("Player", "Name", Environment.UserName);
-        SetColour(Ini.Get("Player", "Color", "").Trim().TrimStart('#').ToUpperInvariant());
         hostIp.Text = Ini.Get("Network", "HostIP", "");
-        port.Text = Ini.Get("Network", "Port", "47555");
-        skipIntro.Checked = Ini.GetB("Start", "SkipIntro", false);
-        direct.Checked = Ini.GetB("Start", "DirectFreeRoam", true);
-        noSafeHouse.Checked = Ini.GetB("Start", "SkipLeaveSafeHouseDialog", true);
-        pursuitRes.Checked = Ini.GetB("UI", "SkipPursuitResults", false);
+        port.Text = Ini.Get("Network", "Port", "47555");   // kept in the ini; not shown in the launcher
         introInput.Checked = Ini.GetB("UI", "IntroInput", true);
         padHotplug.Checked = Ini.GetB("Input", "GamepadHotplug", true);
         overlay.Checked = Ini.GetB("Debug", "Overlay", false);
-        noPursuitCam.Checked = Ini.GetB("Coop", "NoPursuitCams", true);
         int ms; if (!int.TryParse(Ini.Get("UI", "MenuSpeed", "2"), out ms)) ms = 2;
         SetSpeed(Math.Max(1, Math.Min(3, ms)));
         SetMode(!Ini.Get("Network", "Mode", "host").Trim().Equals("client", StringComparison.OrdinalIgnoreCase));
@@ -346,27 +306,21 @@ class LauncherForm : Form {
         if (!isHost && hostIp.Text.Trim().Length == 0) { status.Text = "Enter the host's IP address to join."; return false; }
         if (name.Text.Trim().Length == 0) { status.Text = "Enter your name."; return false; }
         Ini.Set("Player", "Name", name.Text.Trim());
-        Ini.Set("Player", "Color", mapColour);
         Ini.Set("Network", "Mode", isHost ? "host" : "client");
         if (!isHost) Ini.Set("Network", "HostIP", hostIp.Text.Trim());
         Ini.Set("Network", "Port", p.ToString());
-        Ini.SetB("Start", "SkipIntro", skipIntro.Checked);
         WidescreenFixKeepMovies();
-        Ini.SetB("Start", "DirectFreeRoam", direct.Checked);
-        Ini.SetB("Start", "SkipLeaveSafeHouseDialog", noSafeHouse.Checked);
-        Ini.SetB("UI", "SkipPursuitResults", pursuitRes.Checked);
         Ini.SetB("UI", "IntroInput", introInput.Checked);
         Ini.SetB("Input", "GamepadHotplug", padHotplug.Checked);
         Ini.Set("UI", "MenuSpeed", menuSpeed.ToString());
         Ini.Set("UI", "TogetherSetupDone", "1");   // set up here: the in-game page needn't open by itself
         Ini.SetB("Debug", "Overlay", overlay.Checked);
-        Ini.SetB("Coop", "NoPursuitCams", noPursuitCam.Checked);
         return true;
     }
 
     // The Widescreen Fix's own SkipIntro = 1 skips every movie the game plays, the career's story movies
-    // too. MW Together's "Skip intros" does the intro part, so the fix's option is kept at 0 (the line's
-    // comment is kept). Nothing happens when the fix isn't installed.
+    // too, so the fix's option is kept at 0 (the line's comment is kept). Nothing happens when the
+    // fix isn't installed.
     void WidescreenFixKeepMovies() {
         string f = Path.Combine(Path.GetDirectoryName(Ini.Path), "NFSMostWanted.WidescreenFix.ini");
         try {

@@ -22,8 +22,7 @@
 using namespace TogetherUtil;
 
 namespace {
-    enum Row { R_NAME, R_MODE, R_HOSTIP, R_PORT, R_AUTOCONNECT, R_COLOUR, R_SKIPINTRO, R_DIRECT, R_SAFEHOUSE, R_PURSUITRES,
-               R_INTROINPUT, R_PADHOTPLUG, R_OVERLAY, R_NOPURSUITCAM, R_MENUSPEED, R_SAVE, R_CANCEL, R_COUNT };
+    enum Row { R_NAME, R_MODE, R_HOSTIP, R_AUTOCONNECT, R_INTROINPUT, R_PADHOTPLUG, R_OVERLAY, R_MENUSPEED, R_SAVE, R_CANCEL, R_COUNT };
 
     std::string g_ini;
     bool     g_open = false;
@@ -52,9 +51,9 @@ namespace {
     // must not see it (Esc would open the pause menu), so input stays blocked until it is released.
     bool     g_swallowKb = false, g_swallowPad = false;
 
-    bool IsText(int r) { return r == R_NAME || r == R_HOSTIP || r == R_PORT; }
-    Field FieldOf(int r) { return r == R_NAME ? Field::Name : r == R_HOSTIP ? Field::Host : Field::Port; }
-    std::string& TextOf(int r) { return r == R_NAME ? g_ed.name : r == R_HOSTIP ? g_ed.hostIp : g_ed.port; }
+    bool IsText(int r) { return r == R_NAME || r == R_HOSTIP; }
+    Field FieldOf(int r) { return r == R_NAME ? Field::Name : Field::Host; }
+    std::string& TextOf(int r) { return r == R_NAME ? g_ed.name : g_ed.hostIp; }
     bool Hidden(int r) { return r == R_HOSTIP && g_ed.host; }
 
     std::string ReadIni(const char* sec, const char* key, const char* def) {
@@ -67,15 +66,9 @@ namespace {
         s.host = g_cfg.isHost;
         s.hostIp = ReadIni("Network", "HostIP", "");         // as typed (g_cfg has 127.0.0.1 when it's empty)
         s.port = std::to_string(g_cfg.port);
-        s.colour = g_cfg.playerColor & 0xFFFFFF;
-        s.skipIntro = g_cfg.skipIntro;
-        s.directFreeRoam = g_cfg.directFreeRoam;
-        s.skipLeaveSafeHouse = g_cfg.skipLeaveSafeHouseDialog;
-        s.skipPursuitResults = g_cfg.skipPursuitResults;
         s.introInput = g_cfg.uiIntroInput;
         s.gamepadHotplug = g_cfg.gamepadHotplug;
         s.overlay = Overlay::IsVisible();
-        s.noPursuitCams = g_cfg.noPursuitCams;
         s.menuSpeed = g_cfg.uiMenuSpeed < 1 ? 1 : g_cfg.uiMenuSpeed > 3 ? 3 : g_cfg.uiMenuSpeed;
         s.autoConnect = ReadIni("Network", "AutoConnect", "1") != "0";
         return s;
@@ -115,7 +108,6 @@ namespace {
         g_cfg.isHost = s.host;
         if (!s.host) g_cfg.peerIp = Trim(s.hostIp);
         g_cfg.port = (int)strtol(Trim(s.port).c_str(), nullptr, 10);
-        g_cfg.playerColor = s.colour ? (0xFF000000u | s.colour) : 0;
     }
 
     void Open() {
@@ -168,24 +160,19 @@ namespace {
         if (!err.empty()) return err;
         Settings cur = Together::Current();
         for (const IniLine& l : ToIni(ed)) WritePrivateProfileStringA(l.section, l.key, l.value.c_str(), g_ini.c_str());
-        if (ed.skipIntro) KeepWidescreenFixMovies();
+        KeepWidescreenFixMovies();
         bool net = NetworkChanged(cur, ed) || (connect && !g_netRunning);
         if (!g_netRunning && !connect) net = false;     // not connected yet (waiting for Host / Join): just remember
-        g_pendingNet = ed;    // name / colour / mode / address / port: applied with the reconnect (TakeNetworkChange)
-        // skip intros, quick safe house, menu input / speed are patched at start: g_cfg keeps what runs now
-        g_cfg.directFreeRoam = ed.directFreeRoam;
-        g_cfg.skipPursuitResults = ed.skipPursuitResults;
+        g_pendingNet = ed;    // name / mode / address / port: applied with the reconnect (TakeNetworkChange)
         g_cfg.gamepadHotplug = ed.gamepadHotplug;
         g_cfg.showOverlay = ed.overlay; Overlay::SetVisible(ed.overlay);
-        g_cfg.noPursuitCams = ed.noPursuitCams;
-        bool restartNeeded = cur.skipIntro != ed.skipIntro || cur.skipLeaveSafeHouse != ed.skipLeaveSafeHouse
-                          || cur.introInput != ed.introInput || cur.menuSpeed != ed.menuSpeed;
+        bool restartNeeded = cur.introInput != ed.introInput || cur.menuSpeed != ed.menuSpeed;
         if (net) g_netChange = true;
         else ApplyNetwork(ed);
         if (connect) g_chosen = true;
         g_setupDone = true;
         LOG("Together: saved - name %s, %s%s, port %s%s%s%s", Trim(ed.name).c_str(), ed.host ? "host" : "join ",
-            ed.host ? "" : Trim(ed.hostIp).c_str(), Trim(ed.port).c_str(), ed.autoConnect ? ", keep connection on restart" : "",
+            ed.host ? "" : Trim(ed.hostIp).c_str(), Trim(ed.port).c_str(), ed.autoConnect ? ", reconnect on launch" : "",
             net ? ", connecting" : "", restartNeeded ? ", some options apply at the next start" : "");
         g_saved = ed; g_haveSaved = true;
         if (restartNeededOut) *restartNeededOut = restartNeeded;
@@ -213,15 +200,9 @@ namespace {
         if (g_sel != R_SAVE && g_sel != R_CANCEL) Edited();
         switch (g_sel) {
         case R_MODE: g_ed.host = !g_ed.host; break;
-        case R_COLOUR: g_ed.colour = NextColour(g_ed.colour, dir); break;
-        case R_SKIPINTRO: g_ed.skipIntro = !g_ed.skipIntro; break;
-        case R_DIRECT: g_ed.directFreeRoam = !g_ed.directFreeRoam; break;
-        case R_SAFEHOUSE: g_ed.skipLeaveSafeHouse = !g_ed.skipLeaveSafeHouse; break;
-        case R_PURSUITRES: g_ed.skipPursuitResults = !g_ed.skipPursuitResults; break;
         case R_INTROINPUT: g_ed.introInput = !g_ed.introInput; break;
         case R_PADHOTPLUG: g_ed.gamepadHotplug = !g_ed.gamepadHotplug; break;
         case R_OVERLAY: g_ed.overlay = !g_ed.overlay; break;
-        case R_NOPURSUITCAM: g_ed.noPursuitCams = !g_ed.noPursuitCams; break;
         case R_MENUSPEED: g_ed.menuSpeed = (g_ed.menuSpeed - 1 + dir + 3) % 3 + 1; break;
         case R_AUTOCONNECT: g_ed.autoConnect = !g_ed.autoConnect; break;
         case R_SAVE: case R_CANCEL: g_sel = g_sel == R_SAVE ? R_CANCEL : R_SAVE; break;
@@ -484,13 +465,11 @@ namespace {
 
     const char* RowLabel(int r) {
         switch (r) {
-        case R_NAME: return "Nickname"; case R_MODE: return "Connection"; case R_HOSTIP: return "Connect to IP"; case R_PORT: return "UDP port";
-        case R_AUTOCONNECT: return "Keep connection on restart";
-        case R_COLOUR: return "My colour on the map"; case R_SKIPINTRO: return "Skip intros";
-        case R_DIRECT: return "Quick career start"; case R_SAFEHOUSE: return "Quick leave the safe house";
-        case R_PURSUITRES: return "Auto-close pursuit results in free roam"; case R_INTROINPUT: return "Menus respond during animations";
-        case R_PADHOTPLUG: return "Detect gamepads connected while playing"; case R_OVERLAY: return "Show status overlay (F8)";
-        case R_NOPURSUITCAM: return "No pursuit start camera"; case R_MENUSPEED: return "Menu animation speed";
+        case R_NAME: return "Nickname"; case R_MODE: return "Connection"; case R_HOSTIP: return "Connect to IP";
+        case R_AUTOCONNECT: return "Reconnect on launch";
+        case R_INTROINPUT: return "Fast menus";
+        case R_PADHOTPLUG: return "Auto-detect gamepads"; case R_OVERLAY: return "Show status overlay (F8)";
+        case R_MENUSPEED: return "Menu speed";
         }
         return "";
     }
@@ -499,7 +478,7 @@ namespace {
 bool Together::Paint(uint32_t* pixels, int pitch, int maxW, int maxH, int* outW, int* outH) {
     g_dirty = false;
     if (!g_open && !g_hint) return false;
-    const int W = g_open ? 620 : 430, H = g_open ? 706 : 34;
+    const int W = g_open ? 620 : 430, H = g_open ? 496 : 34;
     if (W > maxW || H > maxH) return false;
     HDC dc = CreateCompatibleDC(nullptr);
     BITMAPINFO bi{}; bi.bmiHeader.biSize = sizeof(bi.bmiHeader); bi.bmiHeader.biWidth = W; bi.bmiHeader.biHeight = -H;
@@ -549,16 +528,10 @@ bool Together::Paint(uint32_t* pixels, int pitch, int maxW, int maxH, int* outW,
             }
             switch (r) {
             case R_MODE: v = g_ed.host ? "<  Host LAN  >" : "<  Join LAN  >"; vc = kAccent; break;
-            case R_COLOUR: {
-                int i = ColourIndex(g_ed.colour);
-                v = std::string("<  ") + (i < 0 ? "Custom " + ColourText(g_ed.colour) : kColourNames[i]) + "  >";
-                if (g_ed.colour) Fill(dc, vx + vw - 22, y + 6, 16, rowH - 15, RGB((g_ed.colour >> 16) & 255, (g_ed.colour >> 8) & 255, g_ed.colour & 255));
-                break; }
             case R_MENUSPEED: v = "<  " + std::to_string(g_ed.menuSpeed) + "x  >"; break;
             default: {
-                bool on = r == R_SKIPINTRO ? g_ed.skipIntro : r == R_DIRECT ? g_ed.directFreeRoam : r == R_SAFEHOUSE ? g_ed.skipLeaveSafeHouse
-                        : r == R_PURSUITRES ? g_ed.skipPursuitResults : r == R_INTROINPUT ? g_ed.introInput : r == R_PADHOTPLUG ? g_ed.gamepadHotplug
-                        : r == R_OVERLAY ? g_ed.overlay : r == R_AUTOCONNECT ? g_ed.autoConnect : g_ed.noPursuitCams;
+                bool on = r == R_INTROINPUT ? g_ed.introInput : r == R_PADHOTPLUG ? g_ed.gamepadHotplug
+                        : r == R_OVERLAY ? g_ed.overlay : g_ed.autoConnect;
                 v = on ? "ON" : "OFF"; vc = on ? kAccent : kDim; break; }
             }
             Text(dc, fLabel, vx, y, vw - 26, rowH - 3, v, vc, DT_LEFT);

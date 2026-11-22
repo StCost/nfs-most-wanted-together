@@ -531,35 +531,7 @@ void __fastcall hk_RadarDetector(void* self, void*, uint32_t a, uint32_t b) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// [Coop] NoPursuitCams: no pursuit-start camera while co-op is linked (the camera stays on your car).
-//  When a cop starts a player pursuit (cop code at 0x423E66: IPursuit slot 35 IsPlayerPursuit) it calls
-//  0x471BF0 cdecl(IVehicle* cop) at 0x423E71. That function plays the "look at the cop" highlight
-//  camera: it gives up when cutscenes are blocked (*0x8EE348 > 0), when 0x469E30 says no (that reads
-//  the profile's gameplay option at UserProfile +0x47 - the Options menu camera toggle, called JumpCam
-//  in the SDK; the jump camera 0x479900 and the 0x479F80 camera ask it too) or during a NIS, and
-//  otherwise hands the cop to the player's camera director (0x471A70 -> 0x469EC0), which then switches
-//  to CDActionTrackCop for a moment. Forcing the option off would also be written into the career
-//  save at the next autosave, so the call is skipped instead: nothing in the profile changes and the
-//  jump camera keeps following the player's own setting.
-// ---------------------------------------------------------------------------
-namespace {
-    constexpr uintptr_t PursuitCamCall = 0x423E71, PursuitCamFn = 0x471BF0;
-    void __cdecl hk_PursuitStartCam(void* cop) {
-        if (g_cfg.noPursuitCams && g_coopLinked && Net::Stats().connected) {
-            static DWORD lastLog = 0;
-            if (GetTickCount() - lastLog > 10000) { lastLog = GetTickCount(); LOG("Pursuit: start camera skipped (co-op, NoPursuitCams=1)"); }
-            return;
-        }
-        ((void(__cdecl*)(void*))PursuitCamFn)(cop);
-    }
-}
-
 bool Game::InstallPursuitHooks() {
-    if (g_cfg.noPursuitCams) {
-        bool c = PatchCallChecked(PursuitCamCall, PursuitCamFn, (void*)&hk_PursuitStartCam);
-        LOG("Pursuit: start camera in co-op %s", c ? "off (NoPursuitCams=1)" : "NOT hooked (call site mismatch) - it still plays");
-    }
     if (!g_cfg.sharedPursuits) { LOG("Pursuit: SharedPursuits=0 - each player has their own heat and pursuit"); return false; }
     bool m = PatchCallChecked(DrawCopsCall, DrawCopsFn, (void*)&hk_DrawCops);
     bool r = PatchCallChecked(RadarCall, RadarFn, (void*)&hk_RadarDetector);

@@ -1,15 +1,8 @@
 // Included from game.cpp (after stream.inl).
 // ---------------------------------------------------------------------------
-// Fast start
-//  [Start] SkipIntro: the boot flow (BootFlowManager, *0x91CF48) takes its screens from static tables of
-//    string pointers (0x8F3C58..0x8F3CD0). Pointing the EA logo / PSA / attract movie / "Press START"
-//    entries at "" makes the boot go MC_Bootup -> MC_Main (profile autoload) -> MainMenu.
-//  [Start] DirectFreeRoam: once the profile is loaded and MainMenu is up, do what Career > Resume
-//    Career > Resume Free Roam > Yes do: CareerSettings::ResumeCareer (0x57F570, this = profile+0xA8),
-//    GManager+0x110 = 1 (start at the safe house), the career-intro check, 0x56C5B0 (start career free
-//    roam), FEGameMode |= 1.
-//  [Start] SkipLeaveSafeHouseDialog: CResumeFreeRoam::React (vtable slot 0x89C42C, 0x51FF10) asks
-//    "leave the safe house?"; instead send its Yes message (0xD05FC3A3) straight back to the screen.
+// Fast start leftovers: [Start] SkipLoadComplete still confirms the profile load screen.
+// DebugFreeRoam (test command) can still jump into career free roam. The old SkipIntro /
+// DirectFreeRoam / SkipLeaveSafeHouseDialog settings and hooks are gone.
 // ---------------------------------------------------------------------------
 static DWORD g_watchLoadUntil = 0;   // test command "watchload"
 namespace {
@@ -212,9 +205,8 @@ namespace {
             std::string names;
             for (auto& s : list) names += (names.empty() ? "" : ", ") + s;
             target = Profiles::IndexOf(list, g_cfg.lastProfile);
-            if (!g_cfg.directFreeRoam || target < 0) {
-                LOG("Start: profile list [%s] - %s", names.c_str(), !g_cfg.directFreeRoam ? "left to the player (quick start off)"
-                    : g_cfg.lastProfile.empty() ? "no profile remembered yet, pick one" : "the remembered profile isn't in it, pick one");
+            {
+                LOG("Start: profile list [%s] - left to the player", names.c_str());
                 state = 3; return true;
             }
             LOG("Start: profile list [%s] - picking %s (row %d)", names.c_str(), g_cfg.lastProfile.c_str(), target + 1);
@@ -448,22 +440,9 @@ std::string Game::DebugFreeRoam() {
 }
 
 void Game::InstallBootPatches() {
-    if (g_cfg.skipIntro) {
-        int n = 0;
-        static const char empty[] = "";
-        // (the "Press START" splash stays: pressing START there sets up the active controller; we press it)
-        static const char* drop[] = { "LS_EAlogo.fng", "LS_PSA.fng", "MW_LS_AttractFMV.fng" };
-        for (uintptr_t a = 0x8F3C58; a < 0x8F3CD0; a += 4) {
-            const char* s = nullptr;
-            if (!Mem::Read(a, s) || !s || !Mem::IsReadable(s, 4)) continue;
-            for (const char* d : drop)
-                if (!_stricmp(s, d)) { Mem::PatchPointer((void*)a, (void*)empty); ++n; break; }
-        }
-        LOG("Start: skip intro screens - %d boot entries removed", n);
-    }
-    // MC_Main (profile load screen) NotificationMessage - see McNotify. Only needed by the fast start;
-    // the slot check (it must still hold v1.3's function) is the version check.
-    if (g_cfg.skipLoadComplete || g_cfg.directFreeRoam || g_cfg.startInBackground) {
+    // MC_Main (profile load screen) NotificationMessage - see McNotify. Only needed by SkipLoadComplete
+    // / start-in-background; the slot check (it must still hold v1.3's function) is the version check.
+    if (g_cfg.skipLoadComplete || g_cfg.startInBackground) {
         static const struct { uintptr_t slot, fn; void* hook; } mc[2] = {
             { 0x89EDA4, 0x5644F0, (void*)&hk_McNotify0 }, { 0x89EDD4, 0x564630, (void*)&hk_McNotify1 } };
         for (int i = 0; i < 2; ++i) {
@@ -474,20 +453,13 @@ void Game::InstallBootPatches() {
             } else LOG("Start: MC_Main notify slot %X holds %08X - not watched", (unsigned)mc[i].slot, (unsigned)cur);
         }
     }
-    if (g_cfg.skipLeaveSafeHouseDialog) {
-        uintptr_t cur = 0;
-        if (Mem::Read(0x89C42C, cur) && cur == 0x51FF10) {
-            g_origResumeFreeRoamReact = (ReactFn)cur;
-            Mem::PatchPointer((void*)0x89C42C, (void*)&hk_ResumeFreeRoamReact);
-            LOG("Start: no leave-safe-house dialog");
-        } else LOG("Start: Resume Free Roam slot holds %08X - dialog kept", (unsigned)cur);
-    }
 }
 
-bool Game::DirectStartActive() { return g_cfg.directFreeRoam && g_boot != Boot::Done; }
+bool Game::DirectStartActive() { return false; }
 
 void Game::BootTick(bool stopAtMenu) {
-    if (!g_ok || g_boot == Boot::Done || !(g_cfg.directFreeRoam || g_cfg.skipLoadComplete)) return;
+    (void)stopAtMenu;
+    if (!g_ok || g_boot == Boot::Done || !g_cfg.skipLoadComplete) return;
     __try {
         if (g_cfg.bootTrace && GameFlowState() == 3) {      // [Debug] BootTrace: what the memory card / pad state does
             static uint32_t last[8] = { 0xDEAD, 0xDEAD, 0xDEAD, 0xDEAD, 0xDEAD, 0xDEAD, 0xDEAD, 0xDEAD };
@@ -505,24 +477,7 @@ void Game::BootTick(bool stopAtMenu) {
         if (GameFlowState() != 3) { if (GameFlowState() == 6) g_boot = Boot::Done; return; }
         uint8_t* fedb = nullptr; void* bfm = (void*)1; void* fe = nullptr;
         Mem::Read(0x91CF90, fedb); Mem::Read(0x91CF48, bfm); Mem::Read(0x91CADC, fe);
-        // "Press START" (splash) and "load complete" (MC_Main) wait for a key: press it. The title screen
-        // is WS_MW_LS_Splash.fng with a widescreen fix installed and MW_LS_Splash.fng in the plain game.
-        const char* splash = nullptr;
-        if (g_cfg.directFreeRoam && fe && bfm) {
-            for (const char* s : { "WS_MW_LS_Splash.fng", "MW_LS_Splash.fng" })
-                if (((bool(__thiscall*)(void*, const char*))0x516B50)(fe, s)) { splash = s; break; }
-        }
-        if (splash) {
-            static DWORD since = 0, lastTap = 0;
-            if (SaveSyncHoldsBoot()) return;      // the host's copy of our save may still arrive
-            if (!since) since = GetTickCount();
-            if (GetTickCount() - since > 300 && GetTickCount() - lastTap > 700) {     // as soon as it takes the key (retried)
-                lastTap = GetTickCount();
-                if (PressAccept(splash)) LOG("Start: pressing START on the title screen (%s)", splash);
-            }
-            return;
-        }
-        if (fe && bfm && PickProfileStep(fe)) return;                     // several profiles: the list
+        // "load complete" (MC_Main) waits for a key: confirm it when SkipLoadComplete is on.
         if (fedb && fedb[3]) RememberLoadedProfile(fedb);
         if (fe && bfm && ((bool(__thiscall*)(void*, const char*))0x516B50)(fe, "MC_Main.fng")) {
             static DWORD since = 0, lastTap = 0;
@@ -534,47 +489,11 @@ void Game::BootTick(bool stopAtMenu) {
             }
             return;
         }
-        if (!g_cfg.directFreeRoam) { if (!bfm) g_boot = Boot::Done; return; }   // only skipping the load screen
-        bool ready = fedb && fedb[3] /*profile loaded*/ && !bfm && fe &&
-                     ((bool(__thiscall*)(void*, const char*))0x516B50)(fe, "MainMenu.fng");
-        if (!ready) { g_boot = Boot::Waiting; return; }
-        if (stopAtMenu) {       // Host / Join is picked in the main menu first (its Together icon)
-            static bool logged = false;
-            if (!logged) { logged = true; LOG("Start: at the main menu - waiting for Host / Join (Together)"); }
-            g_boot = Boot::Waiting; return;
-        }
-        if (g_boot == Boot::Waiting) { g_boot = Boot::Settling; g_bootReadyAt = GetTickCount(); return; }
-        if (GetTickCount() - g_bootReadyAt < 250) return;    // let the garage finish loading (the menu barely shows)
-        g_boot = Boot::Done;
-        LOG("Start: direct free roam - %s", DirectFreeRoamNow());
-    } __except (EXCEPTION_EXECUTE_HANDLER) { g_boot = Boot::Done; LOG("Start: exception in direct free roam"); }
+        if (!bfm) g_boot = Boot::Done;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { g_boot = Boot::Done; LOG("Start: exception in boot tick"); }
 }
 
-// [UI] SkipPursuitResults: after a pursuit in free roam the game shows a result screen and waits for a
-// key: PostRace_MilestoneRewards.fng ("Bounty achieved", after an escape - seen on the laptop) or
-// PostRace_Pursuit.fng. Close it by itself (only this player's game). The busted screen is different
-// (GarageMain "Payment for infractions" - costs money) and is left alone.
-void Game::PursuitResultTick() {
-    if (!g_ok || !g_cfg.skipPursuitResults || GameFlowState() != 6) return;
-    static DWORD since = 0, lastTap = 0;
-    static const char* const kResult[] = { "PostRace_MilestoneRewards.fng", "PostRace_Pursuit.fng" };
-    const char* open = nullptr;
-    for (const char* p : kResult) if (FEScreens::IsPushed(p)) { open = p; break; }
-    int mode = 0; void* rs = nullptr;
-    if (Mem::Read(0x91E000, rs) && rs) Mem::Read((uintptr_t)rs + 0x1960, mode);
-    if (!open || mode == 1) { since = 0; return; }        // not open, or it belongs to a race
-    if (!since) since = GetTickCount();
-    if (GetTickCount() - since > 700 && GetTickCount() - lastTap > 1500) {
-        lastTap = GetTickCount();
-        // Always the FE message addressed to that package (also when focused): a real Enter would go to
-        // whatever dialog is on top.
-        void* fe = nullptr;
-        if (Mem::Read(0x91CADC, fe) && fe) {
-            ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0x406415E3, open, 0xFF);
-            LOG("UI: closing the pursuit result screen (%s)", open);
-        }
-    }
-}
+void Game::PursuitResultTick() {}
 std::string Game::FEAccept(const char* pkg) {
     void* fe = nullptr;
     if (!g_ok || !Mem::Read(0x91CADC, fe) || !fe) return "no front end";

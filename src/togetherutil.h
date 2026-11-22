@@ -12,30 +12,18 @@
 
 namespace TogetherUtil {
 
-constexpr int kMaxName = 15;      // the hello packet carries 15 characters + the colour bytes
+constexpr int kMaxName = 15;      // the hello packet carries 15 characters
 constexpr int kMaxHost = 63;
-
-// Map colours the page cycles through (RRGGBB; 0 = the game's own colour). A colour from the ini that
-// isn't in the list is kept and shown as "custom".
-static const uint32_t kColours[] = { 0, 0xFF8C00, 0xE53935, 0x43A047, 0x1E88E5, 0x00BCD4, 0xD81B60, 0xFDD835, 0xFFFFFF };
-static const char* const kColourNames[] = { "Game", "Orange", "Red", "Green", "Blue", "Cyan", "Pink", "Yellow", "White" };
-constexpr int kColourCount = (int)(sizeof(kColours) / sizeof(kColours[0]));
 
 struct Settings {
     std::string name = "Player";
     bool        host = true;
     std::string hostIp;
-    std::string port = "47555";        // text while editing; checked on save
+    std::string port = "47555";        // kept in the ini only (default 47555); not shown in menus
     bool        autoConnect = true;     // [Network] AutoConnect: host / join again by itself on the next start
-    uint32_t    colour = 0;            // RRGGBB, 0 = game colour
-    bool        skipIntro = false;
-    bool        directFreeRoam = true;
-    bool        skipLeaveSafeHouse = true;
-    bool        skipPursuitResults = false;
     bool        introInput = true;
     bool        gamepadHotplug = true;
     bool        overlay = false;
-    bool        noPursuitCams = true;
     int         menuSpeed = 2;          // 1..3
 };
 
@@ -80,48 +68,27 @@ inline std::string Validate(const Settings& s) {
     return "";
 }
 
-inline std::string ColourText(uint32_t rgb) {
-    if (!rgb) return "";
-    char b[8]; snprintf(b, sizeof(b), "%06X", (unsigned)(rgb & 0xFFFFFF)); return b;
-}
-inline int ColourIndex(uint32_t rgb) {
-    for (int i = 0; i < kColourCount; ++i) if (kColours[i] == (rgb & 0xFFFFFF)) return i;
-    return -1;   // custom
-}
-inline uint32_t NextColour(uint32_t rgb, int dir) {
-    int i = ColourIndex(rgb);
-    if (i < 0) i = 0;
-    i = ((i + dir) % kColourCount + kColourCount) % kColourCount;
-    return kColours[i];
-}
-
 struct IniLine { const char* section; const char* key; std::string value; };
 // What a save writes (the launcher wrote the same keys). HostIP only when joining, like the launcher:
 // the host keeps whatever address was typed last time.
 inline std::vector<IniLine> ToIni(const Settings& s) {
     std::vector<IniLine> v;
     v.push_back({ "Player", "Name", Trim(s.name) });
-    v.push_back({ "Player", "Color", ColourText(s.colour) });
     v.push_back({ "Network", "Mode", s.host ? "host" : "client" });
     if (!s.host) v.push_back({ "Network", "HostIP", Trim(s.hostIp) });
     v.push_back({ "Network", "Port", std::to_string(strtol(Trim(s.port).c_str(), nullptr, 10)) });
     v.push_back({ "Network", "AutoConnect", s.autoConnect ? "1" : "0" });
-    v.push_back({ "Start", "SkipIntro", s.skipIntro ? "1" : "0" });
-    v.push_back({ "Start", "DirectFreeRoam", s.directFreeRoam ? "1" : "0" });
-    v.push_back({ "Start", "SkipLeaveSafeHouseDialog", s.skipLeaveSafeHouse ? "1" : "0" });
-    v.push_back({ "UI", "SkipPursuitResults", s.skipPursuitResults ? "1" : "0" });
     v.push_back({ "UI", "IntroInput", s.introInput ? "1" : "0" });
     v.push_back({ "Input", "GamepadHotplug", s.gamepadHotplug ? "1" : "0" });
     v.push_back({ "UI", "MenuSpeed", std::to_string(s.menuSpeed) });
     v.push_back({ "Debug", "Overlay", s.overlay ? "1" : "0" });
-    v.push_back({ "Coop", "NoPursuitCams", s.noPursuitCams ? "1" : "0" });
     v.push_back({ "UI", "TogetherSetupDone", "1" });
     return v;
 }
 
-// Changes that need a new connection (name and colour travel in the hello packet)
+// Changes that need a new connection (the name travels in the hello packet)
 inline bool NetworkChanged(const Settings& a, const Settings& b) {
-    return Trim(a.name) != Trim(b.name) || a.colour != b.colour || a.host != b.host || Trim(a.port) != Trim(b.port)
+    return Trim(a.name) != Trim(b.name) || a.host != b.host || Trim(a.port) != Trim(b.port)
         || (!b.host && Trim(a.hostIp) != Trim(b.hostIp));
 }
 

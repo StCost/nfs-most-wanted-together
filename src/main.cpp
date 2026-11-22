@@ -160,7 +160,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         if (g_gameOk) Pad::Tick(flowNow);
         if (g_gameOk) Game::ChyronTick();
         // the key-pressing AutoStart is only needed when the direct start is off (or for other targets)
-        if (!hold && !atMenu && !(g_cfg.directFreeRoam && !_stricmp(g_cfg.autoStartTarget.c_str(), "freeroam"))) AutoStart::Tick(flowNow);
+        if (!hold && !atMenu) AutoStart::Tick(flowNow);
         if (g_gameOk) Game::OnFlow(flowNow);
 
         // Tell the peer which car (model + tuning) I'm driving; Net resends on change / every 2 s.

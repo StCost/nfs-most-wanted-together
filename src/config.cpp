@@ -24,13 +24,6 @@ void Config::Load(const char* ini) {
     port         = ReadInt(ini, "Network", "Port", 47555);
     sendRateHz   = ReadInt(ini, "Network", "SendRate", 60);
     playerName   = ReadStr(ini, "Player", "Name", "Player");
-    {   // "RRGGBB" or "#RRGGBB"; empty = the game's own colour
-        std::string c = ReadStr(ini, "Player", "Color", "");
-        if (!c.empty() && c[0] == '#') c.erase(0, 1);
-        char* end = nullptr;
-        unsigned long v = c.size() == 6 ? strtoul(c.c_str(), &end, 16) : 0;
-        playerColor = (end && *end == 0) ? (0xFF000000u | (uint32_t)(v & 0xFFFFFF)) : 0;
-    }
     autoStart    = ReadInt(ini, "AutoStart", "Enabled", 1) != 0;
     autoStartDelayMs    = ReadInt(ini, "AutoStart", "DelayMs", 2500);
     autoStartIntervalMs = ReadInt(ini, "AutoStart", "IntervalMs", 1500);
@@ -62,12 +55,10 @@ void Config::Load(const char* ini) {
     followToPursuits = ReadInt(ini, "Coop", "FollowToPursuits", 1) != 0;
     restoreOnlyMissing = ReadInt(ini, "Career", "RestoreOnlyMissing", 1) != 0;
     sharedPursuits = ReadInt(ini, "Coop", "SharedPursuits", 1) != 0;
-    noPursuitCams = ReadInt(ini, "Coop", "NoPursuitCams", 1) != 0;
     syncStoryScenes = ReadInt(ini, "Coop", "SyncStoryScenes", 1);
     if (syncStoryScenes < 0 || syncStoryScenes > 2) syncStoryScenes = 1;
     readyDelayMs = ReadInt(ini, "Debug", "ReadyDelayMs", 0);
     startInBackground = ReadInt(ini, "Window", "StartInBackground", 0) != 0;
-    skipPursuitResults = ReadInt(ini, "UI", "SkipPursuitResults", 0) != 0;
     gameNotices = ReadInt(ini, "UI", "GameNotices", 1) != 0;
     hideHudKey = ReadInt(ini, "UI", "HideHudKey", 0x70);
     noticeSeconds = ReadInt(ini, "UI", "NoticeSeconds", 10);
@@ -75,12 +66,9 @@ void Config::Load(const char* ini) {
     if (noticeSeconds > 60) noticeSeconds = 60;
     gamepadHotplug = ReadInt(ini, "Input", "GamepadHotplug", 1) != 0;
     keepPadBindings = ReadInt(ini, "Input", "KeepPadBindings", 1) != 0;
-    skipIntro = ReadInt(ini, "Start", "SkipIntro", 0) != 0;
-    directFreeRoam = ReadInt(ini, "Start", "DirectFreeRoam", 1) != 0;
     lastProfile = ReadStr(ini, "Start", "LastProfile", "");
     iniFile = ini ? ini : "";
     skipLoadComplete = ReadInt(ini, "Start", "SkipLoadComplete", 1) != 0;
-    skipLeaveSafeHouseDialog = ReadInt(ini, "Start", "SkipLeaveSafeHouseDialog", 1) != 0;
     streamAroundPeer = ReadInt(ini, "Coop", "StreamAroundPeer", 1) != 0;
     uiIntroInput = ReadInt(ini, "UI", "IntroInput", 1) != 0;
     uiMenuSpeed  = ReadInt(ini, "UI", "MenuSpeed", 2);

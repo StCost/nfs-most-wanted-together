@@ -13,7 +13,8 @@
 namespace {
     constexpr uintptr_t MinimapRacersCall = 0x59DD04, MinimapRacersFn = 0x57A110;
 
-    // The other player's blip in the colour they picked ([Player] Color on their PC); the 8 icon slots
+    // The other player's blip uses peerColor when set; 0 keeps the game's own colour. Vehicle paint
+    // is synced as a part index (not RGB), so the blip stays the default. The 8 icon slots
     // are shared with AI racers, so every other use of a slot gets the slot's own colour back.
     void* g_slotIcon[8] = {}; uint32_t g_slotOrig[8] = {};
     void PaintSlot(int slot, void* icon, bool isPeer) {
