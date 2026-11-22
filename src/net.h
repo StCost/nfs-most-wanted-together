@@ -281,6 +281,7 @@ namespace Net {
     bool Init();        // binds socket according to g_cfg
     void SetDataDir(const char* dir); // where to keep the remembered peer car (scripts\)
     void Shutdown();
+    bool Restart();     // Shutdown + Init with the current g_cfg (settings changed in the game); a clean start of the connection
     void SendBye();     // tell the peer we're leaving (window closing); safe to call more than once
     void Poll();        // receive everything pending, handle hello/ping
     void SendState(const CarState& s);

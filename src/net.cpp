@@ -442,6 +442,7 @@ void Net::SetDataDir(const char* dir) {
 }
 
 static DWORD WINAPI KeepAliveThread(void*);
+static volatile LONG g_netGen = 0;   // Net::Restart: the old keep-alive thread sees a newer generation and ends
 
 bool Net::Init() {
     WSADATA wsa;
@@ -506,7 +507,8 @@ bool Net::Init() {
             }
         }
     }
-    if (HANDLE th = CreateThread(nullptr, 0, KeepAliveThread, nullptr, 0, nullptr)) CloseHandle(th);
+    LONG gen = InterlockedIncrement(&g_netGen);
+    if (HANDLE th = CreateThread(nullptr, 0, KeepAliveThread, (void*)(intptr_t)gen, 0, nullptr)) CloseHandle(th);
     return true;
 }
 
@@ -545,9 +547,11 @@ void Net::Poll() {
 // While the game is paused (alt-tab, world map, loading) its frame loop stops and so does Net::Tick.
 // This thread keeps pinging the peer meanwhile so neither side times out.
 namespace { volatile uint32_t g_lastTickCall = 0; }
-static DWORD WINAPI KeepAliveThread(void*) {
+static DWORD WINAPI KeepAliveThread(void* arg) {
+    const LONG gen = (LONG)(intptr_t)arg;
     for (;;) {
         Sleep(500);
+        if (g_netGen != gen) return 0;                 // Net::Restart started a newer one
         SOCKET s = g_sock;
         if (s == INVALID_SOCKET) return 0;
         uint32_t last = g_lastTickCall;
@@ -816,6 +820,30 @@ const NetStats& Net::Stats() { return g_stats; }
 const char* Net::LastError() { return g_err; }
 
 bool Net::PeerSaidBye() { return g_peerSaidBye; }
+
+// The settings changed in the game (Together page): leave the current connection (the peer gets a bye) and
+// start again with the new mode / address / port / name. Callbacks, our car and the data dir are kept.
+bool Net::Restart() {
+    Shutdown();
+    g_peer = sockaddr_in{};
+    g_havePeer = false;
+    g_lastHello = g_lastPing = 0;
+    g_lastStateSeq = 0;
+    g_stats = NetStats{};
+    g_latest = Net::Snapshot{}; g_prev = Net::Snapshot{};
+    g_err[0] = 0;
+    g_peerCar = CarInfo{}; g_havePeerCar = false;
+    g_ringHead = g_ringCount = 0;
+    g_lastCarSend = 0;
+    g_peerSaidBye = g_leaving = g_byeSent = g_byeRecent = false;
+    g_byeAt = 0;
+    g_lastTickCall = 0;
+    g_offsetEst = g_offsetAt = 0;
+    g_haveOffset = false;
+    FileReset();
+    LOG("Net: restarting with the new settings (%s, port %d)", g_cfg.isHost ? "host" : "client", g_cfg.port);
+    return Init();
+}
 
 #ifdef MWT_TESTS
 // ---------------------------------------------------------------------------------------------
