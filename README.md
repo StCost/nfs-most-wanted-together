@@ -24,10 +24,11 @@ Wanted online free roam with a friend, Need for Speed Most Wanted two player mod
 
 
 1. Download **[MWTogether.zip](https://github.com/StCost/nfs-most-wanted-together/releases/latest/download/MWTogether.zip)** (the latest release) and unpack it into your game folder, next to `speed.exe`.
-2. Run `speed.exe` as usual. On the first start the **Together** page opens on the title screen: type a
-   nickname, pick **Host LAN** or **Join LAN** (to join, enter the host's IP address - the host sees theirs
-   on the same page) and choose **Save & Play**. Open it again any time with **F2** or by holding **BACK** on
-   a pad. (`MWTogetherLauncher.exe` still works too and sets the same things.)
+2. Run `speed.exe` as usual. The game stops at the main menu: pick the **Together** icon there, type a
+   nickname, choose **Host** or **Join** (to join, enter the host's IP address - the host sees theirs on the
+   same screen) and press **Start**. With **Do the same on restart** on, the next start hosts or joins by
+   itself. All settings are also in **Options > Together**, and on the overlay page (**F2** or hold **BACK** on a
+   pad). (`MWTogetherLauncher.exe` still works too and sets the same things.)
 3. Do the same on the other PC. The game loads your career into free roam and connects you on its own.
 4. To update, unpack the new zip over the old one. Your nickname and settings (`scripts\MWTogether.ini`) stay.
 
@@ -68,7 +69,9 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Quitting (Alt+F4 too) tells the other side right away; a game that just disappears times out
 - [x] Stays connected while paused, minimized or alt-tabbed, and the game keeps running in the background
 - [x] Status overlay on F8 (remembers if you hid it)
-- [x] In-game **Together** page (F2, or hold BACK on a pad; opens by itself on the first start): name, host or join, host IP, port, map colour, start and menu options, your IP address and the connection state. Saving reconnects right away when needed (`[UI] TogetherKey`)
+- [x] **Together** in the game's own menus: Main menu > Together to host or join (the game's text entry for the name and IP), Options > Together for every setting; the main menu's profile box shows both names while connected. If this `speed.exe` differs, the menus stay as they are and the page below is used
+- [x] Main menu logo from `scripts\MWTogether-logo.dds` if it is there (no game files changed)
+- [x] In-game **Together** overlay page (F2, or hold BACK on a pad): name, host or join, host IP, port, map colour, start and menu options, your IP address and the connection state. Saving reconnects right away when needed (`[UI] TogetherKey`)
 - [x] Launcher (`MWTogetherLauncher.exe`, next to `speed.exe`) styled like the game: the same settings before the game starts (optional)
 - [x] Join / leave notices, even with the overlay hidden
 - [x] Notices use the game's own message line in the middle of the screen: joins and leaves in green, problems (connection, firewall, prologue) in orange. Long ones come in parts. In cutscenes and menus the EA Trax song banner shows them
@@ -259,6 +262,8 @@ The code is in `src/`:
 | `stream.inl` | world streaming around the other player |
 | `minimap.inl`, `worldmap.inl` | player blips |
 | `hud.inl` | F1: hide the minimap and the gauges |
+| `nativeui.cpp` | Together in the game's menus (Options and Main menu entries, the settings list, text entry, the profile box) |
+| `logo.cpp` | the main menu logo from `scripts\MWTogether-logo.dds` |
 | `boot.inl` | fast start (skip intro, direct free roam, no safe-house dialog, last profile), final pursuit load fix |
 | `input.*`, `pad.cpp` | DirectInput, menu automation (AutoStart), gamepad hot-plug and bindings |
 | `overlay.*` | D3D9 hooks and the status overlay |
