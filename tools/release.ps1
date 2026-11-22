@@ -32,7 +32,17 @@ Copy-Item build\MWTogether.asi (Join-Path $pkg 'scripts')
 # settings ship as a default only: unpacking an update over an install never overwrites the player's MWTogether.ini
 Copy-Item MWTogether.ini (Join-Path $pkg 'scripts\MWTogether.default.ini')
 Copy-Item README.md, LICENSE, THIRD-PARTY-NOTICES.txt $pkg
-& C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe /nologo /target:winexe /out:build\MWTogetherLauncher.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll "/resource:docs\banner.png,banner.png" "/resource:docs\launcher-bg.jpg,bg.jpg" launcher\Launcher.cs
+# launcher: the release number in its file details, a manifest (normal user rights), and the banner as a
+# small JPEG (a 1.3 MB embedded PNG made the exe look packed / obfuscated to antivirus heuristics)
+$lv = if (($Version -split '\.').Count -eq 3) { "$Version.0" } else { $Version }
+Set-Content build\LauncherVersion.cs "static class LauncherVersion { public const string Text = `"$lv`"; }"
+Add-Type -AssemblyName System.Drawing
+$img = [System.Drawing.Image]::FromFile((Resolve-Path docs\banner.png))
+$enc = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | ? MimeType -eq 'image/jpeg'
+$ep = New-Object System.Drawing.Imaging.EncoderParameters 1
+$ep.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter ([System.Drawing.Imaging.Encoder]::Quality), 85L
+$img.Save((Join-Path (Resolve-Path build) 'launcher-banner.jpg'), $enc, $ep); $img.Dispose()
+& C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe /nologo /target:winexe /optimize+ /out:build\MWTogetherLauncher.exe /win32manifest:launcher\app.manifest /r:System.Windows.Forms.dll /r:System.Drawing.dll "/resource:build\launcher-banner.jpg,banner.png" "/resource:docs\launcher-bg.jpg,bg.jpg" launcher\Launcher.cs build\LauncherVersion.cs
 if ($LASTEXITCODE -ne 0) { throw "launcher build failed" }
 Copy-Item build\MWTogetherLauncher.exe $pkg
 

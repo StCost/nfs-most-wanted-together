@@ -55,7 +55,7 @@ jobs:
         shell: cmd
         run: |
           if not exist build mkdir build
-          C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe /nologo /target:winexe /out:build\MWTogetherLauncher.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll /resource:docs\banner.png,banner.png /resource:docs\launcher-bg.jpg,bg.jpg launcher\Launcher.cs
+          C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe /nologo /target:winexe /out:build\MWTogetherLauncher.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll /win32manifest:launcher\app.manifest /resource:docs\banner.png,banner.png /resource:docs\launcher-bg.jpg,bg.jpg launcher\Launcher.cs launcher\LauncherVersion.cs
 
       # MSVC /analyze over the plugin sources. Report only: it never fails the run.
       - name: Static analysis (report only)

@@ -12,6 +12,17 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
+using System.Reflection;
+
+// who made it and what it is: an exe without any of this looks anonymous to antivirus heuristics
+[assembly: AssemblyTitle("NFS Most Wanted Together Launcher")]
+[assembly: AssemblyDescription("Launcher for NFS Most Wanted Together, a co-op mod for Need for Speed: Most Wanted (2005): edits scripts\\MWTogether.ini and starts speed.exe")]
+[assembly: AssemblyCompany("StCost")]
+[assembly: AssemblyProduct("NFS Most Wanted Together")]
+[assembly: AssemblyCopyright("Copyright (c) 2026 StCost, MIT License, https://github.com/StCost/nfs-most-wanted-together")]
+[assembly: AssemblyVersion(LauncherVersion.Text)]
+[assembly: AssemblyFileVersion(LauncherVersion.Text)]
+[assembly: AssemblyInformationalVersion(LauncherVersion.Text)]
 
 static class Ini {
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
@@ -373,7 +384,6 @@ class LauncherForm : Form {
 }
 
 static class Program {
-    [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
     [STAThread]
     static void Main() {
         string dir = AppDomain.CurrentDomain.BaseDirectory;
@@ -394,6 +404,7 @@ static class Program {
                 return;
             }
         }
+#if DEVTOOLS   // only in a dev build (csc /define:DEVTOOLS): an off-screen window drawn to a PNG looks like spyware to antivirus heuristics
         var args = Environment.GetCommandLineArgs();
         if (args.Length >= 3 && args[1] == "--screenshot") {   // render to a PNG and exit (docs / checks)
             var f = new LauncherForm(dir);
@@ -411,6 +422,7 @@ static class Program {
             bmp.Save(args[2], System.Drawing.Imaging.ImageFormat.Png);
             return;
         }
+#endif
         Application.Run(new LauncherForm(dir));
     }
 }
