@@ -42,9 +42,8 @@ jobs:
           fi
 
       # The same script as a local release (tools\release.ps1 -DryRun): the plugin built as a release
-      # (/DMWT_VERSION, no test commands), the launcher with /optimize+ and its pictures as files in
-      # scripts\launcher\, Ultimate ASI Loader pinned to one version and checked by SHA256, and
-      # dist\MWTogether-<version>-notes.md with the SHA256 of every file.
+      # (/DMWT_VERSION, no test commands), Ultimate ASI Loader pinned to one version and checked by
+      # SHA256, and dist\MWTogether-<version>-notes.md with the SHA256 of every file.
       - name: Build and package
         shell: pwsh
         run: tools/release.ps1 -Version "${{ steps.ver.outputs.version }}" -DryRun
@@ -72,7 +71,6 @@ jobs:
         with:
           subject-path: |
             dist/MWTogether-${{ steps.ver.outputs.version }}.zip
-            dist/MWTogether-${{ steps.ver.outputs.version }}/MWTogetherLauncher.exe
             dist/MWTogether-${{ steps.ver.outputs.version }}/scripts/MWTogether.asi
 
       - uses: actions/upload-artifact@v4

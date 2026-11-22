@@ -69,8 +69,7 @@ inline std::string Validate(const Settings& s) {
 }
 
 struct IniLine { const char* section; const char* key; std::string value; };
-// What a save writes (the launcher wrote the same keys). HostIP only when joining, like the launcher:
-// the host keeps whatever address was typed last time.
+// What a save writes. HostIP only when joining: the host keeps whatever address was typed last time.
 inline std::vector<IniLine> ToIni(const Settings& s) {
     std::vector<IniLine> v;
     v.push_back({ "Player", "Name", Trim(s.name) });

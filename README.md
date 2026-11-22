@@ -28,7 +28,7 @@ Wanted online free roam with a friend, Need for Speed Most Wanted two player mod
    nickname, set **Connection** to **Host** or **Join**, and (if joining) enter the host's IP under
    **Connect to IP**. Press **Start Host** or **Connect**. **Stop Host** / **Disconnect** end the session.
    With **Reconnect on launch** on, the next start hosts or joins by itself. Main menu Together, pause Together, and **Options > Together** all open the same screen. Remaining options are also on the overlay page (**F2** or hold **BACK** on a
-   pad). (`MWTogetherLauncher.exe` still works too and sets the same things.)
+   pad).
 3. Do the same on the other PC. The game loads your career into free roam and connects you on its own.
 4. To update, unpack the new zip over the old one. Your nickname and settings (`scripts\MWTogether.ini`) stay.
 
@@ -72,7 +72,6 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] **Together** in the game's own menus: one screen from Main menu > Together, the pause menu, and Options > Together (nickname, Connection, Connect to IP when joining, Reconnect on launch, Start Host / Connect, Fast menus, Auto-detect gamepads, Menu speed); the main menu's profile box shows both names while connected. If this `speed.exe` differs, the menus stay as they are and the page below is used
 - [x] Main menu logo from `scripts\MWTogether-logo.dds` if it is there (no game files changed); the logo object is made taller so the original lettering stays the same size
 - [x] In-game **Together** overlay page (F2, or hold BACK on a pad): name, host or join, host IP, remaining menu options, your IP address and the connection state. Saving reconnects right away when needed (`[UI] TogetherKey`)
-- [x] Launcher (`MWTogetherLauncher.exe`, next to `speed.exe`) styled like the game: the same settings before the game starts (optional)
 - [x] Join / leave notices, even with the overlay hidden
 - [x] Notices use the game's own message line in the middle of the screen: joins and leaves in green, problems (connection, firewall, prologue) in orange. Long ones come in parts. In cutscenes and menus the EA Trax song banner shows them
 - [x] Notices stay up for 10 seconds (`[UI] NoticeSeconds`)
@@ -87,7 +86,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Your own car with your full tuning, in free roam and in races
 - [x] The other player's car moves smoothly (1-10 mm of jitter)
 - [x] Spawn protection: two cars appearing on the same spot don't launch each other
-- [x] The other player on the minimap and on the world map (the blip uses the game's own colour; vehicle paint is already synced on the ghost car, but the customization record stores a paint index, not RGB)
+- [x] The other player on the minimap and on the world map (blips use each car's paint colour)
 - [x] Car-to-car collisions with real impact: ram your partner and their car gets thrown on their screen too
 - [x] Your own names in the race standings
 - [x] Your partner's car shows brake lights, damage (dents, broken parts), steering and nitrous
@@ -201,12 +200,11 @@ All options are in `scripts\MWTogether.ini`, with a comment on each. Sections:
   That is a dev build with the test keys and commands (`docs/TESTING.md`); `set MWT_RELEASE=1` first for a
   release build without them (`tools\release.ps1` and the workflow do this).
 - Nothing builds automatically on GitHub. The **Build** workflow under **Actions** runs only when you start it
-  by hand: it builds the plugin and the launcher, runs the tests and packages the zip with the ASI loader. Give
+  by hand: it builds the plugin, runs the tests and packages the zip with the ASI loader. Give
   it a version number and it also creates the GitHub release.
 - Local release, without Actions: `tools\release.ps1 -Version 0.2.0` publishes a pre-release; add `-Final` for a
   normal release. `-DryRun` only builds the zip in `dist\`.
-- The launcher is built by `tools\build-launcher.ps1`. Its pictures are files in `scripts\launcher\`, not part of the
-  exe. Every release lists the SHA256 of its files, and files built by the workflow carry a build provenance
+- Every release lists the SHA256 of its files, and files built by the workflow carry a build provenance
   attestation: `gh attestation verify MWTogether.zip --repo StCost/nfs-most-wanted-together`.
 
 

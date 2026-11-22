@@ -24,7 +24,7 @@ $env:MWT_RELEASE = '1'
 if ($LASTEXITCODE -ne 0) { throw "build failed" }
 Remove-Item Env:MWT_VERSION, Env:MWT_RELEASE
 
-# 2. package: dinput8.dll (Ultimate ASI Loader, MIT) + scripts\MWTogether.asi/.ini + README
+# 2. package: dinput8.dll (Ultimate ASI Loader, MIT) + scripts\MWTogether.asi / default.ini / logo + README
 $dist = Join-Path $root 'dist'
 $pkg = Join-Path $dist "MWTogether-$Version"
 Remove-Item $pkg -Recurse -Force -ErrorAction SilentlyContinue
@@ -35,11 +35,6 @@ Copy-Item MWTogether.ini (Join-Path $pkg 'scripts\MWTogether.default.ini')
 # main menu Together logo (optional at runtime: the plugin uses it if this file is present)
 Copy-Item assets\MWTogether-logo.dds (Join-Path $pkg 'scripts\MWTogether-logo.dds')
 Copy-Item README.md, LICENSE, THIRD-PARTY-NOTICES.txt $pkg
-# launcher (shared with the GitHub workflow): the exe, and its pictures as files in scripts\launcher\
-& (Join-Path $PSScriptRoot 'build-launcher.ps1') -Version $Version
-New-Item -ItemType Directory -Force (Join-Path $pkg 'scripts\launcher') | Out-Null
-Copy-Item build\launcher\banner.jpg, build\launcher\background.jpg (Join-Path $pkg 'scripts\launcher')
-Copy-Item build\MWTogetherLauncher.exe $pkg
 
 # Ultimate ASI Loader: a pinned version, checked against the official file's SHA256
 $uasiVersion = 'v10.0.4'
@@ -73,6 +68,8 @@ Get-ChildItem $pkg -Recurse -File | Sort-Object FullName | % {
 $lines += '', "Ultimate ASI Loader $uasiVersion (dinput8.dll) is the unmodified official build."
 Set-Content $notes $lines -Encoding utf8
 Get-Content $notes | Write-Host
+# unversioned name (README / CI); DryRun also writes it, so a local package is ready without tagging
+Copy-Item $zip (Join-Path $dist 'MWTogether.zip') -Force
 $assets = @($zip)
 if ($DryRun) { return }
 

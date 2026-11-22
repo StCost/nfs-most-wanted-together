@@ -128,7 +128,6 @@ tools\coop-test.ps1 -Scenario solo -Solo
 | Save backup | client plays until an autosave | H `Career: stored <name>'s save`, file in `scripts\MWTogether-saves\<name>\` |
 | Save restore | client: close the game, move its save away, start again | C `restored save '<profile>' from the host (we had none)` before `pressing START`; the career loads |
 | Background start | `StartInBackground=1`, keep another window focused | free roam reached, `Window: in the world - muted until clicked` |
-| Launcher | run it, press PLAY | game starts; the ini keeps its comments |
 | Smoothness | one car parked, the other on autopilot | `Ghost stats ... jitter` mostly under 20 mm |
 | Performance | `Perf=1` | `mod` under about 0.2 ms/frame |
 | Visual state | watch the partner's car | brake lights when it stops; `Ghost: damage zones now X` after it crashes |
@@ -292,8 +291,8 @@ A pass looks like this (both PCs on fresh careers, linked):
 3. Save backup and restore pass.
 4. One real session by two people with `TestKeys=0`: free roam, a race started from the game's own menus
    (not `event`), a pursuit, a rival race.
-5. Install the release zip into a copy of the game **without** the Widescreen Fix (and once with it), start it
-   through `MWTogetherLauncher.exe` > Play: the plain game's title screen is `MW_LS_Splash.fng`, the fixed
+5. Install the release zip into a copy of the game **without** the Widescreen Fix (and once with it), start
+   `speed.exe` as usual: the plain game's title screen is `MW_LS_Splash.fng`, the fixed
    game's `WS_MW_LS_Splash.fng`. A release ASI does not honour `TestSkipIntro` / `TestPressStart`; press
    START yourself (or use AutoStart with a focused window). Dev in-game runs use the helper in section 2
    and should not stall at intro or Press START.

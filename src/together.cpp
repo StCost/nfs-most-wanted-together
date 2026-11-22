@@ -74,7 +74,7 @@ namespace {
         return s;
     }
 
-    // IPv4 addresses of the adapters that are up (what the other player types to join), like the launcher
+    // IPv4 addresses of the adapters that are up (what the other player types to join)
     std::string LocalIps() {
         std::string out;
         ULONG len = 16 * 1024;
