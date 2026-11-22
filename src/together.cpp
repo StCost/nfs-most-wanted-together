@@ -486,11 +486,11 @@ namespace {
         switch (r) {
         case R_NAME: return "Nickname"; case R_MODE: return "Connection"; case R_HOSTIP: return "Connect to IP"; case R_PORT: return "UDP port";
         case R_AUTOCONNECT: return "Keep connection on restart";
-        case R_COLOUR: return "My colour on the map"; case R_SKIPINTRO: return "Skip intros (next start)";
-        case R_DIRECT: return "Quick career start"; case R_SAFEHOUSE: return "Quick leave the safe house (next start)";
-        case R_PURSUITRES: return "Auto-close pursuit results in free roam"; case R_INTROINPUT: return "Menus respond during animations (next start)";
+        case R_COLOUR: return "My colour on the map"; case R_SKIPINTRO: return "Skip intros";
+        case R_DIRECT: return "Quick career start"; case R_SAFEHOUSE: return "Quick leave the safe house";
+        case R_PURSUITRES: return "Auto-close pursuit results in free roam"; case R_INTROINPUT: return "Menus respond during animations";
         case R_PADHOTPLUG: return "Detect gamepads connected while playing"; case R_OVERLAY: return "Show status overlay (F8)";
-        case R_NOPURSUITCAM: return "No pursuit start camera"; case R_MENUSPEED: return "Menu animation speed (next start)";
+        case R_NOPURSUITCAM: return "No pursuit start camera"; case R_MENUSPEED: return "Menu animation speed";
         }
         return "";
     }

@@ -27,7 +27,7 @@ Wanted online free roam with a friend, Need for Speed Most Wanted two player mod
 2. Run `speed.exe` as usual. The game stops at the main menu: pick the **Together** icon there, type a
    nickname, set **Connection** to **Host** or **Join**, and (if joining) enter the host's IP under
    **Connect to IP**. Press **Start Host** or **Connect**. **Stop Host** / **Disconnect** end the session.
-   With **Keep connection on restart** on, the next start hosts or joins by itself. All settings are also in **Options > Together**, and on the overlay page (**F2** or hold **BACK** on a
+   With **Keep connection on restart** on, the next start hosts or joins by itself. The same Connection screen is in the pause menu. The other settings are in **Options > Together**, and on the overlay page (**F2** or hold **BACK** on a
    pad). (`MWTogetherLauncher.exe` still works too and sets the same things.)
 3. Do the same on the other PC. The game loads your career into free roam and connects you on its own.
 4. To update, unpack the new zip over the old one. Your nickname and settings (`scripts\MWTogether.ini`) stay.

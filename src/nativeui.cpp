@@ -29,6 +29,7 @@ namespace {
                        PAD_RIGHT = 0xB5971BF1, PAD_START = 0xB5AF2461, PAD_BUTTON5 = 0xC519BFC4, ACCEPT_EDITED = 0xDA5B8712,
                        DECLINE_EDITED = 0xC9D30688, LEAVE_SCREEN = 0x587C018B, PC_DISPLAY = 0x9CDD83CA;
     constexpr uint32_t PAD_ACCEPT = 0x406415E3;
+    constexpr uint32_t PAD_UP = 0x72619778, PAD_DOWN = 0x911C0A4B;
     constexpr uint32_t PROFILE_NAME = 0xB514E2D8;          // MainMenu.fng: the profile box
     constexpr uint32_t HEADER_TEXT = 0x42ADB44C, HEADER_ICON = 0x08007B4C;
     constexpr uint32_t LANG_ON = 0x417B2604, LANG_OFF = 0x70DFE5C2;        // the game's own "On" / "Off"
@@ -180,6 +181,13 @@ namespace {
     DWORD    g_editEnd = 0;               // when the text entry ended (its Enter / Esc mustn't act again)
     std::string g_err; int g_errRow = -1; bool g_backWarned = false;
     bool     g_mainPicked = false;        // main menu: our icon was picked
+    bool     g_allowLeave = false;        // only Back (or our own package switch) may leave
+    std::vector<int> g_allRows;           // every Together row, including those past the FEng slots
+    int      g_scroll = 0;                // first visible row in g_allRows
+    int      g_slots = 0;                 // named row objects on this package (Options.fng: 10)
+    const char* g_slotPkg = nullptr;
+    bool     g_probing = false;           // CountSlots: don't log missing objects
+    bool     g_eatingEnter = false, g_eatingUp = false, g_eatingDown = false;
 
     bool IsText(int r) { return r == W_NAME || r == W_HOSTIP || r == W_PORT; }
     bool IsOnOff(int r) { return r == W_AUTO || (r >= W_DIRECT && r <= W_NOPURSUITCAM); }
@@ -199,10 +207,10 @@ namespace {
         case W_NAME: return "Nickname"; case W_MODE: return "Connection";
         case W_HOSTIP: return "Connect to IP";
         case W_PORT: return "UDP port"; case W_AUTO: return "Keep connection on restart"; case W_COLOUR: return "Map colour";
-        case W_DIRECT: return "Quick career start"; case W_SKIPINTRO: return "Skip intros (next start)";
-        case W_SAFEHOUSE: return "Quick safe house exit (next start)"; case W_PURSUITRES: return "Auto-close pursuit results";
-        case W_INTROINPUT: return "Fast menus (next start)"; case W_PADHOTPLUG: return "Detect new gamepads";
-        case W_NOPURSUITCAM: return "No pursuit start camera"; case W_MENUSPEED: return "Menu speed (next start)";
+        case W_DIRECT: return "Quick career start"; case W_SKIPINTRO: return "Skip intros";
+        case W_SAFEHOUSE: return "Quick safe house exit"; case W_PURSUITRES: return "Auto-close pursuit results";
+        case W_INTROINPUT: return "Fast menus"; case W_PADHOTPLUG: return "Detect new gamepads";
+        case W_NOPURSUITCAM: return "No pursuit start camera"; case W_MENUSPEED: return "Menu speed";
         case W_START: return NativeUtil::ConnectionActionTitle(g_ed.host, Together::SessionActive());
         }
         return "";
@@ -242,7 +250,14 @@ namespace {
             strncpy_s(g_title[r], TitleOf(r), _TRUNCATE);
             if (title) SetLangStr(title, S_TITLE + r);
             if (!data) return;
-            if (r == g_editRow) return;     // the game's text entry owns this string while typing
+            if (r == g_editRow) {
+                // Pause_Options may write the caret to another object; keep the visible value in sync
+                if (g_screen) {
+                    const char* t = EditedText(g_screen);
+                    if (t) { strncpy_s(g_value[r], t, _TRUNCATE); SetLangStr(data, S_VALUE + r); }
+                }
+                return;
+            }
             if (IsOnOff(r) && !(r == g_errRow && !g_err.empty())) { SetLangStr(data, *Flag(r) ? LANG_ON : LANG_OFF); return; }
             strncpy_s(g_value[r], ValueOf(r).c_str(), _TRUNCATE);
             SetLangStr(data, S_VALUE + r);
@@ -262,6 +277,7 @@ namespace {
     }
 
     void RebuildRows();   // defined after BuildScreen
+    bool HandleEnterInPlace();
 
     void Change(int r, int dir) {
         ClearError();
@@ -349,19 +365,38 @@ namespace {
             const char* name = *(const char**)(s + kNames[i]);
             void* o = !name ? nullptr : i == 2 ? GetCurrentFEObject(s, name) : i >= 3 ? GetCurrentFEImage(s, name) : GetCurrentFEString(s, name);
             if (!o) {
-                LOG("Native: row %d: no %s object (%s)", *(int*)(s + 0x104), i == 0 ? "title" : i == 1 ? "data" : i == 2 ? "backing" : "arrow",
-                    name ? name : "-");
+                if (!g_probing)
+                    LOG("Native: row %d: no %s object (%s)", *(int*)(s + 0x104), i == 0 ? "title" : i == 1 ? "data" : i == 2 ? "backing" : "arrow",
+                        name ? name : "-");
                 return false;
             }
         }
         return true;
     }
 
+    int CountSlots(uint8_t* s) {
+        int saved = *(int*)(s + 0x104);
+        g_probing = true;
+        int n = 0;
+        for (; n < 32; ++n) {
+            *(int*)(s + 0x104) = n;
+            if (!RowFits(s)) break;
+        }
+        g_probing = false;
+        *(int*)(s + 0x104) = saved;
+        return n;
+    }
+
+    int IndexOfRow(int r) {
+        for (int i = 0; i < (int)g_allRows.size(); ++i) if (g_allRows[i] == r) return i;
+        return -1;
+    }
+
     void BuildScreen(uint8_t* s, int cat) {
         g_screen = s; g_cat = cat; g_builtAt = GetTickCount();
         if (g_leftScreen == s) g_leftScreen = nullptr;      // a new screen where the old one was
-        if (!g_reopening) g_ed = Together::Current();
-        g_editRow = -1; g_backWarned = false;
+        if (!g_reopening) { g_ed = Together::Current(); g_scroll = 0; }
+        g_editRow = -1; g_backWarned = false; g_allowLeave = false;
         if (!g_reopening) { g_err.clear(); g_errRow = -1; }
         const char* pkg = PkgName(s);
         SetLangPkg(pkg, HEADER_TEXT, cat == CAT_CONNECT ? S_HEADER_CONNECT : S_HEADER);
@@ -369,11 +404,39 @@ namespace {
             if (void* p = FindPackage(fe, pkg))
                 if (uint8_t* o = (uint8_t*)FindObjectByHash(p, HEADER_ICON))
                     if (*(int*)(o + 0x18) == 1) { *(uint32_t*)(o + 0x24) = TEX_PLAYER; *(uint32_t*)(o + 0x1C) |= 0x2400000; }
-        std::vector<int> rows = NativeUtil::TogetherRows(
+        g_allRows = NativeUtil::TogetherRows(
             cat == CAT_CONNECT ? NativeUtil::Screen::Connect : NativeUtil::Screen::Settings, g_ed.host);
+        if (!g_slotPkg || !pkg || _stricmp(g_slotPkg, pkg) != 0) {
+            g_slots = 0;
+            g_slotPkg = pkg;
+        }
+        if (g_slots <= 0) g_slots = CountSlots(s);
+        // Options.fng / Pause_Options.fng have 10 named row objects, but the last one
+        // sits below the visible panel. Keep a 9-row window and scroll the rest.
+        if (g_slots <= 0 || g_slots > 9) g_slots = 9;
+        LOG("Native: the screen has room for %d rows (of %d)", g_slots, (int)g_allRows.size());
+        if (g_reopening && g_reopenRow >= 0) {
+            int idx = IndexOfRow(g_reopenRow);
+            if (idx >= 0) {
+                int n = (int)g_allRows.size();
+                if (n <= g_slots) g_scroll = 0;
+                else if (idx < g_scroll) g_scroll = idx;
+                else if (idx >= g_scroll + g_slots) g_scroll = idx - g_slots + 1;
+            }
+        }
+        g_scroll = NativeUtil::ClampScroll((int)g_allRows.size(), g_slots, g_scroll);
+        int start = g_slots > 0 ? g_scroll : 0;
         int added = 0;
-        for (int r : rows) {
-            if (!RowFits(s)) { LOG("Native: the screen has room for %d rows", added); break; }
+        int n = (int)g_allRows.size();
+        int limit = (g_slots > 0) ? start + g_slots : n;
+        if (limit > n) limit = n;
+        for (int i = start; i < limit; ++i) {
+            if (!RowFits(s)) {
+                if (g_slots <= 0) g_slots = added;
+                LOG("Native: stopped at %d visible rows (of %d, scroll %d)", added, n, g_scroll);
+                break;
+            }
+            int r = g_allRows[i];
             uint8_t* w = (uint8_t*)GameAlloc(kWidgetSize + 4);
             if (!w) break;
             ToggleCtor(w, true);
@@ -383,10 +446,102 @@ namespace {
             ++added;
         }
         int first = 0;
-        for (int i = 0; i < added; ++i) if (g_reopening && rows[i] == g_reopenRow) first = i;
+        if (g_reopening && g_reopenRow >= 0) {
+            int vis = NativeUtil::VisibleIndex(n, g_slots, g_scroll, IndexOfRow(g_reopenRow));
+            if (vis >= 0) first = vis;
+        }
         g_reopening = false; g_reopenRow = -1;
         SetInitialOption(s, first + 1);   // 1-based (0 = the first enabled row)
-        LOG("Native: Together screen (%s, %d rows)", cat == CAT_CONNECT ? "main menu" : "options", added);
+        LOG("Native: Together screen (%s, %d of %d rows, scroll %d)", cat == CAT_CONNECT ? "connection" : "settings",
+            added, n, g_scroll);
+    }
+
+    bool OnPadVertical(int dir) {
+        if (!g_screen || g_slots <= 0 || (int)g_allRows.size() <= g_slots) return false;
+        if (Capturing() || GetTickCount() - g_editEnd < 300) return false;
+        uint8_t* w = *(uint8_t**)(g_screen + 0x34);
+        if (!w || *(void**)w != g_widgetVt) return false;
+        int focus = IndexOfRow(RowOf(w));
+        if (focus < 0) return false;
+        NativeUtil::ScrollView v = NativeUtil::MoveScroll((int)g_allRows.size(), g_slots, g_scroll, focus, dir);
+        if (!v.moved) return false;
+        g_scroll = v.scroll;
+        g_reopening = true;
+        g_reopenRow = g_allRows[v.focus];
+        ((Setup_t)kOrigOptionsScreenSetup)(g_screen);
+        BuildScreen(g_screen, g_cat);
+        LOG("Native: scrolled to row %d (scroll %d)", g_allRows[v.focus], g_scroll);
+        return true;
+    }
+
+    bool OurScreenUp() {
+        if (!g_active || !g_screen) return false;
+        int cat = Category();
+        return cat == CAT_SETTINGS || cat == CAT_CONNECT;
+    }
+
+    // Enter on a Together row: do the row's action here, before FEng treats it as back.
+    bool HandleEnterInPlace() {
+        if (!OurScreenUp()) return false;
+        if (Capturing() || GetTickCount() - g_editEnd < 300) return false;
+        if (GetTickCount() - g_acceptAt < 200) return true;   // this press already handled
+        uint8_t* w = *(uint8_t**)(g_screen + 0x34);
+        if (!w || *(void**)w != g_widgetVt) return false;
+        g_acceptAt = GetTickCount();
+        g_reopenRow = -1;
+        g_stayOnAccept = true;
+        WidgetAct(w, nullptr, PkgName(g_screen), BUTTON_PRESSED);
+        LOG("Native: Enter handled in place (before FEng)");
+        return true;
+    }
+
+    void FilterKbState(uint8_t* state) {
+        if (!state || !OurScreenUp()) {
+            g_eatingEnter = g_eatingUp = g_eatingDown = false;
+            return;
+        }
+        // 0x1C = DIK_RETURN, 0x9C = DIK_NUMPADENTER, 0xC8 = DIK_UP, 0xD0 = DIK_DOWN
+        bool enterDown = ((state[0x1C] | state[0x9C]) & 0x80) != 0;
+        if (g_eatingEnter) {
+            if (!enterDown) g_eatingEnter = false;
+            else { state[0x1C] = 0; state[0x9C] = 0; }
+        } else if (enterDown && HandleEnterInPlace()) {
+            g_eatingEnter = true;
+            state[0x1C] = 0;
+            state[0x9C] = 0;
+        }
+        bool up = (state[0xC8] & 0x80) != 0, down = (state[0xD0] & 0x80) != 0;
+        if (g_eatingUp) { if (!up) g_eatingUp = false; else state[0xC8] = 0; }
+        else if (up && OnPadVertical(-1)) { g_eatingUp = true; state[0xC8] = 0; }
+        if (g_eatingDown) { if (!down) g_eatingDown = false; else state[0xD0] = 0; }
+        else if (down && OnPadVertical(1)) { g_eatingDown = true; state[0xD0] = 0; }
+    }
+
+    void FilterKbData(void* rg, unsigned* inOut, unsigned cbObj) {
+        if (!rg || !inOut || !*inOut || cbObj < 8) return;
+        if (!OurScreenUp()) return;
+        unsigned n = *inOut, w = 0;
+        auto* ev = (unsigned char*)rg;
+        for (unsigned i = 0; i < n; ++i) {
+            uint32_t ofs = *(uint32_t*)(ev + i * cbObj);
+            uint32_t data = *(uint32_t*)(ev + i * cbObj + 4);
+            bool pressed = (data & 0x80) != 0;
+            bool drop = false;
+            if (ofs == 0x1C || ofs == 0x9C) {
+                if (pressed && HandleEnterInPlace()) { g_eatingEnter = true; drop = true; }
+                else if (g_eatingEnter) { if (!pressed) g_eatingEnter = false; drop = true; }
+            } else if (ofs == 0xC8) {
+                if (pressed && OnPadVertical(-1)) { g_eatingUp = true; drop = true; }
+                else if (g_eatingUp) { if (!pressed) g_eatingUp = false; drop = true; }
+            } else if (ofs == 0xD0) {
+                if (pressed && OnPadVertical(1)) { g_eatingDown = true; drop = true; }
+                else if (g_eatingDown) { if (!pressed) g_eatingDown = false; drop = true; }
+            }
+            if (drop) continue;
+            if (i != w) memcpy(ev + w * cbObj, ev + i * cbObj, cbObj);
+            ++w;
+        }
+        *inOut = w;
     }
 
     void RebuildRows() {
@@ -428,8 +583,9 @@ namespace {
 
     void ExitTo(bool pause, int cat) {
         void* fe = FE(); if (!fe) return;
-        if (cat == CAT_CONNECT) { QueuePackageSwitch(fe, kMainMenuFng, 0, 0, false); return; }
+        g_allowLeave = true;
         if (pause) QueuePackageSwitch(fe, kPauseMainFng, 1, 0, false);
+        else if (cat == CAT_CONNECT) QueuePackageSwitch(fe, kMainMenuFng, 0, 0, false);
         else if (GameModeBits() & 8) QueuePackageSwitch(fe, kOnlineMainFng, 0, 0, false);
         else QueuePackageSwitch(fe, kMainMenuSubFng, 0, 0, false);
     }
@@ -450,12 +606,13 @@ namespace {
         if (!g_leftAt || GetTickCount() - g_leftAt < 100) return;     // (its ACCEPT comes in the same frame)
         g_leftAt = 0;
         void* fe = FE(); if (!fe) return;
+        g_allowLeave = true;
         if (g_reopenRow >= 0 && GetTickCount() - g_acceptAt < 1500) {
             g_reopening = true;
             QueuePackageSwitch(fe, g_leftPause ? kPauseOptionsFng : kOptionsFng, g_leftPause ? 1 : 0, 0, false);
         } else {
             g_reopenRow = -1; g_editOnOpen = -1;
-            if (g_leftCat == CAT_SETTINGS && !g_startAt && GetTickCount() - g_acceptAt < 1500) SaveQuietly();   // ACCEPT = keep
+            if (!g_startAt && GetTickCount() - g_acceptAt < 1500) SaveQuietly();   // ACCEPT = keep
             ExitTo(g_leftPause, g_leftCat);
         }
         g_startAt = 0;
@@ -489,21 +646,30 @@ namespace {
                 if (Capturing() || GetTickCount() - g_editEnd < 300) return;
                 g_stayOnAccept = false;
                 WidgetMenuNotify(s, msg, obj, p1, p2);
-                if (cat == CAT_CONNECT || SaveOnLeave())
+                if (SaveOnLeave()) {
+                    g_allowLeave = true;
                     if (void* fe = FE()) QueueMessage(fe, LEAVE_SCREEN, PkgName(s), (void*)(intptr_t)-4, 0xFF);
+                }
                 return;
             case PAD_START:
-                if (cat == CAT_SETTINGS && *(s + 0x124)) { SaveQuietly(); ((Notify_t)kOrigOptionsScreenNotify)(s, msg, obj, p1, p2); return; }
+                if (cat == CAT_SETTINGS && *(s + 0x124)) {
+                    g_allowLeave = true;
+                    SaveQuietly(); ((Notify_t)kOrigOptionsScreenNotify)(s, msg, obj, p1, p2); return;
+                }
                 break;
             case PAD_ACCEPT: {                              // the rows' own action; stay on this screen
                 g_acceptAt = GetTickCount(); g_reopenRow = -1; g_stayOnAccept = true;
                 uint8_t* w = *(uint8_t**)(s + 0x34);          // pCurrentOption
                 if (w && *(void**)w == g_widgetVt) WidgetAct(w, nullptr, PkgName(s), BUTTON_PRESSED);
                 return; }
+            case PAD_UP:
+            case PAD_DOWN:
+                if (OnPadVertical(msg == PAD_DOWN ? 1 : -1)) return;
+                break;
             case EXITCOMPLETE:
-                if (g_stayOnAccept && GetTickCount() - g_acceptAt < 1500) {
-                    // the package still tried to leave: don't pop; typing / the new value stays here
-                    LOG("Native: stayed on the Together screen after ACCEPT");
+                if (!g_allowLeave) {
+                    if (GetTickCount() - g_acceptAt >= 200) HandleEnterInPlace();
+                    LOG("Native: stayed on the Together screen (EXITCOMPLETE, leave not allowed)");
                     return;
                 }
                 WidgetMenuNotify(s, msg, obj, p1, p2);
@@ -549,6 +715,7 @@ namespace {
             void* fe = FE(); if (!fe) return;
             uint32_t mode = GameModeBits();
             bool pause = *(s + 0x148) && !(mode & 8) && !(mode & 0x40);
+            SetCategory(pause ? CAT_CONNECT : CAT_SETTINGS);
             QueuePackageSwitch(fe, pause ? kPauseOptionsFng : kOptionsFng, pause ? 1 : 0, 0, false);
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
@@ -600,9 +767,12 @@ namespace {
     void* g_qmTramp = nullptr;
 
     void __fastcall hk_QueueMessage(void* fe, void*, uint32_t msg, const char* pkg, void* obj, uint32_t p) {
-        if (g_stayOnAccept && msg == LEAVE_SCREEN && g_screen && pkg) {
+        if (msg == LEAVE_SCREEN && g_screen && pkg && !g_allowLeave) {
             const char* ours = PkgName(g_screen);
-            if (ours && _stricmp(pkg, ours) == 0) return;
+            if (ours && _stricmp(pkg, ours) == 0) {
+                LOG("Native: dropped LEAVE_SCREEN (stay on the Together screen)");
+                return;
+            }
         }
         using Fn = void(__thiscall*)(void*, uint32_t, const char*, void*, uint32_t);
         ((Fn)g_qmTramp)(fe, msg, pkg, obj, p);
@@ -640,6 +810,11 @@ namespace {
         code[0] = 0xE8; *(int32_t*)(code + 1) = (int32_t)((uintptr_t)to - (at + 5));
         return Mem::PatchBytes(at, expect, code, 5);
     }
+}
+
+void NativeUI::FilterKeyboardState(uint8_t* state256) { FilterKbState(state256); }
+void NativeUI::FilterKeyboardData(void* events, unsigned* count, unsigned eventSize) {
+    FilterKbData(events, count, eventSize);
 }
 
 bool NativeUI::Install() {
@@ -717,13 +892,16 @@ std::string NativeUI::DebugCommand(const std::string& a) {
     }
     if (a == "enter") { if (!Capturing()) return "no text entry open"; NotifyChar((void*)kKeyboard, 13); return "enter"; }
     if (a == "esc") { if (!Capturing()) return "no text entry open"; NotifyChar((void*)kKeyboard, 27); return "esc"; }
-    if (a == "options" || a == "main") {
+    if (a == "options" || a == "main" || a == "connect" || a == "settings") {
         void* fe = FE(); if (!fe) return "no front end";
         if (IsPackagePushed(fe, kOptionsFng) || IsPackagePushed(fe, kPauseOptionsFng)) return "an options screen is already open";
-        SetCategory(a == "main" ? CAT_CONNECT : CAT_SETTINGS);
-        bool pause = a == "options" && IsPackagePushed(fe, kPauseMainFng);     // as the pause menu's Options icon
+        bool pause = IsPackagePushed(fe, kPauseMainFng);
+        int cat = CAT_SETTINGS;
+        if (a == "main" || a == "connect" || (a == "options" && pause)) cat = CAT_CONNECT;
+        if (a == "settings") cat = CAT_SETTINGS;
+        SetCategory(cat);
         QueuePackageSwitch(fe, pause ? kPauseOptionsFng : kOptionsFng, pause ? 1 : 0, 0, false);
-        return "opening the Together screen";
+        return cat == CAT_CONNECT ? "opening the Connection screen" : "opening the Together settings";
     }
     if (a == "act") {
         if (!g_screen) return "no screen";
@@ -735,11 +913,12 @@ std::string NativeUI::DebugCommand(const std::string& a) {
     if (a.rfind("peer", 0) == 0) { g_fakePeer = a.size() > 5 ? a.substr(5) : std::string(); return g_fakePeer.empty() ? "pretend friend gone" : "pretend friend set"; }
     if (a == "state") {
         char b[200];
-        sprintf_s(b, "category %d, screen %p, editing %d, capturing %d, name %s, %s %s, auto %d", Category(), g_screen, g_editRow,
-                  (int)Capturing(), g_ed.name.c_str(), g_ed.host ? "host" : "join", g_ed.hostIp.c_str(), (int)g_ed.autoConnect);
+        sprintf_s(b, "category %d, screen %p, editing %d, capturing %d, scroll %d/%d of %d, name %s, %s %s, auto %d",
+                  Category(), g_screen, g_editRow, (int)Capturing(), g_scroll, g_slots, (int)g_allRows.size(),
+                  g_ed.name.c_str(), g_ed.host ? "host" : "join", g_ed.hostIp.c_str(), (int)g_ed.autoConnect);
         return b;
     }
-    return "usage: native type <text> | enter | esc | options | main | state";
+    return "usage: native type <text> | enter | esc | options | main | connect | settings | state";
 }
 #endif
 

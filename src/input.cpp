@@ -12,6 +12,7 @@
 #include "mem.h"
 #include "overlay.h"
 #include "together.h"
+#include "nativeui.h"
 
 namespace {
     // tap state (Input::Tap)
@@ -74,7 +75,10 @@ namespace {
                 else g_bgKey = 0;
             }
 #endif
-            if (SUCCEEDED(hr)) Together::OnKeyboard((const uint8_t*)data);
+            if (SUCCEEDED(hr)) {
+                NativeUI::FilterKeyboardState((uint8_t*)data);
+                Together::OnKeyboard((const uint8_t*)data);
+            }
             if (Together::CapturesInput()) { memset(data, 0, 256); }
         } else if (data && SUCCEEDED(hr) && Together::CapturesInput()) {
             ClearPad(cb, data);
@@ -85,6 +89,8 @@ namespace {
     HRESULT STDMETHODCALLTYPE hk_GetData(void* dev, DWORD cbObj, LPDIDEVICEOBJECTDATA rg, LPDWORD inOut, DWORD flags) {
         HRESULT hr = o_GetData(dev, cbObj, rg, inOut, flags);
         if (dev == g_keyboard && SUCCEEDED(hr) && !g_loggedData && rg && inOut && *inOut) { g_loggedData = true; LOG("Input: game reads keyboard with GetDeviceData"); }
+        if (dev == g_keyboard && SUCCEEDED(hr) && rg && inOut && !(flags & DIGDD_PEEK))
+            NativeUI::FilterKeyboardData(rg, (unsigned*)inOut, (unsigned)cbObj);
         if (SUCCEEDED(hr) && inOut && !(flags & DIGDD_PEEK) && Together::CapturesInput()) *inOut = 0;   // the page has the input
         return hr;
     }

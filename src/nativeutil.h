@@ -60,8 +60,10 @@ inline std::string ProfileLabel(const std::string& me, const std::string& peer, 
     return m.empty() ? f : m + " & " + f;
 }
 
-// Rows on the Together screen (main menu and Options > Together). The join IP row is only shown
-// when Connection = Join. The last action row's label depends on whether a session is running.
+// Connection screen (main menu Together and pause Together): nickname, Host / Join,
+// the join IP, keep-on-restart and the start / stop action. Settings screen
+// (Options > Together): the other gameplay / network options. Each list is built
+// to fit the 10 row objects; Settings scrolls if it ever grows past that.
 enum Row {
     W_NAME, W_MODE, W_HOSTIP, W_PORT, W_AUTO, W_COLOUR, W_DIRECT, W_SKIPINTRO, W_SAFEHOUSE, W_PURSUITRES,
     W_INTROINPUT, W_PADHOTPLUG, W_NOPURSUITCAM, W_MENUSPEED, W_START, W_COUNT
@@ -70,13 +72,14 @@ enum class Screen { Settings, Connect };
 
 inline std::vector<int> TogetherRows(Screen screen, bool host) {
     std::vector<int> v;
-    v.push_back(W_NAME);
-    v.push_back(W_MODE);
-    if (!host) v.push_back(W_HOSTIP);
-    if (screen == Screen::Settings) {
-        v.push_back(W_PORT);
+    if (screen == Screen::Connect) {
+        v.push_back(W_NAME);
+        v.push_back(W_MODE);
+        if (!host) v.push_back(W_HOSTIP);
         v.push_back(W_AUTO);
         v.push_back(W_START);
+    } else {
+        v.push_back(W_PORT);
         v.push_back(W_COLOUR);
         v.push_back(W_DIRECT);
         v.push_back(W_SKIPINTRO);
@@ -86,9 +89,6 @@ inline std::vector<int> TogetherRows(Screen screen, bool host) {
         v.push_back(W_PADHOTPLUG);
         v.push_back(W_NOPURSUITCAM);
         v.push_back(W_MENUSPEED);
-    } else {
-        v.push_back(W_AUTO);
-        v.push_back(W_START);
     }
     return v;
 }
@@ -97,6 +97,43 @@ inline std::vector<int> TogetherRows(Screen screen, bool host) {
 inline const char* ConnectionActionTitle(bool host, bool running) {
     if (host) return running ? "Stop Host" : "Start Host";
     return running ? "Disconnect" : "Connect";
+}
+
+// A window of `slots` rows over `count` rows. MoveScroll steps `focus` by `dir` and
+// shifts `scroll` only when the new focus would leave the window (including wrap).
+// When every row fits, moved is false so the game can change the highlight itself.
+struct ScrollView { int scroll; int focus; bool moved; };
+
+inline int ClampScroll(int count, int slots, int scroll) {
+    if (slots <= 0 || count <= slots) return 0;
+    if (scroll < 0) return 0;
+    if (scroll > count - slots) return count - slots;
+    return scroll;
+}
+
+inline int VisibleIndex(int count, int slots, int scroll, int logical) {
+    int sc = ClampScroll(count, slots, scroll);
+    int vis = (slots > 0 && count > slots) ? slots : count;
+    if (logical < sc || logical >= sc + vis) return -1;
+    return logical - sc;
+}
+
+inline ScrollView MoveScroll(int count, int slots, int scroll, int focus, int dir) {
+    ScrollView o{ scroll, focus, false };
+    if (count <= 0) return o;
+    if (slots <= 0) slots = count;
+    int next = focus + dir;
+    if (next < 0) next = count - 1;
+    else if (next >= count) next = 0;
+    o.focus = next;
+    if (count <= slots) { o.scroll = 0; return o; }
+    int sc = scroll;
+    if (next < sc) sc = next;
+    else if (next >= sc + slots) sc = next - slots + 1;
+    sc = ClampScroll(count, slots, sc);
+    o.scroll = sc;
+    o.moved = (sc != scroll);
+    return o;
 }
 
 }  // namespace NativeUtil

@@ -151,15 +151,59 @@ TEST(native_together_rows) {
     auto joinSet = TogetherRows(Screen::Settings, false);
     auto hostCon = TogetherRows(Screen::Connect, true);
     auto joinCon = TogetherRows(Screen::Connect, false);
-    CHECK(std::find(hostSet.begin(), hostSet.end(), W_HOSTIP) == hostSet.end());
+    // Connection screen: session rows only (join IP only when joining)
     CHECK(std::find(hostCon.begin(), hostCon.end(), W_HOSTIP) == hostCon.end());
-    CHECK(std::find(joinSet.begin(), joinSet.end(), W_HOSTIP) != joinSet.end());
     CHECK(std::find(joinCon.begin(), joinCon.end(), W_HOSTIP) != joinCon.end());
-    CHECK(std::find(hostSet.begin(), hostSet.end(), W_START) != hostSet.end());
+    CHECK(std::find(hostCon.begin(), hostCon.end(), W_START) != hostCon.end());
     CHECK(std::find(joinCon.begin(), joinCon.end(), W_START) != joinCon.end());
+    CHECK(std::find(hostCon.begin(), hostCon.end(), W_NAME) != hostCon.end());
+    CHECK(std::find(hostCon.begin(), hostCon.end(), W_AUTO) != hostCon.end());
+    CHECK(std::find(hostCon.begin(), hostCon.end(), W_PURSUITRES) == hostCon.end());
     CHECK_EQ((int)joinCon.size(), 5);
     CHECK_EQ((int)hostCon.size(), 4);
-    CHECK_EQ((int)joinSet.size(), (int)hostSet.size() + 1);
+    CHECK((int)hostCon.size() <= 10);
+    CHECK((int)joinCon.size() <= 10);
+    // Settings: gameplay / network options, no connection rows; Host and Join are the same list
+    CHECK(std::find(hostSet.begin(), hostSet.end(), W_HOSTIP) == hostSet.end());
+    CHECK(std::find(joinSet.begin(), joinSet.end(), W_HOSTIP) == joinSet.end());
+    CHECK(std::find(hostSet.begin(), hostSet.end(), W_START) == hostSet.end());
+    CHECK(std::find(hostSet.begin(), hostSet.end(), W_NAME) == hostSet.end());
+    CHECK(std::find(hostSet.begin(), hostSet.end(), W_PURSUITRES) != hostSet.end());
+    CHECK(std::find(hostSet.begin(), hostSet.end(), W_PORT) != hostSet.end());
+    CHECK_EQ((int)joinSet.size(), (int)hostSet.size());
+    CHECK_EQ((int)hostSet.size(), 10);
+}
+
+TEST(native_scroll_window) {
+    // Settings is 10 rows today; the window still has to move if a list grows past the slots
+    auto v = NativeUtil::MoveScroll(15, 10, 0, 9, 1);
+    CHECK(v.moved);
+    CHECK_EQ(v.focus, 10);
+    CHECK_EQ(v.scroll, 1);
+    CHECK_EQ(NativeUtil::VisibleIndex(15, 10, v.scroll, 10), 9);
+    v = NativeUtil::MoveScroll(15, 10, 5, 14, 1);
+    CHECK(v.moved);
+    CHECK_EQ(v.focus, 0);
+    CHECK_EQ(v.scroll, 0);
+    v = NativeUtil::MoveScroll(15, 10, 0, 0, -1);
+    CHECK(v.moved);
+    CHECK_EQ(v.focus, 14);
+    CHECK_EQ(v.scroll, 5);
+    v = NativeUtil::MoveScroll(15, 10, 0, 3, 1);
+    CHECK(!v.moved);
+    CHECK_EQ(v.focus, 4);
+    CHECK_EQ(v.scroll, 0);
+    v = NativeUtil::MoveScroll(4, 10, 0, 0, 1);
+    CHECK(!v.moved);
+    CHECK_EQ(v.scroll, 0);
+    CHECK_EQ(NativeUtil::ClampScroll(15, 10, 9), 5);
+    CHECK_EQ(NativeUtil::ClampScroll(4, 10, 2), 0);
+    auto set = TogetherRows(Screen::Settings, false);
+    CHECK(NativeUtil::VisibleIndex((int)set.size(), 10, 0, 0) == 0);
+    int purs = -1;
+    for (int i = 0; i < (int)set.size(); ++i) if (set[i] == W_PURSUITRES) purs = i;
+    CHECK(purs >= 0);
+    CHECK(NativeUtil::VisibleIndex((int)set.size(), 10, 0, purs) >= 0);
 }
 
 TEST(native_connection_action_title) {
