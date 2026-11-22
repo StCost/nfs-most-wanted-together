@@ -31,6 +31,10 @@ void Config::Load(const char* ini) {
     hideCursor   = ReadInt(ini, "Window", "HideCursor", 1) != 0;
     showOverlay  = ReadInt(ini, "Debug", "Overlay", 0) != 0;
     testKeys     = ReadInt(ini, "Debug", "TestKeys", 0) != 0;
+#ifdef MWT_DEVTOOLS
+    testSkipIntro  = ReadInt(ini, "Debug", "TestSkipIntro", 0) != 0;
+    testPressStart = ReadInt(ini, "Debug", "TestPressStart", 0) != 0;
+#endif
     noSpeedbreaker = ReadInt(ini, "Coop", "NoSpeedbreaker", 1) != 0;
     noPause = ReadInt(ini, "Coop", "NoPause", 1) != 0;
     runInBackground = ReadInt(ini, "Coop", "RunInBackground", 1) != 0;

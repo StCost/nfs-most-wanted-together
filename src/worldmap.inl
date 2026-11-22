@@ -76,10 +76,15 @@ namespace {
         void* me = LocalVehicle();
         void* mySim = IsVehicle(me) ? VCall<void* (__thiscall*)(void*)>(me, 1)(me) : nullptr;
         void* other = g_ghost;
+        if (!IsVehicle(other)) other = g_debugFriend;
         if (!IsVehicle(other)) { void** b = nullptr; other = ListSize(7, &b) > 0 ? ListGet(7, 0) : nullptr; }
         void* otherSim = IsVehicle(other) ? VCall<void* (__thiscall*)(void*)>(other, 1)(other) : nullptr;
         void* myObj = FindMapObject(map, "PLAYERCARINDICATOR");
         void* otherObj = g_usedSpare ? FindMapObject(map, g_usedSpare) : nullptr;
+        if (myObj && Game::LocalBlipColor())
+            ((void(__cdecl*)(void*, uint32_t))0x5157E0)(myObj, Game::LocalBlipColor());
+        if (otherObj && Game::PeerBlipColor())
+            ((void(__cdecl*)(void*, uint32_t))0x5157E0)(otherObj, Game::PeerBlipColor());
         uint8_t* head = (uint8_t*)map + 0x154;
         int guard = 0;
         for (uint8_t* node = *(uint8_t**)head; node && node != head && guard < 512; node = *(uint8_t**)node, ++guard) {
@@ -110,7 +115,8 @@ namespace {
             // spawned for them shows up as a racer / AI car there), else the first REMOTE car
             void* cands[8] = {}; int n = 0;
             if (IsVehicle(g_ghost)) cands[n++] = g_ghost;
-            { void** b = nullptr; int r = ListSize(7 /*REMOTE*/, &b); for (int i = 0; i < r && n < 8; ++i) if (void* v = ListGet(7, i)) if (v != g_ghost) cands[n++] = v; }
+            if (IsVehicle(g_debugFriend) && g_debugFriend != g_ghost) cands[n++] = g_debugFriend;
+            { void** b = nullptr; int r = ListSize(7 /*REMOTE*/, &b); for (int i = 0; i < r && n < 8; ++i) if (void* v = ListGet(7, i)) if (v != g_ghost && v != g_debugFriend) cands[n++] = v; }
             int used = 0;
             if (!n) LOG("World map: the other player's car isn't here - no icon");
             for (int i = 0; i < n && used < 1; ++i) {
@@ -126,8 +132,10 @@ namespace {
                             int c[4] = {};
                             ((int* (__cdecl*)(int*, void*))0x515830)(c, pci);              // FEngGetColor
                             argb = ((uint32_t(__thiscall*)(int*))0x5B2D80)(c);              // FEColor -> ARGB
+                            if (uint32_t lc = Game::LocalBlipColor())
+                                ((void(__cdecl*)(void*, uint32_t))0x5157E0)(pci, lc);
                         }
-                        if (Net::Stats().peerColor) argb = Net::Stats().peerColor;      // set only if a reliable RGB is known
+                        if (Game::PeerBlipColor()) argb = Game::PeerBlipColor();
                         ((void(__cdecl*)(void*, uint32_t))0x5157E0)(obj, argb);             // FEngSetColor
                         g_usedSpare = nm;
                         LOG("World map: added remote player icon using %s", nm);

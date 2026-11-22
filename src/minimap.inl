@@ -13,9 +13,10 @@
 namespace {
     constexpr uintptr_t MinimapRacersCall = 0x59DD04, MinimapRacersFn = 0x57A110;
 
-    // The other player's blip uses peerColor when set; 0 keeps the game's own colour. Vehicle paint
-    // is synced as a part index (not RGB), so the blip stays the default. The 8 icon slots
-    // are shared with AI racers, so every other use of a slot gets the slot's own colour back.
+    // Friend blips use the friend's BASE_PAINT RGB (Game::PeerBlipColor); 0 keeps the slot's own
+    // colour. The 8 icon slots are shared with AI racers, so every other use of a slot gets the
+    // slot's own colour back. The local player's icons are Minimap+0x8C / +0x90
+    // (PLAYERCARINDICATOR / PLAYERCARINDICATOR2), drawn just before this hook.
     void* g_slotIcon[8] = {}; uint32_t g_slotOrig[8] = {};
     void PaintSlot(int slot, void* icon, bool isPeer) {
         if (g_slotIcon[slot] != icon) {                     // first sight of this icon: remember its colour
@@ -24,11 +25,42 @@ namespace {
             g_slotOrig[slot] = ((uint32_t(__thiscall*)(int*))0x5B2D80)(c);         // FEColor -> ARGB
             g_slotIcon[slot] = icon;
         }
-        uint32_t want = (isPeer && Net::Stats().peerColor) ? Net::Stats().peerColor : g_slotOrig[slot];
+        uint32_t want = (isPeer && Game::PeerBlipColor()) ? Game::PeerBlipColor() : g_slotOrig[slot];
         ((void(__cdecl*)(void*, uint32_t))0x5157E0)(icon, want);                    // FEngSetColor
     }
+    uint32_t FEngNameHash(const char* s) { uint32_t h = 0xFFFFFFFF; for (; *s; ++s) h = h * 33 + (uint8_t)*s; return h; }
+    void* FindHudObject(const char* pkgName, const char* objName) {
+        void* fe = nullptr;
+        Mem::Read(0x91CADC, fe);
+        if (!fe) return nullptr;
+        void* pkg = ((void*(__thiscall*)(void*, const char*))0x516AF0)(fe, pkgName);
+        if (!pkg) return nullptr;
+        void* obj = ((void*(__thiscall*)(void*, uint32_t))0x5B8550)(pkg, FEngNameHash(objName));
+        int type = 0;
+        if (!obj || !Mem::Read((uintptr_t)obj + 0x18, type) || type != 1) return nullptr;
+        return obj;
+    }
+    void PaintLocalPlayer(void* minimap) {
+        uint32_t want = Game::LocalBlipColor();
+        if (!want) return;
+        if (minimap) {
+            for (int off : { 0x8C, 0x90 }) {
+                void* icon = nullptr;
+                if (!Mem::Read((uintptr_t)minimap + off, icon) || !icon) continue;
+                ((void(__cdecl*)(void*, uint32_t))0x5157E0)(icon, want);            // FEngSetColor
+            }
+        }
+        static const char* pkgs[] = { "HUD_SingleRace.fng", "HUD.fng" };
+        static const char* names[] = { "PLAYERCARINDICATOR", "PLAYERCARINDICATOR2" };
+        for (const char* pkg : pkgs)
+            for (const char* nm : names)
+                if (void* obj = FindHudObject(pkg, nm))
+                    ((void(__cdecl*)(void*, uint32_t))0x5157E0)(obj, want);
+    }
+    bool IsFriendVehicle(void* iv) { return iv && (iv == g_ghost || iv == g_debugFriend); }
 
     void __fastcall hk_MinimapRacers(void* minimap, void*) {
+        PaintLocalPlayer(minimap);
         int slot = 0;
         const int lists[2] = { (int)VL_AIRACERS, 7 /*REMOTE*/ };
         for (int list : lists) {
@@ -45,7 +77,7 @@ namespace {
                 void* icon = *(void**)((uint8_t*)minimap + 0xF0 + slot * 4);
                 if (!icon) continue;
                 ((void(__thiscall*)(void*, float*, float*, void*, bool))0x5675D0)(minimap, pos, dir, icon, list == 7);
-                PaintSlot(slot, icon, iv == g_ghost);
+                PaintSlot(slot, icon, IsFriendVehicle(iv));
                 ++slot;
             }
         }
@@ -54,16 +86,20 @@ namespace {
         {
             void** b = nullptr;
             int n7 = ListSize(7, &b);
-            for (int i = 0; i < n7; ++i) if (ListGet(7, i) == g_ghost) ghostDrawn = true;
-            if (ListContains(VL_AIRACERS, g_ghost)) ghostDrawn = true;
+            for (int i = 0; i < n7; ++i) {
+                void* v = ListGet(7, i);
+                if (v == g_ghost || v == g_debugFriend) ghostDrawn = true;
+            }
+            if (ListContains(VL_AIRACERS, g_ghost) || ListContains(VL_AIRACERS, g_debugFriend)) ghostDrawn = true;
             static DWORD nextLog = 0;
             if (GetTickCount() >= nextLog) {
                 nextLog = GetTickCount() + 10000;
                 LOG("Minimap: remote list %d car(s), ghost %p %s", n7, g_ghost, ghostDrawn ? "in a drawn list" : "drawn directly");
             }
         }
-        if (!ghostDrawn && slot < 8 && IsVehicle(g_ghost) && ListContains(-1, g_ghost)) {
-            void* sim = VCall<void* (__thiscall*)(void*)>(g_ghost, 1)(g_ghost);
+        void* friendIv = IsVehicle(g_ghost) ? g_ghost : g_debugFriend;
+        if (!ghostDrawn && slot < 8 && IsVehicle(friendIv) && ListContains(-1, friendIv)) {
+            void* sim = VCall<void* (__thiscall*)(void*)>(friendIv, 1)(friendIv);
             void* icon = *(void**)((uint8_t*)minimap + 0xF0 + slot * 4);
             if (sim && icon) {
                 float pos[2], dir[2];
@@ -77,6 +113,7 @@ namespace {
             void* icon = *(void**)((uint8_t*)minimap + 0xF0 + slot * 4);
             if (icon) ((void(__cdecl*)(void*))0x514C70)(icon);
         }
+        PaintLocalPlayer(minimap);   // again after racer icons, in case a later draw reset the colour
     }
 }
 

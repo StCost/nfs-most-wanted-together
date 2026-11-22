@@ -48,10 +48,16 @@ function Wait-Log([string]$pattern, [int]$sec) {
     $t -match $pattern
 }
 function Start-Game {
+    # Intro / press-start / free roam: see tools\ingame.ps1 and docs/TESTING.md
+    # ([Debug] TestSkipIntro / TestPressStart in a dev build; this also presses START and runs `freeroam`).
+    . (Join-Path $PSScriptRoot 'ingame.ps1')
+    Initialize-MwtInGame -Game $Game
+    $script:MwtLog = $log
+    $script:MwtCmd = $cmdFile
     Stop-Process -Name speed -Force -ErrorAction SilentlyContinue; Start-Sleep 4
     Remove-Item $log -ErrorAction SilentlyContinue   # never match the previous run's lines
     Start-Process (Join-Path $Game 'speed.exe') -WorkingDirectory $Game -WindowStyle Minimized
-    if (-not (Wait-Log 'flow state 5 -> 6' 120)) { throw 'The game did not reach free roam (check [Start] options and the log).' }
+    Start-MwtGame -KeepRunning | Out-Null
     if (-not $Solo) { if (-not (Wait-Log 'Ghost acquired' $PeerTimeoutSec)) { throw 'The other player did not show up.' } }
 }
 function Show-Log([string]$pattern, [int]$last = 14) {

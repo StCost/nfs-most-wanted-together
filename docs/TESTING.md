@@ -23,6 +23,26 @@ Exit code 0 and `N test(s) run, 0 failed` is a pass. Protocol changes must updat
 Set `[Debug] TestKeys=1` in `scripts\MWTogether.ini`. Nothing below works without it, and only in a dev build
 (`build.bat` without `MWT_RELEASE=1`): release builds leave the test keys and commands out.
 
+Hidden `[Debug]` keys, also **dev builds only** (compiled out of a release ASI, ignored even if they remain
+in the ini, and not shown in the Together menus). They are the test-only stand-in for the old user-facing
+Skip intros / Quick career start, so an automated launch is not left on the intro or the "Press START" /
+"press to continue" screen:
+
+```
+[Debug]
+TestSkipIntro=1
+TestPressStart=1
+```
+
+`TestSkipIntro` drops the EA logo, PSA and attract movie from the boot table. `TestPressStart` presses
+START on `WS_MW_LS_Splash.fng` / `MW_LS_Splash.fng`, including when the game is unfocused. After that,
+`[Start] SkipLoadComplete` (still a normal setting) can confirm the profile load screen. Career free roam
+is started with the `freeroam` command, not a user option.
+
+`tools\ingame.ps1` is the shared launch helper: it presses START if the splash is still up, then sends
+`freeroam`. `tools\coop-test.ps1` uses it from `Start-Game`. Dot-source that helper from any new in-game
+script; do not wait blindly after starting `speed.exe`.
+
 **Keys** (only while the game window is focused): `F5` autopilot on/off, `F7` start the test event
 (`[Debug] TestEvent`), `F10`/`F11` spawn/remove a copy of the other player's car, `F12` spawn a cop.
 
@@ -45,6 +65,7 @@ second, deletes it and logs `Command '<text>': <result>`. This works with the ga
 | `pos` | log own position, speed and damage |
 | `tp <x> <y> <z>` | move your car there (numbers as `pos` prints them). The first call loads the world at that spot; send the same `tp` again about 5 s later to move. Handy to reach a marker the autopilot won't drive to |
 | `clone` / `unclone` / `cop` | spawn/remove a copy of the other player's car, spawn a cop |
+| `fakefriend` | spawn a nearby car with a purple BASE_PAINT and treat it as the friend for map / minimap blips (one-PC checks) |
 | `notice <text>` / `notice warn <text>` | show a notice in the centre of the screen, green / orange (in a cutscene or menu: the song banner) |
 | `careerbin <n>` | TEST PROFILES ONLY: set this career's current Blacklist rival (profile +0xB0) to n in memory - the next autosave keeps it. E.g. `careerbin 1` on both PCs, then `event 1.8.1` (the final pursuit) or Razor's races (1.1.2, 1.2.3, 1.5.2, 1.7.3): rival events are only joined at the same rival |
 | `ground` | log every car here (ours, the other player's, AI racers, cops, traffic): physics mode (1 full, 2 emulated = height from the road path, may float), height above our ground (cars ~0.7 m, trucks ~1.8 m), copies marked `copy`; replies the counts. In co-op the client also logs every 10 s `Traffic: N frame(s) of copies put on the ground (largest correction X m)` while it corrects floating copies |
@@ -75,7 +96,8 @@ shared access (plain `Get-Content` works; some tools need "open for read, allow 
 
 Run on the **host**. On the other PC just start the game and let it connect; for scenarios that restart
 the host, restart the client too when it sees the host leave. Both PCs: same build, `TestKeys=1`,
-`AutoPilot=1` unless the scenario says "parked".
+and on the host a dev build with `TestSkipIntro=1` and `TestPressStart=1` (see section 2) so
+`Start-Game` is not left on the intro or Press START screen. `AutoPilot=1` unless the scenario says "parked".
 
 ```
 tools\coop-test.ps1 -Scenario list
@@ -272,7 +294,9 @@ A pass looks like this (both PCs on fresh careers, linked):
    (not `event`), a pursuit, a rival race.
 5. Install the release zip into a copy of the game **without** the Widescreen Fix (and once with it), start it
    through `MWTogetherLauncher.exe` > Play: the plain game's title screen is `MW_LS_Splash.fng`, the fixed
-   game's `WS_MW_LS_Splash.fng`, and the fast start must get past both into free roam.
+   game's `WS_MW_LS_Splash.fng`. A release ASI does not honour `TestSkipIntro` / `TestPressStart`; press
+   START yourself (or use AutoStart with a focused window). Dev in-game runs use the helper in section 2
+   and should not stall at intro or Press START.
 6. Update the checklist in `README.md`: a new feature gets `(?)` until it was seen working on two PCs.
 
 ## Known limits of the test tools

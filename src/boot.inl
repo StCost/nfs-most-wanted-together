@@ -440,6 +440,23 @@ std::string Game::DebugFreeRoam() {
 }
 
 void Game::InstallBootPatches() {
+#ifdef MWT_DEVTOOLS
+    // Hidden [Debug] TestSkipIntro (dev builds only, not a user setting): drop the EA logo, PSA and
+    // attract movie from the boot table so automated tests are not stuck on the intro. The "Press START"
+    // splash stays (it sets up the active controller); TestPressStart / tools/ingame.ps1 press it.
+    if (g_cfg.testSkipIntro) {
+        int n = 0;
+        static const char empty[] = "";
+        static const char* drop[] = { "LS_EAlogo.fng", "LS_PSA.fng", "MW_LS_AttractFMV.fng" };
+        for (uintptr_t a = 0x8F3C58; a < 0x8F3CD0; a += 4) {
+            const char* s = nullptr;
+            if (!Mem::Read(a, s) || !s || !Mem::IsReadable(s, 4)) continue;
+            for (const char* d : drop)
+                if (!_stricmp(s, d)) { Mem::PatchPointer((void*)a, (void*)empty); ++n; break; }
+        }
+        LOG("Start: TestSkipIntro - %d boot entries removed", n);
+    }
+#endif
     // MC_Main (profile load screen) NotificationMessage - see McNotify. Only needed by SkipLoadComplete
     // / start-in-background; the slot check (it must still hold v1.3's function) is the version check.
     if (g_cfg.skipLoadComplete || g_cfg.startInBackground) {
@@ -459,7 +476,13 @@ bool Game::DirectStartActive() { return false; }
 
 void Game::BootTick(bool stopAtMenu) {
     (void)stopAtMenu;
-    if (!g_ok || g_boot == Boot::Done || !g_cfg.skipLoadComplete) return;
+    if (!g_ok || g_boot == Boot::Done) return;
+#ifdef MWT_DEVTOOLS
+    const bool pressStart = g_cfg.testPressStart;
+#else
+    const bool pressStart = false;
+#endif
+    if (!g_cfg.skipLoadComplete && !pressStart) return;
     __try {
         if (g_cfg.bootTrace && GameFlowState() == 3) {      // [Debug] BootTrace: what the memory card / pad state does
             static uint32_t last[8] = { 0xDEAD, 0xDEAD, 0xDEAD, 0xDEAD, 0xDEAD, 0xDEAD, 0xDEAD, 0xDEAD };
@@ -477,6 +500,24 @@ void Game::BootTick(bool stopAtMenu) {
         if (GameFlowState() != 3) { if (GameFlowState() == 6) g_boot = Boot::Done; return; }
         uint8_t* fedb = nullptr; void* bfm = (void*)1; void* fe = nullptr;
         Mem::Read(0x91CF90, fedb); Mem::Read(0x91CF48, bfm); Mem::Read(0x91CADC, fe);
+#ifdef MWT_DEVTOOLS
+        // "Press START" (splash) waits for a key. TestPressStart sends it even when unfocused.
+        if (pressStart && fe && bfm) {
+            const char* splash = nullptr;
+            for (const char* s : { "WS_MW_LS_Splash.fng", "MW_LS_Splash.fng" })
+                if (((bool(__thiscall*)(void*, const char*))0x516B50)(fe, s)) { splash = s; break; }
+            if (splash) {
+                static DWORD since = 0, lastTap = 0;
+                if (!since) since = GetTickCount();
+                if (GetTickCount() - since > 300 && GetTickCount() - lastTap > 700) {
+                    lastTap = GetTickCount();
+                    if (PressAccept(splash)) LOG("Start: TestPressStart - pressing START on %s", splash);
+                }
+                return;
+            }
+        }
+#endif
+        if (!g_cfg.skipLoadComplete) return;
         // "load complete" (MC_Main) waits for a key: confirm it when SkipLoadComplete is on.
         if (fedb && fedb[3]) RememberLoadedProfile(fedb);
         if (fe && bfm && ((bool(__thiscall*)(void*, const char*))0x516B50)(fe, "MC_Main.fng")) {

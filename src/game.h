@@ -124,4 +124,10 @@ namespace Game {
     std::string DebugSpawnCop();   // F12 (TestKeys=1): spawn a patrol cop
     std::string DebugForcePursuit(); // test command 'pursuit': the cops start a pursuit on us (heat 1)
     std::string DebugKillCops();   // test command 'uncop': remove every police car (lets a pursuit end in an escape)
+    uint32_t LocalBlipColor();     // ARGB from local BASE_PAINT, or 0 to leave the game's colour
+    uint32_t PeerBlipColor();      // ARGB from the friend's synced (or fake) record, or 0
+    void RefreshBlipColors();      // re-read when the paint record changes
+#ifdef MWT_DEVTOOLS
+    std::string DebugFakeFriend(); // test: spawn a purple-paint friend car + blip (no second PC)
+#endif
 }

@@ -170,6 +170,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
             CarInfo ci;
             if (Game::ReadLocalCarInfo(ci)) Net::SetLocalCar(ci);
         }
+        if (g_gameOk) Game::RefreshBlipColors();
         if (flowNow != lastFlow) {
             LOG("Game flow state %d -> %d (%s)", lastFlow, flowNow, FlowName(flowNow));
             lastFlow = flowNow;
@@ -287,6 +288,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                     else if (c == "hud") r = Game::ToggleHud();
                     else if (c == "hudscan") r = Game::DebugHudScan();
                     else if (c == "freeroam") r = Game::DebugFreeRoam();
+        else if (c == "fakefriend") r = Game::DebugFakeFriend();
                     else if (c.rfind("fe ", 0) == 0) r = Game::FEPad(c.substr(3).c_str());
                     else if (c.rfind("accept ", 0) == 0) r = Game::FEAccept(c.substr(7).c_str());
                     else if (c.rfind("notice ", 0) == 0) { bool w = c.rfind("notice warn ", 0) == 0; Toast(c.substr(w ? 12 : 7), w); r = "notice queued"; }

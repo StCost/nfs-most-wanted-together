@@ -16,6 +16,10 @@ struct Config {
     bool        hideCursor = true;    // [Window] HideCursor - hide the Windows arrow over the game
     bool        showOverlay = true;   // [Debug] Overlay
     bool        testKeys = false;
+#ifdef MWT_DEVTOOLS
+    bool        testSkipIntro = false;   // [Debug] TestSkipIntro - skip EA/PSA/attract (dev builds only)
+    bool        testPressStart = false;  // [Debug] TestPressStart - press START on the title screen
+#endif
     bool        noSpeedbreaker = true;   // [Coop] NoSpeedbreaker
     bool        noPause = true;          // [Coop] NoPause - the world keeps running while a pause menu / map is open (connected only)
     bool        streamAroundPeer = true; // [Coop] StreamAroundPeer - load the world around the other player (full physics there)
