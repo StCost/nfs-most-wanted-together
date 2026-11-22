@@ -1,7 +1,6 @@
 // NFS MW Together launcher: edits scripts\MWTogether.ini (comments kept) and starts speed.exe.
 // Lives next to speed.exe. Build (csc from .NET Framework 4, nothing to install):
-//   csc /target:winexe /out:MWTogetherLauncher.exe /r:System.Windows.Forms.dll /r:System.Drawing.dll
-//       /resource:docs\banner.png,banner.png launcher\Launcher.cs
+//   tools\build-launcher.ps1 (pictures: scripts\launcher\banner.jpg, background.jpg next to the exe)
 using System;
 using System.Diagnostics;
 using System.Drawing;
@@ -159,6 +158,15 @@ class LauncherForm : Form {
     }
     static Panel Row(int h) { return new BgPanel { Size = new Size(W, h), Margin = new Padding(0) }; }
 
+    // The pictures ship as files in scripts\launcher\ (not inside the exe: a big embedded image makes the exe
+    // look packed to antivirus heuristics). Missing or broken: the launcher works without them.
+    static Image LoadImage(string dir, string name) {
+        try {
+            string p = Path.Combine(Path.Combine(Path.Combine(dir, "scripts"), "launcher"), name);
+            if (!File.Exists(p)) return null;
+            return Image.FromStream(new MemoryStream(File.ReadAllBytes(p)));   // from memory: the file stays unlocked
+        } catch { return null; }
+    }
     public LauncherForm(string dir) {
         gameDir = dir;
         Text = "NFS MW Together";
@@ -173,11 +181,11 @@ class LauncherForm : Form {
 
         // banner + title
         var banner = new PictureBox { Size = new Size(W + 40, 228), SizeMode = PictureBoxSizeMode.Zoom, Margin = new Padding(0), BackColor = Color.Black };
-        try { var s = typeof(LauncherForm).Assembly.GetManifestResourceStream("banner.png"); if (s != null) banner.Image = Image.FromStream(s); } catch { }
+        banner.Image = LoadImage(dir, "banner.jpg");
         banner.SizeMode = PictureBoxSizeMode.StretchImage;
         root.Controls.Add(banner);
         var body = new BgFlow { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(20, 6, 20, 16), Margin = new Padding(0) };
-        try { var s = typeof(LauncherForm).Assembly.GetManifestResourceStream("bg.jpg"); if (s != null) Theme.Bg = Image.FromStream(s); } catch { }
+        Theme.Bg = LoadImage(dir, "background.jpg");
         Theme.BgRoot = body;
         root.Controls.Add(body);
 
