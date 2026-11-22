@@ -1,5 +1,6 @@
 // Pure helpers from src/netutil.h: names, traffic ids, race traffic binding, interpolation math, validation.
 #include "net_helpers.h"
+#include "../src/hitutil.h"
 #include <limits>
 
 using namespace NetUtil;
@@ -580,4 +581,50 @@ TEST(util_trailer_entry_validation) {
     b = e; b.rot[3] = 0; CHECK(!ValidTrailerEntry(b));
     b = e; b.linVel[2] = 2e4f; CHECK(!ValidTrailerEntry(b));
     b = e; b.pos[1] = std::numeric_limits<float>::infinity(); CHECK(!ValidTrailerEntry(b));
+}
+
+// ---- collision impulse (src/hitutil.h) -----------------------------------------------------------
+TEST(util_hit_apply_uses_extrapolated_pose_and_local_contact) {
+    const float here[3] = { 0, 0, 0 };
+    // 15 m back: the old 10 m current-ghost gate dropped this. 40 m window accepts it even without extrap.
+    const float late[3] = { 0, 0, -15 };
+    const float still[3] = { 0, 0, 0 };
+    CHECK(HitUtil::ShouldApplyPeerHit(true, false, false, late, still, 0.f, here));
+    // 60 m back, no motion, no contact: too far
+    const float farAway[3] = { 0, 0, -60 };
+    CHECK(!HitUtil::ShouldApplyPeerHit(true, false, false, farAway, still, 0.2f, here));
+    // same 60 m, but they were driving towards us at 80 m/s for 0.4 s -> ~28 m, inside the window
+    const float towards[3] = { 0, 0, 80 };
+    CHECK(HitUtil::ShouldApplyPeerHit(true, false, false, farAway, towards, 0.4f, here));
+    // stale packet (older than 1 s), no contact: ignore, even if the last pose was close
+    CHECK(!HitUtil::ShouldApplyPeerHit(true, false, false, late, still, 1.5f, here));
+    // local contact a moment ago: apply even if the ghost has lagged far away
+    CHECK(HitUtil::ShouldApplyPeerHit(true, false, true, farAway, still, 0.2f, here));
+    CHECK(!HitUtil::ShouldApplyPeerHit(false, false, true, late, still, 0.f, here));   // not in world
+    CHECK(!HitUtil::ShouldApplyPeerHit(true, true, true, late, still, 0.f, here));     // protect / teleport
+    const float nanPos[3] = { std::numeric_limits<float>::quiet_NaN(), 0, 0 };
+    CHECK(!HitUtil::ShouldApplyPeerHit(true, false, false, nanPos, still, 0.f, here));
+    CHECK(!HitUtil::ShouldApplyPeerHit(true, false, false, late, still, 0.f, nullptr));
+}
+
+TEST(util_hit_push_scale_and_sustain) {
+    CHECK_NEAR(HitUtil::HitPushScale(10.f), 0.6f, 1e-4);
+    CHECK_NEAR(HitUtil::HitPushScale(90.f), 0.6f * 45.f / 90.f, 1e-4);   // capped
+    CHECK_EQ(HitUtil::HitPushScale(0.f), 0.f);
+    CHECK_EQ(HitUtil::HitPushScale(-3.f), 0.f);
+    const float push[3] = { 20, 0, 0 };   // 20 m/s along +X
+    const float stopped[3] = { 0, 0, 0 };
+    float out[3] = {};
+    CHECK(HitUtil::SustainPush(stopped, push, 0, 400, out));             // just applied
+    CHECK_NEAR(out[0], 20.f, 1e-3);
+    CHECK(HitUtil::SustainPush(stopped, push, 200, 400, out));            // half faded: want 10
+    CHECK_NEAR(out[0], 10.f, 1e-3);
+    CHECK(!HitUtil::SustainPush(stopped, push, 400, 400, out));           // done
+    const float already[3] = { 25, 0, 0 };                               // already faster than the push
+    CHECK(!HitUtil::SustainPush(already, push, 0, 400, out));
+    const float against[3] = { -5, 0, 1 };
+    CHECK(HitUtil::SustainPush(against, push, 0, 400, out));
+    CHECK(out[0] > against[0]);                                          // pulled towards the push
+    CHECK_NEAR(out[1], 0.f, 1e-4);
+    CHECK_NEAR(out[2], 1.f, 1e-4);                                       // Y/Z other axis kept (Y is unused, Z kept)
 }

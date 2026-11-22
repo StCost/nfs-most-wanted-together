@@ -7,6 +7,7 @@
 #include "profileutil.h"
 #include "prologueutil.h"
 #include "groundutil.h"
+#include "hitutil.h"
 #include "noticeutil.h"
 #include "paintutil.h"
 #include "mem.h"
@@ -261,6 +262,7 @@ namespace {
     bool   g_aiPatched = false;
     bool   g_ghostCollide = false;  // collisions currently enabled on the ghost
     bool   g_separated = false;     // has the pair ever been far enough apart?
+    DWORD  g_hitContactAt = 0;      // last time the ghost was next to us (local contact for applying a received hit)
     char   g_ghostName[48] = "";
     float  g_jitterMm = 0, g_extrapMs = 0;
     bool   g_protectHoldReset = false;  // set when a new ghost is acquired: start a hold period
@@ -1035,11 +1037,27 @@ bool Game::InstallVehicleFactoryHook() {
         if (!g_coopLinked) return;
         __try {
             void* lrb = RigidBodyOf(LocalVehicle());
-            if (!lrb || Game::GameFlowState() != 6 || !g_ghostCollide || !g_separated || g_protectHolding) return;
-            void* grb = RigidBodyOf(g_ghost);                       // only when their car really is next to us
-            if (!grb || Dist(RB_GetVec(grb, RB_GetPosition), RB_GetVec(lrb, RB_GetPosition)) > 10.f) return;
+            if (!lrb || Game::GameFlowState() != 6) return;
+            if ((int)(g_noHitUntil - GetTickCount()) > 0) return;   // teleport / restart / cutscene
+            const float* lp = RB_GetVec(lrb, RB_GetPosition);
+            // Prefer the interpolated ghost (already at "now"); fall back to their last snapshot,
+            // extrapolated by how long ago we got it. Do not require g_ghostCollide: the impact
+            // already happened on their machine (host->client used to drop here when the ghost
+            // was just over 10 m late, or collisions were briefly off).
+            const float* peerPos = nullptr; const float* peerVel = nullptr; float ageS = 0.f;
+            void* grb = RigidBodyOf(g_ghost);
+            if (grb) { peerPos = RB_GetVec(grb, RB_GetPosition); peerVel = RB_GetVec(grb, RB_GetLinearVelocity); }
+            if (!peerPos) {
+                const Net::Snapshot& p = Net::Latest();
+                if (p.valid && p.s.hasCar) {
+                    peerPos = p.s.pos; peerVel = p.s.linVel;
+                    ageS = (GetTickCount() - p.recvTick) / 1000.f;
+                }
+            }
+            bool recent = g_hitContactAt && (GetTickCount() - g_hitContactAt) < 600;
+            if (!HitUtil::ShouldApplyPeerHit(true, g_protectHolding, recent, peerPos, peerVel, ageS, lp)) return;
             float mag = sqrtf(dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2]);
-            float k = 0.6f * (mag > 45.f ? 45.f / mag : 1.f);          // part of the impact, capped
+            float k = HitUtil::HitPushScale(mag);
             // A standing player car brakes itself, so one velocity write is gone within a frame or two:
             // remember the push and keep the car moving along it for 0.4 s (fading out), see ApplyPush.
             g_push[0] = dv[0] * k; g_push[1] = 0; g_push[2] = dv[2] * k;
@@ -1487,19 +1505,17 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
     if (void* lrb = RigidBodyOf(LocalVehicle())) {
         sep = Dist(RB_GetVec(lrb, RB_GetPosition), newPos);
         if (sep > (float)g_cfg.safeDistance && !g_protectHolding) g_separated = true;
+        if (sep >= 0.f && sep < 8.f) g_hitContactAt = GetTickCount();   // local contact: apply a received hit even if the ghost later lags
         // Momentum for the car we hit: their car is moved by the network here, so our impact only
         // stops US. When our velocity changes abruptly right next to their car (far more than braking
         // can do in one frame), send them what we lost; their game adds part of it to their own car.
-        if (g_pushFrom && GetTickCount() - g_pushFrom < 400) {        // being pushed: hold at least the fading push speed
-            float f = 1.f - (GetTickCount() - g_pushFrom) / 400.f;
-            float plen = sqrtf(g_push[0] * g_push[0] + g_push[2] * g_push[2]);
-            if (plen > 0.1f) {
-                const float* cv = RB_GetVec(lrb, RB_GetLinearVelocity);
-                float ux = g_push[0] / plen, uz = g_push[2] / plen;
-                float along = cv[0] * ux + cv[2] * uz, want = plen * f;
-                if (along < want) { float nv[3] = { cv[0] + ux * (want - along), cv[1], cv[2] + uz * (want - along) }; RB_SetVec(lrb, RB_SetLinearVelocity, nv); }
-            }
-        } else g_pushFrom = 0;
+        if (g_pushFrom) {        // being pushed: hold at least the fading push speed for 0.4 s
+            const float* cv = RB_GetVec(lrb, RB_GetLinearVelocity);
+            float nv[3];
+            if (HitUtil::SustainPush(cv, g_push, GetTickCount() - g_pushFrom, HitUtil::HIT_PUSH_MS, nv))
+                RB_SetVec(lrb, RB_SetLinearVelocity, nv);
+            else if (GetTickCount() - g_pushFrom >= HitUtil::HIT_PUSH_MS) g_pushFrom = 0;
+        }
         static float prevV[3], hitV0[3]; static DWORD prevT = 0;
         DWORD& lastHitSent = g_lastHitSent; DWORD& hitT0 = g_hitT0;
         const float* lv = RB_GetVec(lrb, RB_GetLinearVelocity);

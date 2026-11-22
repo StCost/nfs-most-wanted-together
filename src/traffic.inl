@@ -1388,18 +1388,48 @@ static void MirrorHitTick() {
     memcpy(prevV, lv, 12); prevT = now;
 }
 
-// owner side: push our real car
+// owner side: push our real car (cops / traffic). A single velocity write is eaten by the AI
+// in a frame or two, so the car felt like a wall; hold the push for 0.4 s like player hits.
+struct CarPush { void* iv; uint16_t id; float push[3]; DWORD from; bool used; };
+CarPush g_carPushes[16] = {};
+
+static void StartCarPush(void* iv, uint16_t id, const float* push) {
+    if (!iv || !push) return;
+    CarPush* slot = nullptr;
+    for (auto& p : g_carPushes) if (p.used && p.iv == iv) { slot = &p; break; }
+    if (!slot) for (auto& p : g_carPushes) if (!p.used) { slot = &p; break; }
+    if (!slot) slot = &g_carPushes[0];
+    slot->iv = iv; slot->id = id; slot->push[0] = push[0]; slot->push[1] = 0; slot->push[2] = push[2];
+    slot->from = GetTickCount(); slot->used = true;
+}
+
+static void ApplyCarPushes() {
+    DWORD now = GetTickCount();
+    for (auto& p : g_carPushes) {
+        if (!p.used) continue;
+        if (!p.iv || !ListContains(-1, p.iv) || now - p.from >= HitUtil::HIT_PUSH_MS) { p.used = false; continue; }
+        void* rb = RigidBodyOf(p.iv);
+        if (!rb) { p.used = false; continue; }
+        const float* cv = RB_GetVec(rb, RB_GetLinearVelocity);
+        float nv[3];
+        if (HitUtil::SustainPush(cv, p.push, now - p.from, HitUtil::HIT_PUSH_MS, nv))
+            RB_SetVec(rb, RB_SetLinearVelocity, nv);
+    }
+}
+
 static void OnCarHitImpl(uint16_t id, const float* dv) {
     for (auto& h : g_hostIds) {
-        if (!h.iv || (uint16_t)(g_cfg.isHost ? h.id : (h.id | CLIENT_ID_BIT)) != id) continue;
+        if (!h.iv || NetUtil::TrafficWireId(h.id, g_cfg.isHost) != id) continue;
         if (!ListContains(-1, h.iv)) return;
         void* rb = RigidBodyOf(h.iv);
         if (!rb) return;
         float mag = sqrtf(dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2]);
-        float k = 0.6f * (mag > 45.f ? 45.f / mag : 1.f);
+        float k = HitUtil::HitPushScale(mag);
         const float* v = RB_GetVec(rb, RB_GetLinearVelocity);
-        float nv[3] = { v[0] + dv[0] * k, v[1], v[2] + dv[2] * k };
+        float push[3] = { dv[0] * k, 0, dv[2] * k };
+        float nv[3] = { v[0] + push[0], v[1], v[2] + push[2] };
         RB_SetVec(rb, RB_SetLinearVelocity, nv);
+        StartCarPush(h.iv, id, push);
         LOG("Collision: the other player hit our car %u (%s), pushed by %.0f km/h", (unsigned)id, VehName(h.iv), mag * k * 3.6f);
         return;
     }
@@ -1407,7 +1437,11 @@ static void OnCarHitImpl(uint16_t id, const float* dv) {
 
 void Game::TrafficTick(bool connected, const Net::Snapshot& peer) {
     if (!g_ok || !g_cfg.trafficSync) return;
-    __try { TrafficTickImpl(connected, peer); if (connected && GameFlowState() == 6) MirrorHitTick(); }
+    __try {
+        TrafficTickImpl(connected, peer);
+        if (connected && GameFlowState() == 6) { MirrorHitTick(); ApplyCarPushes(); }
+        else if (GameFlowState() == 6) ApplyCarPushes();
+    }
     __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Traffic: exception"); }
 }
 
