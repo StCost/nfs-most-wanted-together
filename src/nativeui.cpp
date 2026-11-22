@@ -165,6 +165,13 @@ namespace {
     int      g_reopenRow = -1;            // open the screen again on this row after it leaves
     bool     g_reopening = false;         // ... keeping the edits not saved yet
     DWORD    g_startAt = 0;               // Start pressed: the screen should be leaving
+    // Pause_Options.fng leaves first and sends ACCEPT after: where to go is decided a moment later
+    uint8_t* g_leftScreen = nullptr;      // the screen that has left (it may still get that ACCEPT)
+    DWORD    g_leftAt = 0;                // 0 = nothing pending
+    int      g_leftCat = 0;
+    bool     g_leftPause = false;
+    int      g_editOnOpen = -1;           // after opening again: type into this row
+    DWORD    g_builtAt = 0;
     DWORD    g_editEnd = 0;               // when the text entry ended (its Enter / Esc mustn't act again)
     std::string g_err; int g_errRow = -1; bool g_backWarned = false;
     bool     g_mainPicked = false;        // main menu: our icon was picked
@@ -288,7 +295,7 @@ namespace {
 
     void Start() {
         std::string err = Together::Apply(g_ed, true);
-        if (!err.empty()) { ShowError(err); return; }
+        if (!err.empty()) { ShowError(err); g_reopenRow = W_START; return; }     // (shown again with the error)
         LOG("Native: %s from the main menu", g_ed.host ? "hosting" : "joining");
         g_startAt = GetTickCount();       // the package leaves by itself on ACCEPT; Tick makes sure
     }
@@ -331,11 +338,13 @@ namespace {
     }
 
     void BuildScreen(uint8_t* s, int cat) {
-        g_screen = s; g_cat = cat;
+        g_screen = s; g_cat = cat; g_builtAt = GetTickCount();
+        if (g_leftScreen == s) g_leftScreen = nullptr;      // a new screen where the old one was
         if (!g_reopening) g_ed = Together::Current();
         g_ips = Together::LocalAddresses();
         size_t c = g_ips.find(','); if (c != std::string::npos) g_ips = g_ips.substr(0, c);
-        g_editRow = -1; g_err.clear(); g_errRow = -1; g_backWarned = false;
+        g_editRow = -1; g_backWarned = false;
+        if (!g_reopening) { g_err.clear(); g_errRow = -1; }
         const char* pkg = PkgName(s);
         SetLangPkg(pkg, HEADER_TEXT, cat == CAT_CONNECT ? S_HEADER_CONNECT : S_HEADER);
         if (void* fe = FE())        // the header icon (as SetupPlayer does)
@@ -388,19 +397,57 @@ namespace {
 
     void SaveQuietly() { std::string e = Together::Apply(g_ed, false); if (!e.empty()) LOG("Native: not saved (%s)", e.c_str()); }
 
-    void ExitTo(uint8_t* s, int cat) {
+    void ExitTo(bool pause, int cat) {
         void* fe = FE(); if (!fe) return;
         if (cat == CAT_CONNECT) { QueuePackageSwitch(fe, kMainMenuFng, 0, 0, false); return; }
-        bool pause = *(s + 0x124) != 0;
         if (pause) QueuePackageSwitch(fe, kPauseMainFng, 1, 0, false);
         else if (GameModeBits() & 8) QueuePackageSwitch(fe, kOnlineMainFng, 0, 0, false);
         else QueuePackageSwitch(fe, kMainMenuSubFng, 0, 0, false);
+    }
+
+    // ACCEPT reaching a screen that has left (Pause_Options.fng): do the row's action, then open again
+    void AcceptAfterLeaving(uint8_t* s) {
+        uint8_t* w = *(uint8_t**)(s + 0x34);
+        if (!w || *(void**)w != g_widgetVt || Capturing() || GetTickCount() - g_editEnd < 300) return;
+        int r = RowOf(w);
+        if (r < 0 || r >= W_COUNT) return;
+        g_acceptAt = GetTickCount();
+        if (r == W_START) { g_screen = nullptr; Start(); return; }
+        if (IsText(r)) g_editOnOpen = r; else Change(r, 1);
+        g_reopenRow = r;
+    }
+
+    void LeftTick() {
+        if (!g_leftAt || GetTickCount() - g_leftAt < 100) return;     // (its ACCEPT comes in the same frame)
+        g_leftAt = 0;
+        void* fe = FE(); if (!fe) return;
+        if (g_reopenRow >= 0 && GetTickCount() - g_acceptAt < 1500) {
+            g_reopening = true;
+            QueuePackageSwitch(fe, g_leftPause ? kPauseOptionsFng : kOptionsFng, g_leftPause ? 1 : 0, 0, false);
+        } else {
+            g_reopenRow = -1; g_editOnOpen = -1;
+            if (g_leftCat == CAT_SETTINGS && !g_startAt && GetTickCount() - g_acceptAt < 1500) SaveQuietly();   // ACCEPT = keep
+            ExitTo(g_leftPause, g_leftCat);
+        }
+        g_startAt = 0;
+    }
+
+    void EditOnOpenTick() {
+        if (g_editOnOpen < 0 || !g_screen || Capturing() || GetTickCount() - g_builtAt < 300) return;
+        int r = g_editOnOpen; g_editOnOpen = -1;
+        uint8_t* w = *(uint8_t**)(g_screen + 0x34);
+        if (w && *(void**)w == g_widgetVt && RowOf(w) == r) BeginEdit(w, r);
     }
 
     void __fastcall hk_OptionsScreenNotify(uint8_t* s, void*, uint32_t msg, void* obj, uint32_t p1, uint32_t p2) {
         int cat = Category();
         if (cat != CAT_SETTINGS && cat != CAT_CONNECT) { ((Notify_t)kOrigOptionsScreenNotify)(s, msg, obj, p1, p2); return; }
         __try {
+            if (s == g_leftScreen) {                    // gone already
+                if (msg == PAD_ACCEPT && g_leftAt) AcceptAfterLeaving(s);
+                else WidgetMenuNotify(s, msg, obj, p1, p2);
+                return;
+            }
             g_screen = s;
 #ifdef MWT_DEVTOOLS
             if (g_cfg.testKeys && msg != 0xC98356BA) LOG("Native: screen message %08X obj %p", msg, obj);
@@ -424,21 +471,12 @@ namespace {
                 uint8_t* w = *(uint8_t**)(s + 0x34);          // pCurrentOption
                 if (w && *(void**)w == g_widgetVt) WidgetAct(w, nullptr, PkgName(s), BUTTON_PRESSED);
                 return; }
-            case EXITCOMPLETE: {
+            case EXITCOMPLETE:
                 WidgetMenuNotify(s, msg, obj, p1, p2);
-                bool again = g_reopenRow >= 0 && GetTickCount() - g_acceptAt < 1500;
-                void* fe = FE();
-                if (again && fe) {
-                    g_reopening = true;
-                    bool pause = *(s + 0x124) != 0;
-                    QueuePackageSwitch(fe, pause ? kPauseOptionsFng : kOptionsFng, pause ? 1 : 0, 0, false);
-                } else {
-                    g_reopenRow = -1;
-                    if (cat == CAT_SETTINGS && !g_startAt && GetTickCount() - g_acceptAt < 1500) SaveQuietly();   // ACCEPT = keep
-                    ExitTo(s, cat);
-                }
-                g_screen = nullptr; g_startAt = 0;
-                return; }
+                g_leftScreen = s; g_leftAt = GetTickCount(); if (!g_leftAt) g_leftAt = 1;
+                g_leftCat = cat; g_leftPause = *(s + 0x124) != 0;
+                g_screen = nullptr;
+                return;     // LeftTick: open again, or back to the menu it came from
             }
             WidgetMenuNotify(s, msg, obj, p1, p2);
         } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Native: exception in the Together screen (%08X)", msg); }
@@ -582,6 +620,8 @@ void NativeUI::Tick() {
     __try {
         StringsTick();
         ProfileTick();
+        LeftTick();
+        EditOnOpenTick();
         // our category lives on in the game's options settings: back to Audio once our screen is gone
         int cat = Category();
         if (cat == CAT_SETTINGS || cat == CAT_CONNECT) {
@@ -614,7 +654,8 @@ std::string NativeUI::DebugCommand(const std::string& a) {
         void* fe = FE(); if (!fe) return "no front end";
         if (IsPackagePushed(fe, kOptionsFng) || IsPackagePushed(fe, kPauseOptionsFng)) return "an options screen is already open";
         SetCategory(a == "main" ? CAT_CONNECT : CAT_SETTINGS);
-        QueuePackageSwitch(fe, kOptionsFng, 0, 0, false);
+        bool pause = a == "options" && IsPackagePushed(fe, kPauseMainFng);     // as the pause menu's Options icon
+        QueuePackageSwitch(fe, pause ? kPauseOptionsFng : kOptionsFng, pause ? 1 : 0, 0, false);
         return "opening the Together screen";
     }
     if (a == "act") {
