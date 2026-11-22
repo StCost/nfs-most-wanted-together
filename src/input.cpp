@@ -11,6 +11,7 @@
 #include "log.h"
 #include "mem.h"
 #include "overlay.h"
+#include "together.h"
 
 namespace {
     // tap state (Input::Tap)
@@ -19,9 +20,11 @@ namespace {
     DWORD    g_downAt = 0;
 }
 
-// The DirectInput hooks only serve the test command "key" (a key the game sees without focus) and a log
-// line: dev builds only. A release build leaves the game's keyboard device alone.
-#ifdef MWT_DEVTOOLS
+// DirectInput device hooks (GetDeviceState / GetDeviceData on the game's own devices). They read nothing
+// else: the Together settings page (together.cpp) takes the keys the game just polled from its keyboard
+// (only while the game is focused - the game's devices are foreground-only) and, while the page is open,
+// the game gets no keys and no pad buttons, so its menus don't move under the page. Dev builds also have
+// the test command "key" here.
 // speed.exe v1.3: import address table slot for DINPUT8!DirectInput8Create (verified from the import table)
 static constexpr uintptr_t IAT_DirectInput8Create = 0x89001C;
 
@@ -41,18 +44,27 @@ namespace {
 
     void* g_keyboard = nullptr;   // the game's keyboard device
 
+#ifdef MWT_DEVTOOLS
     volatile unsigned char g_bgKey = 0; volatile DWORD g_bgKeyAt = 0;   // test command "key" (no focus needed)
-    bool     g_pendPress = false;   // event not yet delivered via GetDeviceData
-    bool     g_pendRelease = false;
-    DWORD    g_seq = 0;
+#endif
     bool     g_loggedState = false, g_loggedData = false;
-    UINT     g_postedVk = 0;
-    bool     g_postedExt = false;
+
+    // While the Together page is open: no buttons / d-pad for the game from a pad (DIJOYSTATE / DIJOYSTATE2
+    // layout; the sticks stay as they are - their centre depends on the range the game set)
+    void ClearPad(DWORD cb, LPVOID data) {
+        if (cb == sizeof(DIJOYSTATE) || cb == sizeof(DIJOYSTATE2)) {
+            auto* js = (DIJOYSTATE*)data;
+            for (DWORD& pov : js->rgdwPOV) pov = 0xFFFFFFFF;
+            memset(js->rgbButtons, 0, sizeof(js->rgbButtons));
+            if (cb == sizeof(DIJOYSTATE2)) memset(((DIJOYSTATE2*)data)->rgbButtons, 0, sizeof(((DIJOYSTATE2*)data)->rgbButtons));
+        }
+    }
 
     HRESULT STDMETHODCALLTYPE hk_GetState(void* dev, DWORD cb, LPVOID data) {
         HRESULT hr = o_GetState(dev, cb, data);
         if (dev == g_keyboard && cb == 256 && data) {
             if (!g_loggedState) { g_loggedState = true; LOG("Input: game polls keyboard with GetDeviceState"); }
+#ifdef MWT_DEVTOOLS
             // (normal taps go through SendInput, see Input::Tap.) Test command "key": a key the game sees
             // even without focus - the device state is filled in for ~120 ms, then left up for ~120 ms
             if (g_bgKey) {
@@ -61,28 +73,19 @@ namespace {
                 else if (t < 240) { if (FAILED(hr)) { memset(data, 0, 256); hr = DI_OK; } ((unsigned char*)data)[g_bgKey] = 0; }
                 else g_bgKey = 0;
             }
+#endif
+            if (SUCCEEDED(hr)) Together::OnKeyboard((const uint8_t*)data);
+            if (Together::CapturesInput()) { memset(data, 0, 256); }
+        } else if (data && SUCCEEDED(hr) && Together::CapturesInput()) {
+            ClearPad(cb, data);
         }
         return hr;
     }
 
     HRESULT STDMETHODCALLTYPE hk_GetData(void* dev, DWORD cbObj, LPDIDEVICEOBJECTDATA rg, LPDWORD inOut, DWORD flags) {
-        DWORD capacity = inOut ? *inOut : 0;
         HRESULT hr = o_GetData(dev, cbObj, rg, inOut, flags);
-        if (dev == g_keyboard && rg && inOut && SUCCEEDED(hr) && cbObj >= sizeof(DIDEVICEOBJECTDATA_DX3) && !(flags & DIGDD_PEEK)) {
-            if (!g_loggedData) { g_loggedData = true; LOG("Input: game reads keyboard with GetDeviceData"); }
-            auto add = [&](BYTE value) {
-                if (*inOut >= capacity) return false;
-                auto* e = (DIDEVICEOBJECTDATA*)((BYTE*)rg + (*inOut) * cbObj);
-                memset(e, 0, cbObj);
-                e->dwOfs = g_dik;
-                e->dwData = value;
-                e->dwTimeStamp = GetTickCount();
-                e->dwSequence = ++g_seq;
-                (*inOut)++;
-                return true;
-            };
-            (void)add;
-        }
+        if (dev == g_keyboard && SUCCEEDED(hr) && !g_loggedData && rg && inOut && *inOut) { g_loggedData = true; LOG("Input: game reads keyboard with GetDeviceData"); }
+        if (SUCCEEDED(hr) && inOut && !(flags & DIGDD_PEEK) && Together::CapturesInput()) *inOut = 0;   // the page has the input
         return hr;
     }
 
@@ -125,12 +128,6 @@ bool Input::InstallHooks() {
     return o_DI8Create != nullptr;
 }
 
-#else
-bool Input::InstallHooks() {
-    LOG("Input: DirectInput hooks are only in dev builds (test commands)");
-    return true;
-}
-#endif
 
 // Keys are sent as real keyboard events (SendInput with scan codes). The game's menus read arrow keys
 // from real input only: DirectInput-state injection worked for Enter but not for arrows. SendInput goes
@@ -349,7 +346,7 @@ void AutoStart::Tick(int flow) {
 
     // A human pressing Esc cancels it, so it never fights a person in the menus.
     // Only Esc, and only while the game window is focused (Esc typed in another app doesn't count).
-    if (g_presses > 0 && Overlay::GameWindow() && Overlay::GameWindow() == GetForegroundWindow() && (GetAsyncKeyState(VK_ESCAPE) & 0x8000)) {
+    if (g_presses > 0 && !Together::IsOpen() && Overlay::GameWindow() && Overlay::GameWindow() == GetForegroundWindow() && (GetAsyncKeyState(VK_ESCAPE) & 0x8000)) {
         g_as = AS::GaveUp; strcpy_s(g_status, "cancelled (Esc)"); LOG("AutoStart: cancelled by Esc"); return;
     }
 

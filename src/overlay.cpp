@@ -4,6 +4,7 @@
 #include "mem.h"
 #include "config.h"
 #include "input.h"
+#include "together.h"
 #include <cstdint>
 #include <algorithm>
 
@@ -32,7 +33,8 @@ namespace {
     int  g_textW = 0, g_textH = 0;
     bool g_visible = true;
     bool g_forceShow = false;
-    std::string g_shotPath;     // test command: save the next frame (without our overlay) as a BMP
+    std::string g_shotPath;
+    bool g_shotOverlay = false;   // test command "shot+": the frame as shown, with our overlay / page     // test command: save the next frame (without our overlay) as a BMP
 
     void SaveBackBuffer(IDirect3DDevice9* dev, const std::string& path) {
         IDirect3DSurface9* bb = nullptr; IDirect3DSurface9* sys = nullptr;
@@ -132,21 +134,8 @@ namespace {
 
     struct Vtx { float x, y, z, rhw; DWORD color; float u, v; };
 
-    void DrawOverlay(IDirect3DDevice9* dev) {
-        std::string text;
-        EnterCriticalSection(&g_textCs);
-        text = g_text;
-        LeaveCriticalSection(&g_textCs);
-        if (text.empty()) return;
-
-        if (!g_tex || text != g_texText) {
-            g_texText = text;
-            if (!RebuildTexture(dev)) return;
-        }
-
-        IDirect3DStateBlock9* sb = nullptr;
-        if (FAILED(dev->CreateStateBlock(D3DSBT_ALL, &sb))) return;
-
+    // Fixed-function states for drawing pre-transformed, textured quads on top of the frame.
+    void SetupStates(IDirect3DDevice9* dev) {
         dev->SetVertexShader(nullptr);
         dev->SetPixelShader(nullptr);
         dev->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1);
@@ -176,6 +165,25 @@ namespace {
         dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
         dev->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
         dev->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+
+    }
+
+    void DrawOverlay(IDirect3DDevice9* dev) {
+        std::string text;
+        EnterCriticalSection(&g_textCs);
+        text = g_text;
+        LeaveCriticalSection(&g_textCs);
+        if (text.empty()) return;
+
+        if (!g_tex || text != g_texText) {
+            g_texText = text;
+            if (!RebuildTexture(dev)) return;
+        }
+
+        IDirect3DStateBlock9* sb = nullptr;
+        if (FAILED(dev->CreateStateBlock(D3DSBT_ALL, &sb))) return;
+
+        SetupStates(dev);
 
         const float x0 = 10.f, y0 = 10.f;
         const float w = (float)g_textW, h = (float)g_textH;
@@ -211,6 +219,66 @@ namespace {
         sb->Release();
     }
 
+
+    // ---- the Together settings page (together.cpp paints it, we put it on screen) ----
+    constexpr int TG_W = 1024, TG_H = 1024;
+    IDirect3DTexture9* g_tgTex = nullptr;
+    int g_tgW = 0, g_tgH = 0;
+
+    void DrawTogether(IDirect3DDevice9* dev, UINT bbW, UINT bbH) {
+        if (!Together::Visible()) return;
+        if (!g_tgTex) {
+            if (FAILED(dev->CreateTexture(TG_W, TG_H, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &g_tgTex, nullptr))) { g_tgTex = nullptr; return; }
+            g_tgW = g_tgH = 0;
+        }
+        if (Together::Dirty() || !g_tgW) {
+            D3DLOCKED_RECT lr;
+            if (FAILED(g_tgTex->LockRect(0, &lr, nullptr, 0))) return;
+            int w = 0, h = 0;
+            if (!Together::Paint((uint32_t*)lr.pBits, lr.Pitch / 4, TG_W, TG_H, &w, &h)) w = h = 0;
+            g_tgTex->UnlockRect(0);
+            g_tgW = w; g_tgH = h;
+        }
+        if (!g_tgW || !g_tgH) return;
+
+        IDirect3DStateBlock9* sb = nullptr;
+        if (FAILED(dev->CreateStateBlock(D3DSBT_ALL, &sb))) return;
+        SetupStates(dev);
+        float w = (float)g_tgW, h = (float)g_tgH, x0, y0;
+        if (Together::Centered()) {     // the page: centred, scaled down to fit small back buffers
+            float fit = std::min((bbW - 16.f) / w, (bbH - 16.f) / h);
+            float sc = std::min(1.f, fit);
+            if (bbH >= 1400) sc = std::min(fit, bbH * 0.7f / h);   // and up on very big screens
+            if (sc != 1.f) { dev->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR); dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR); }
+            w *= sc; h *= sc;
+            x0 = (float)(int)((bbW - w) / 2); y0 = (float)(int)((bbH - h) / 2);
+            // dim the game behind it
+            dev->SetTexture(0, nullptr);
+            dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG2);
+            dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2);
+            const DWORD dim = 0x90000000; const float W = (float)bbW, H = (float)bbH;
+            Vtx q[4] = { { -.5f, -.5f, 0, 1, dim, 0, 0 }, { W - .5f, -.5f, 0, 1, dim, 0, 0 },
+                         { -.5f, H - .5f, 0, 1, dim, 0, 0 }, { W - .5f, H - .5f, 0, 1, dim, 0, 0 } };
+            dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, q, sizeof(Vtx));
+        } else {                        // the hint: bottom left
+            x0 = 12.f; y0 = (float)bbH - h - 12.f;
+        }
+        const float u1 = (float)g_tgW / TG_W, v1 = (float)g_tgH / TG_H;
+        dev->SetTexture(0, g_tgTex);
+        dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+        dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+        const DWORD fg = 0xFFFFFFFF;
+        Vtx tq[4] = {
+            { x0 - .5f,     y0 - .5f,     0, 1, fg, 0,  0  },
+            { x0 + w - .5f, y0 - .5f,     0, 1, fg, u1, 0  },
+            { x0 - .5f,     y0 + h - .5f, 0, 1, fg, 0,  v1 },
+            { x0 + w - .5f, y0 + h - .5f, 0, 1, fg, u1, v1 },
+        };
+        dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, tq, sizeof(Vtx));
+        sb->Apply();
+        sb->Release();
+    }
+
     // Draw onto the back buffer right before the frame is presented, so it is always on top and
     // always on screen, no matter which offscreen targets the game used during the frame.
     void DrawOnBackBuffer(IDirect3DDevice9* dev) {
@@ -227,8 +295,10 @@ namespace {
         dev->SetRenderTarget(0, bb);       // also resets the viewport to the full back buffer
         dev->SetDepthStencilSurface(nullptr);
 
+        D3DSURFACE_DESC bd{}; bb->GetDesc(&bd);
         if (SUCCEEDED(dev->BeginScene())) {
-            DrawOverlay(dev);
+            if (g_visible || g_forceShow) DrawOverlay(dev);
+            DrawTogether(dev, bd.Width, bd.Height);
             dev->EndScene();
         }
 
@@ -334,13 +404,15 @@ namespace {
         Mem::Read(0x982BDC, gameDev);
         if (gameDev && gameDev != g_dev) {
             LOG("Game device changed %p -> %p", g_dev, gameDev);
+            if (g_tgTex) { g_tgTex->Release(); g_tgTex = nullptr; }
             g_dev = gameDev;
         }
         if (dev == g_dev) {
             ++g_frames;
             if (g_cb) g_cb(dev);
-            if (!g_shotPath.empty()) { SaveBackBuffer(dev, g_shotPath); g_shotPath.clear(); }   // before our overlay
-            if (g_visible || g_forceShow) DrawOnBackBuffer(dev);
+            if (!g_shotPath.empty() && !g_shotOverlay) { SaveBackBuffer(dev, g_shotPath); g_shotPath.clear(); }   // before our overlay
+            if (g_visible || g_forceShow || Together::Visible()) DrawOnBackBuffer(dev);
+            if (!g_shotPath.empty() && g_shotOverlay) { SaveBackBuffer(dev, g_shotPath); g_shotPath.clear(); }
         }
         HRESULT hr = o_Present(dev, src, dst, wnd, dirty);
         g_inPresent = false;
@@ -376,7 +448,8 @@ namespace {
         LOG("CreateDevice -> 0x%08X (%ux%u windowed=%d)", (unsigned)hr,
             pp ? pp->BackBufferWidth : 0, pp ? pp->BackBufferHeight : 0, pp ? pp->Windowed : -1);
         if (SUCCEEDED(hr) && out && *out) {
-            if (g_tex) { g_tex->Release(); g_tex = nullptr; } // new device: drop old texture
+            if (g_tex) { g_tex->Release(); g_tex = nullptr; } // new device: drop old textures
+            if (g_tgTex) { g_tgTex->Release(); g_tgTex = nullptr; }
             g_dev = *out;
             HookDevice(g_dev);
         }
@@ -440,7 +513,7 @@ void Overlay::SetText(const std::string& text) {
 
 void Overlay::SetVisible(bool v) { g_visible = v; }
 void Overlay::SetForceShow(bool v) { g_forceShow = v; }
-void Overlay::Screenshot(const std::string& path) { g_shotPath = path; }
+void Overlay::Screenshot(const std::string& path, bool withOverlay) { g_shotOverlay = withOverlay; g_shotPath = path; }
 bool Overlay::IsVisible() { return g_visible; }
 IDirect3DDevice9* Overlay::Device() { return g_dev; }
 HWND Overlay::GameWindow() { return g_gameWnd; }

@@ -14,6 +14,7 @@
 #include "net.h"
 #include "prologueutil.h"
 #include "overlay.h"
+#include "together.h"
 #include "game.h"
 #include "input.h"
 #include "mem.h"
@@ -102,6 +103,9 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
             g_gameOk = Game::Init();
             g_netOk = Net::Init();
         }
+        // the in-game settings page saved a new name / colour / mode / address / port: reconnect (first thing in
+        // the frame, before anything talks to the network)
+        if (Together::TakeNetworkChange()) g_netOk = Net::Restart();
         // [Window] StartInBackground: once the game window exists, hand the focus back to the window
         // that had it before launch, and tell the game it's inactive (it mutes itself, like alt-tab).
         static int bgFrames = 0;
@@ -136,12 +140,14 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         int flowNow = Game::GameFlowState();
         Input::Tick();
         FEScreens::Tick();
-        if (g_gameOk) Game::BootTick();
+        Together::Tick(flowNow);
+        const bool hold = Together::HoldStart();    // first start / page open: the quick start waits
+        if (g_gameOk && !hold) Game::BootTick();
         if (g_gameOk) Game::PursuitResultTick();
         if (g_gameOk) Pad::Tick(flowNow);
         if (g_gameOk) Game::ChyronTick();
         // the key-pressing AutoStart is only needed when the direct start is off (or for other targets)
-        if (!(g_cfg.directFreeRoam && !_stricmp(g_cfg.autoStartTarget.c_str(), "freeroam"))) AutoStart::Tick(flowNow);
+        if (!hold && !(g_cfg.directFreeRoam && !_stricmp(g_cfg.autoStartTarget.c_str(), "freeroam"))) AutoStart::Tick(flowNow);
         if (g_gameOk) Game::OnFlow(flowNow);
 
         // Tell the peer which car (model + tuning) I'm driving; Net resends on change / every 2 s.
@@ -240,6 +246,8 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                     else if (c == "icons") r = Game::DebugIcons();
                     else if (c == "key enter") { Input::TapBackground(0x1C); r = "enter pressed (background)"; }
                     else if (c == "key esc") { Input::TapBackground(0x01); r = "escape pressed (background)"; }
+                    else if (c.rfind("key 0x", 0) == 0) { Input::TapBackground((unsigned char)strtoul(c.c_str() + 4, nullptr, 16)); r = "key pressed (background)"; }
+                    else if (c.rfind("together ", 0) == 0) r = Together::DebugCommand(c.substr(9));
                     else if (c.rfind("tp ", 0) == 0) r = Game::DebugTeleport(c.substr(3).c_str());
                     else if (c == "skipnis") r = Game::DebugNisSkip();
                     else if (c == "story") r = Game::DebugStory("");
@@ -254,6 +262,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                     else if (c == "pursuit") r = Game::DebugForcePursuit();
                     else if (c == "clone") r = Game::DebugSpawnClone();
                     else if (c == "unclone") r = Game::DebugKillClone();
+                    else if (c.rfind("shot+ ", 0) == 0) { Overlay::Screenshot(c.substr(6), true); r = "screenshot with the overlay"; }
                     else if (c.rfind("shot ", 0) == 0) { Overlay::Screenshot(c.substr(5)); r = "screenshot"; }
                     else if (c.rfind("active ", 0) == 0) { g_forceActive = c.substr(7) == "1"; r = g_forceActive ? "application flag held active" : "application flag left to the game"; }
                     else if (c.rfind("watchload ", 0) == 0) r = Game::DebugWatchLoad(c.substr(10).c_str());
@@ -596,6 +605,7 @@ BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
         LOG("NFS MW Together %s loading (dir %s)", MWT_VERSION, g_dir);
 
         g_cfg.Load(iniPath.c_str());
+        Together::Init(iniPath.c_str());
 #ifndef MWT_DEVTOOLS
         if (g_cfg.testKeys) LOG("Debug: TestKeys=1 has no effect - this is a release build without test keys and commands");
 #endif
