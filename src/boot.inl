@@ -486,7 +486,7 @@ void Game::InstallBootPatches() {
 
 bool Game::DirectStartActive() { return g_cfg.directFreeRoam && g_boot != Boot::Done; }
 
-void Game::BootTick() {
+void Game::BootTick(bool stopAtMenu) {
     if (!g_ok || g_boot == Boot::Done || !(g_cfg.directFreeRoam || g_cfg.skipLoadComplete)) return;
     __try {
         if (g_cfg.bootTrace && GameFlowState() == 3) {      // [Debug] BootTrace: what the memory card / pad state does
@@ -538,6 +538,11 @@ void Game::BootTick() {
         bool ready = fedb && fedb[3] /*profile loaded*/ && !bfm && fe &&
                      ((bool(__thiscall*)(void*, const char*))0x516B50)(fe, "MainMenu.fng");
         if (!ready) { g_boot = Boot::Waiting; return; }
+        if (stopAtMenu) {       // Host / Join is picked in the main menu first (its Together icon)
+            static bool logged = false;
+            if (!logged) { logged = true; LOG("Start: at the main menu - waiting for Host / Join (Together)"); }
+            g_boot = Boot::Waiting; return;
+        }
         if (g_boot == Boot::Waiting) { g_boot = Boot::Settling; g_bootReadyAt = GetTickCount(); return; }
         if (GetTickCount() - g_bootReadyAt < 250) return;    // let the garage finish loading (the menu barely shows)
         g_boot = Boot::Done;

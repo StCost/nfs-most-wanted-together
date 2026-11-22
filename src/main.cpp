@@ -15,6 +15,7 @@
 #include "prologueutil.h"
 #include "overlay.h"
 #include "together.h"
+#include "nativeui.h"
 #include "game.h"
 #include "input.h"
 #include "mem.h"
@@ -101,7 +102,11 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
             firstFrame = false;
             LOG("First frame rendered");
             g_gameOk = Game::Init();
-            g_netOk = Net::Init();
+            // Host / Join and the Together settings in the game's own menus (all patches checked first;
+            // if they can't be made, the overlay page is the way in)
+            Together::SetNativeMenus(g_gameOk && NativeUI::Install());
+            if (Together::NetAtStart()) g_netOk = Net::Init();
+            else LOG("Net: waiting for Host / Join in the main menu");
         }
         // the in-game settings page saved a new name / colour / mode / address / port: reconnect (first thing in
         // the frame, before anything talks to the network)
@@ -140,14 +145,16 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         int flowNow = Game::GameFlowState();
         Input::Tick();
         FEScreens::Tick();
+        NativeUI::Tick();
         Together::Tick(flowNow);
-        const bool hold = Together::HoldStart();    // first start / page open: the quick start waits
-        if (g_gameOk && !hold) Game::BootTick();
+        const bool hold = Together::HoldStart();    // the page is open: the quick start waits
+        const bool atMenu = Together::WaitAtMenu(); // Host / Join not picked yet: the quick start stops at the main menu
+        if (g_gameOk && !hold) Game::BootTick(atMenu);
         if (g_gameOk) Game::PursuitResultTick();
         if (g_gameOk) Pad::Tick(flowNow);
         if (g_gameOk) Game::ChyronTick();
         // the key-pressing AutoStart is only needed when the direct start is off (or for other targets)
-        if (!hold && !(g_cfg.directFreeRoam && !_stricmp(g_cfg.autoStartTarget.c_str(), "freeroam"))) AutoStart::Tick(flowNow);
+        if (!hold && !atMenu && !(g_cfg.directFreeRoam && !_stricmp(g_cfg.autoStartTarget.c_str(), "freeroam"))) AutoStart::Tick(flowNow);
         if (g_gameOk) Game::OnFlow(flowNow);
 
         // Tell the peer which car (model + tuning) I'm driving; Net resends on change / every 2 s.
@@ -248,6 +255,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                     else if (c == "key esc") { Input::TapBackground(0x01); r = "escape pressed (background)"; }
                     else if (c.rfind("key 0x", 0) == 0) { Input::TapBackground((unsigned char)strtoul(c.c_str() + 4, nullptr, 16)); r = "key pressed (background)"; }
                     else if (c.rfind("together ", 0) == 0) r = Together::DebugCommand(c.substr(9));
+                    else if (c.rfind("native ", 0) == 0) r = NativeUI::DebugCommand(c.substr(7));
                     else if (c.rfind("tp ", 0) == 0) r = Game::DebugTeleport(c.substr(3).c_str());
                     else if (c == "skipnis") r = Game::DebugNisSkip();
                     else if (c == "story") r = Game::DebugStory("");

@@ -26,6 +26,7 @@ struct Settings {
     bool        host = true;
     std::string hostIp;
     std::string port = "47555";        // text while editing; checked on save
+    bool        autoConnect = true;     // [Network] AutoConnect: host / join again by itself on the next start
     uint32_t    colour = 0;            // RRGGBB, 0 = game colour
     bool        skipIntro = false;
     bool        directFreeRoam = true;
@@ -104,6 +105,7 @@ inline std::vector<IniLine> ToIni(const Settings& s) {
     v.push_back({ "Network", "Mode", s.host ? "host" : "client" });
     if (!s.host) v.push_back({ "Network", "HostIP", Trim(s.hostIp) });
     v.push_back({ "Network", "Port", std::to_string(strtol(Trim(s.port).c_str(), nullptr, 10)) });
+    v.push_back({ "Network", "AutoConnect", s.autoConnect ? "1" : "0" });
     v.push_back({ "Start", "SkipIntro", s.skipIntro ? "1" : "0" });
     v.push_back({ "Start", "DirectFreeRoam", s.directFreeRoam ? "1" : "0" });
     v.push_back({ "Start", "SkipLeaveSafeHouseDialog", s.skipLeaveSafeHouse ? "1" : "0" });

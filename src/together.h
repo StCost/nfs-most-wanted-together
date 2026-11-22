@@ -1,10 +1,15 @@
 #pragma once
 #include <cstdint>
+#include <string>
+#include "togetherutil.h"
 
-// The "Together" page: every launcher setting inside the game (nickname, host / join, host address, port,
-// map colour, start and menu options), drawn by the overlay over the game's own screens.
-//   - opens with [UI] TogetherKey (F2) or by holding BACK on a pad, and by itself on the first start
-//     ([UI] TogetherSetupDone=0) - the quick start waits until it is closed
+// The "Together" settings: every launcher setting inside the game (nickname, host / join, host address,
+// port, map colour, start and menu options).
+//   - normally in the game's own menus (nativeui.cpp): Options > Together, and Main menu > Together to
+//     host or join. Until Host / Join is picked ([UI] TogetherSetupDone=0, or [Network] AutoConnect=0)
+//     the quick start stops at the main menu; with AutoConnect=1 it connects as last time.
+//   - the overlay page (F2 or holding BACK on a pad) has the same rows; it opens by itself on the
+//     first start only when the game's menus couldn't get their entries
 //   - Save & Play writes scripts\MWTogether.ini (comments kept) and applies the settings; a changed
 //     name / colour / mode / address / port reconnects (Net::Restart)
 // Input: the keys the game itself just polled from its keyboard (input.cpp), and XInput for a pad - both
@@ -15,7 +20,18 @@ namespace Together {
     void OnKeyboard(const uint8_t* dik256);   // the game's keyboard state, from its GetDeviceState call
     bool CapturesInput();                 // the page is open: the game gets no input
     bool IsOpen();
-    bool HoldStart();                     // the quick start / AutoStart must wait
+    bool HoldStart();                     // the quick start / AutoStart must wait (the page is open)
+    bool WaitAtMenu();                    // the quick start stops at the main menu: Host / Join isn't picked yet
+
+    // The game's own menus (nativeui.cpp). SetNativeMenus once at the first frame (did the menus get their
+    // Together entries?) - it decides what the start does; NetAtStart: connect right away.
+    void SetNativeMenus(bool ok);
+    bool NetAtStart();
+    TogetherUtil::Settings Current();     // as saved
+    // Save and use the settings; connect = a Host / Join choice (connects now). "" or what to fix.
+    std::string Apply(const TogetherUtil::Settings& s, bool connect);
+    std::string LocalAddresses();         // this PC's IPv4 addresses, for the other player to join
+    bool Connected();
     bool TakeNetworkChange();             // true once after a save that needs a new connection
 
     // Drawing (overlay.cpp): Visible() = something to draw (the page, or the front-end hint);

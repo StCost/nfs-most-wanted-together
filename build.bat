@@ -34,7 +34,7 @@ rem relocatable (the game's addresses are constants, ours are fixed up by the lo
 rem our own registered exception handlers.
 cl /nologo /O2 /Gy /MT /EHsc /std:c++17 /W3 /DWIN32_LEAN_AND_MEAN /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS %VERDEF% %DEVDEF% ^
    /Fo"build\\" /Fd"build\\" ^
-   src\main.cpp src\log.cpp src\config.cpp src\net.cpp src\overlay.cpp src\mem.cpp src\game.cpp src\input.cpp src\pad.cpp src\together.cpp ^
+   src\main.cpp src\log.cpp src\config.cpp src\net.cpp src\overlay.cpp src\mem.cpp src\game.cpp src\input.cpp src\pad.cpp src\together.cpp src\nativeui.cpp ^
    build\version.res ^
    /LD /Fe"build\MWTogether.asi" ^
    /link /SAFESEH /DYNAMICBASE /NXCOMPAT /OPT:REF /OPT:NOICF ws2_32.lib user32.lib gdi32.lib dxguid.lib shell32.lib iphlpapi.lib xinput9_1_0.lib || exit /b 1

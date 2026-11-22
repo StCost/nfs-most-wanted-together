@@ -10,6 +10,7 @@
 #include <cstdio>
 #include "together.h"
 #include "togetherutil.h"
+#include "nativeutil.h"
 #include "config.h"
 #include "log.h"
 #include "net.h"
@@ -21,13 +22,19 @@
 using namespace TogetherUtil;
 
 namespace {
-    enum Row { R_NAME, R_MODE, R_HOSTIP, R_PORT, R_COLOUR, R_SKIPINTRO, R_DIRECT, R_SAFEHOUSE, R_PURSUITRES,
+    enum Row { R_NAME, R_MODE, R_HOSTIP, R_PORT, R_AUTOCONNECT, R_COLOUR, R_SKIPINTRO, R_DIRECT, R_SAFEHOUSE, R_PURSUITRES,
                R_INTROINPUT, R_PADHOTPLUG, R_OVERLAY, R_NOPURSUITCAM, R_MENUSPEED, R_SAVE, R_CANCEL, R_COUNT };
 
     std::string g_ini;
     bool     g_open = false;
     bool     g_setupDone = true;
+    bool     g_autoConnect = true;     // [Network] AutoConnect as it was at start
     bool     g_autoShown = false;
+    bool     g_native = false;         // the game's own menus have the Together entries
+    bool     g_planned = false;
+    NativeUtil::StartPlan g_plan = { false, false, true };
+    bool     g_chosen = false;         // Host / Join picked (main menu or the page) this run
+    bool     g_netRunning = false;
     bool     g_netChange = false;
     bool     g_dirty = true;
     int      g_sel = R_NAME;
@@ -69,6 +76,7 @@ namespace {
         s.overlay = Overlay::IsVisible();
         s.noPursuitCams = g_cfg.noPursuitCams;
         s.menuSpeed = g_cfg.uiMenuSpeed < 1 ? 1 : g_cfg.uiMenuSpeed > 3 ? 3 : g_cfg.uiMenuSpeed;
+        s.autoConnect = ReadIni("Network", "AutoConnect", "1") != "0";
         return s;
     }
 
@@ -111,8 +119,7 @@ namespace {
 
     void Open() {
         if (g_open) return;
-        g_cur = FromConfig();
-        if (g_haveSaved) { bool ov = g_cur.overlay; g_cur = g_saved; g_cur.overlay = ov; }   // F8 may have changed the overlay
+        g_cur = Together::Current();
         g_ed = g_cur;
         g_ips = LocalIps();
         g_sel = R_NAME; g_padEdit = false;
@@ -125,6 +132,9 @@ namespace {
         if (!g_open) return;
         g_open = false; g_padEdit = false; g_dirty = true;
         g_swallowKb = g_swallowPad = true;
+        if (!g_netRunning && !g_netChange) {     // opened at start instead of connecting: connect now as saved
+            g_pendingNet = g_cur; g_netChange = true; g_chosen = true;
+        }
         LOG("Together: settings page closed (%s)", why);
     }
 
@@ -150,29 +160,43 @@ namespace {
         if (!fopen_s(&o, f.c_str(), "wb") && o) { fwrite(out.data(), 1, out.size(), o); fclose(o); LOG("Together: Widescreen Fix SkipIntro set to 0 (story movies stay)"); }
     }
 
-    bool Save() {
-        std::string err = Validate(g_ed);
-        if (!err.empty()) { Msg(err, true); return false; }
-        for (const IniLine& l : ToIni(g_ed)) WritePrivateProfileStringA(l.section, l.key, l.value.c_str(), g_ini.c_str());
-        if (g_ed.skipIntro) KeepWidescreenFixMovies();
-        bool net = NetworkChanged(g_cur, g_ed);
-        g_pendingNet = g_ed;    // name / colour / mode / address / port: applied with the reconnect (TakeNetworkChange)
+    // Write the settings and use them. connect: start / restart the connection now (a Host / Join choice)
+    // even if the network settings didn't change. Returns "" or what to fix.
+    std::string ApplySettings(const Settings& ed, bool connect, bool* restartNeededOut) {
+        std::string err = Validate(ed);
+        if (!err.empty()) return err;
+        Settings cur = Together::Current();
+        for (const IniLine& l : ToIni(ed)) WritePrivateProfileStringA(l.section, l.key, l.value.c_str(), g_ini.c_str());
+        if (ed.skipIntro) KeepWidescreenFixMovies();
+        bool net = NetworkChanged(cur, ed) || (connect && !g_netRunning);
+        if (!g_netRunning && !connect) net = false;     // not connected yet (waiting for Host / Join): just remember
+        g_pendingNet = ed;    // name / colour / mode / address / port: applied with the reconnect (TakeNetworkChange)
         // skip intros, quick safe house, menu input / speed are patched at start: g_cfg keeps what runs now
-        g_cfg.directFreeRoam = g_ed.directFreeRoam;
-        g_cfg.skipPursuitResults = g_ed.skipPursuitResults;
-        g_cfg.gamepadHotplug = g_ed.gamepadHotplug;
-        g_cfg.showOverlay = g_ed.overlay; Overlay::SetVisible(g_ed.overlay);
-        g_cfg.noPursuitCams = g_ed.noPursuitCams;
-        bool restartNeeded = g_cur.skipIntro != g_ed.skipIntro || g_cur.skipLeaveSafeHouse != g_ed.skipLeaveSafeHouse
-                          || g_cur.introInput != g_ed.introInput || g_cur.menuSpeed != g_ed.menuSpeed;
+        g_cfg.directFreeRoam = ed.directFreeRoam;
+        g_cfg.skipPursuitResults = ed.skipPursuitResults;
+        g_cfg.gamepadHotplug = ed.gamepadHotplug;
+        g_cfg.showOverlay = ed.overlay; Overlay::SetVisible(ed.overlay);
+        g_cfg.noPursuitCams = ed.noPursuitCams;
+        bool restartNeeded = cur.skipIntro != ed.skipIntro || cur.skipLeaveSafeHouse != ed.skipLeaveSafeHouse
+                          || cur.introInput != ed.introInput || cur.menuSpeed != ed.menuSpeed;
         if (net) g_netChange = true;
-        else ApplyNetwork(g_ed);
+        else ApplyNetwork(ed);
+        if (connect) g_chosen = true;
         g_setupDone = true;
+        LOG("Together: saved - name %s, %s%s, port %s%s%s%s", Trim(ed.name).c_str(), ed.host ? "host" : "join ",
+            ed.host ? "" : Trim(ed.hostIp).c_str(), Trim(ed.port).c_str(), ed.autoConnect ? ", same on restart" : "",
+            net ? ", connecting" : "", restartNeeded ? ", some options apply at the next start" : "");
+        g_saved = ed; g_haveSaved = true;
+        if (restartNeededOut) *restartNeededOut = restartNeeded;
+        return "";
+    }
+
+    bool Save() {
+        bool restartNeeded = false;
+        std::string err = ApplySettings(g_ed, true, &restartNeeded);
+        if (!err.empty()) { Msg(err, true); return false; }
         Msg(restartNeeded ? "Saved. Some options apply at the next start." : "Saved.", false);
-        LOG("Together: saved - name %s, %s%s, port %s%s%s", Trim(g_ed.name).c_str(), g_ed.host ? "host" : "join ",
-            g_ed.host ? "" : Trim(g_ed.hostIp).c_str(), Trim(g_ed.port).c_str(), net ? ", reconnecting" : "",
-            restartNeeded ? ", some options apply at the next start" : "");
-        g_cur = g_ed; g_saved = g_ed; g_haveSaved = true;
+        g_cur = g_ed;
         return true;
     }
 
@@ -198,6 +222,7 @@ namespace {
         case R_OVERLAY: g_ed.overlay = !g_ed.overlay; break;
         case R_NOPURSUITCAM: g_ed.noPursuitCams = !g_ed.noPursuitCams; break;
         case R_MENUSPEED: g_ed.menuSpeed = (g_ed.menuSpeed - 1 + dir + 3) % 3 + 1; break;
+        case R_AUTOCONNECT: g_ed.autoConnect = !g_ed.autoConnect; break;
         case R_SAVE: case R_CANCEL: g_sel = g_sel == R_SAVE ? R_CANCEL : R_SAVE; break;
         default:
             if (IsText(g_sel) && g_padEdit) {       // pad: right adds a character, left removes one
@@ -307,15 +332,17 @@ void Together::Init(const char* iniPath) {
     g_ini = iniPath;
     char b[16]; GetPrivateProfileStringA("UI", "TogetherSetupDone", "0", b, sizeof(b), iniPath);
     g_setupDone = atoi(b) != 0;
+    GetPrivateProfileStringA("Network", "AutoConnect", "1", b, sizeof(b), iniPath);
+    g_autoConnect = atoi(b) != 0;
     GetPrivateProfileStringA("UI", "TogetherKey", "0x71", b, sizeof(b), iniPath);   // VK, default F2
     UINT vk = (UINT)strtoul(b, nullptr, 0);
     g_dikOpen = vk ? (uint8_t)MapVirtualKeyA(vk, MAPVK_VK_TO_VSC) : 0;   // DirectInput codes are scan codes
 #ifdef MWT_DEVTOOLS
-    if (g_cfg.testKeys) g_setupDone = true;     // scripted test runs never wait on the page
+    if (g_cfg.testKeys) g_setupDone = true;     // scripted test runs never wait for the first-start setup
 #endif
     memset(g_prev, 0, sizeof(g_prev));
-    LOG("Together: settings page on %s%s", vk ? "the key / holding BACK on a pad" : "holding BACK on a pad (no key)",
-        g_setupDone ? "" : " - first start: it opens on the title screen");
+    LOG("Together: settings page on %s%s%s", vk ? "the key / holding BACK on a pad" : "holding BACK on a pad (no key)",
+        g_setupDone ? "" : " - first start", g_autoConnect ? "" : " - asks Host / Join at start");
 }
 
 void Together::OnKeyboard(const uint8_t* k) {
@@ -350,8 +377,8 @@ void Together::OnKeyboard(const uint8_t* k) {
 
 void Together::Tick(int flow) {
     if (flow != g_flow) { g_flow = flow; g_dirty = true; }
-    if (!g_setupDone && !g_autoShown && flow == 3 && Overlay::GameWindow()) { g_autoShown = true; Open(); }
-    bool hint = !g_open && flow == 3;
+    if (g_planned && g_plan.openPage && !g_autoShown && flow == 3 && Overlay::GameWindow()) { g_autoShown = true; Open(); }
+    bool hint = !g_open && flow == 3 && !g_native;
     if (hint != g_hint) { g_hint = hint; g_dirty = true; }
     if (Focused()) PadTick(); else { g_padPrev = 0; g_backAt = 0; g_swallowPad = false; }
     if (g_open && GetTickCount() - g_lastRefresh > 1000) { g_lastRefresh = GetTickCount(); g_dirty = true; }
@@ -382,11 +409,32 @@ std::string Together::DebugCommand(const std::string& args) {
 
 bool Together::CapturesInput() { return g_open || g_swallowKb || g_swallowPad; }
 bool Together::IsOpen() { return g_open; }
-bool Together::HoldStart() { return g_open || (!g_setupDone && !g_autoShown); }
+bool Together::HoldStart() { return g_open || !g_planned || (g_plan.openPage && !g_autoShown); }
+bool Together::WaitAtMenu() { return g_planned && g_plan.askAtMenu && !g_chosen; }
+
+void Together::SetNativeMenus(bool ok) {
+    g_native = ok;
+    g_plan = NativeUtil::PlanStart(g_setupDone, g_autoConnect, ok);
+    g_planned = true;
+    g_netRunning = g_plan.netAtStart;
+    LOG("Together: %s%s", ok ? "Host / Join and settings in the game's menus" : "the game's menus are unchanged - settings on the overlay page",
+        g_plan.askAtMenu ? " - waiting for Host / Join in the main menu" : g_plan.openPage ? " - the page opens on the title screen" : "");
+}
+bool Together::NetAtStart() { return !g_planned || g_plan.netAtStart; }
+
+Settings Together::Current() {
+    Settings s = FromConfig();
+    if (g_haveSaved) { bool ov = s.overlay; s = g_saved; s.overlay = ov; }   // F8 may have changed the overlay
+    return s;
+}
+std::string Together::Apply(const Settings& s, bool connect) { return ApplySettings(s, connect, nullptr); }
+std::string Together::LocalAddresses() { return LocalIps(); }
+bool Together::Connected() { return g_netRunning && Net::Stats().connected; }
 bool Together::TakeNetworkChange() {
     if (!g_netChange) return false;
     g_netChange = false;
     ApplyNetwork(g_pendingNet);     // right before the reconnect, so the old connection never sees the new settings
+    g_netRunning = true;
     return true;
 }
 bool Together::Visible() { return g_open || g_hint; }
@@ -419,6 +467,7 @@ namespace {
     const char* RowLabel(int r) {
         switch (r) {
         case R_NAME: return "Nickname"; case R_MODE: return "Play as"; case R_HOSTIP: return "Host's IP address"; case R_PORT: return "UDP port";
+        case R_AUTOCONNECT: return "Do the same on restart";
         case R_COLOUR: return "My colour on the map"; case R_SKIPINTRO: return "Skip intros (next start)";
         case R_DIRECT: return "Quick career start"; case R_SAFEHOUSE: return "Quick leave the safe house (next start)";
         case R_PURSUITRES: return "Auto-close pursuit results in free roam"; case R_INTROINPUT: return "Menus respond during animations (next start)";
@@ -432,7 +481,7 @@ namespace {
 bool Together::Paint(uint32_t* pixels, int pitch, int maxW, int maxH, int* outW, int* outH) {
     g_dirty = false;
     if (!g_open && !g_hint) return false;
-    const int W = g_open ? 620 : 430, H = g_open ? 676 : 34;
+    const int W = g_open ? 620 : 430, H = g_open ? 706 : 34;
     if (W > maxW || H > maxH) return false;
     HDC dc = CreateCompatibleDC(nullptr);
     BITMAPINFO bi{}; bi.bmiHeader.biSize = sizeof(bi.bmiHeader); bi.bmiHeader.biWidth = W; bi.bmiHeader.biHeight = -H;
@@ -491,7 +540,7 @@ bool Together::Paint(uint32_t* pixels, int pitch, int maxW, int maxH, int* outW,
             default: {
                 bool on = r == R_SKIPINTRO ? g_ed.skipIntro : r == R_DIRECT ? g_ed.directFreeRoam : r == R_SAFEHOUSE ? g_ed.skipLeaveSafeHouse
                         : r == R_PURSUITRES ? g_ed.skipPursuitResults : r == R_INTROINPUT ? g_ed.introInput : r == R_PADHOTPLUG ? g_ed.gamepadHotplug
-                        : r == R_OVERLAY ? g_ed.overlay : g_ed.noPursuitCams;
+                        : r == R_OVERLAY ? g_ed.overlay : r == R_AUTOCONNECT ? g_ed.autoConnect : g_ed.noPursuitCams;
                 v = on ? "ON" : "OFF"; vc = on ? kAccent : kDim; break; }
             }
             Text(dc, fLabel, vx, y, vw - 26, rowH - 3, v, vc, DT_LEFT);

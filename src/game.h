@@ -75,7 +75,7 @@ namespace Game {
     bool InstallRestartSync();
     bool InstallStreamHook();
     void InstallBootPatches();          // call from DllMain (before the front end starts)
-    void BootTick();
+    void BootTick(bool stopAtMenu);   // stopAtMenu: the direct free roam start waits at the main menu
     void PursuitResultTick();
     bool InstallNisHook();              // cutscene skip voting
     void NisTick(bool connected);

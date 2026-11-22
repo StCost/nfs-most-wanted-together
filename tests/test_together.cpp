@@ -97,3 +97,51 @@ TEST(together_widescreen_fix_line) {
     l = "SkipIntroMovies = 1"; CHECK(!WidescreenFixLine(l));
     l = "; SkipIntro = 1"; CHECK(!WidescreenFixLine(l));
 }
+
+// ---- the game's own menus (src/nativeutil.h) ----
+#include "../src/nativeutil.h"
+using namespace NativeUtil;
+
+TEST(native_merge_strings) {
+    StringRec game[] = { { 5, "five" }, { 10, "ten" }, { 0xF0000000u, "big" } };
+    std::vector<StringRec> ours = { { 7, "seven" }, { 10, "mine" }, { 1, "one" }, { 0x80000001u, "high" } };
+    auto v = MergeStrings(game, 3, ours);
+    CHECK_EQ((int)v.size(), 6);
+    for (size_t i = 1; i < v.size(); ++i) CHECK(v[i - 1].hash < v[i].hash);   // sorted (unsigned)
+    CHECK_STR(v[0].str, "one");
+    CHECK_STR(v[3].str, "ten");             // the game's string wins
+    CHECK_STR(v[4].str, "high");
+    CHECK_EQ((int)MergeStrings(nullptr, 0, ours).size(), 4);
+}
+
+TEST(native_clean_text) {
+    CHECK_STR(CleanText(Field::Host, "192.168.0.10 ").c_str(), "192.168.0.10");
+    CHECK_STR(CleanText(Field::Port, "47a555").c_str(), "47555");
+    CHECK_STR(CleanText(Field::Name, "  Kostya\xC3\xA9  ").c_str(), "Kostya");
+    CHECK_STR(CleanText(Field::Name, "1234567890123456789").c_str(), "123456789012345");
+}
+
+TEST(native_profile_label) {
+    CHECK_STR(ProfileLabel("StCost", "Friend", true).c_str(), "StCost & Friend");
+    CHECK_STR(ProfileLabel("StCost", "Friend", false).c_str(), "StCost");
+    CHECK_STR(ProfileLabel("StCost", "", true).c_str(), "StCost");
+    CHECK_STR(ProfileLabel("StCost", " Fr\xC3\xA9nd ", true).c_str(), "StCost & Frnd");
+    CHECK_STR(ProfileLabel("", "Friend", true).c_str(), "Friend");
+    CHECK_STR(ProfileLabel("StCost", "12345678901234567890", true).c_str(), "StCost & 123456789012345");
+}
+
+TEST(native_start_plan) {
+    StartPlan p = PlanStart(true, true, true);
+    CHECK(!p.askAtMenu); CHECK(!p.openPage); CHECK(p.netAtStart);
+    p = PlanStart(true, false, true);
+    CHECK(p.askAtMenu); CHECK(!p.openPage); CHECK(!p.netAtStart);
+    p = PlanStart(false, true, true);                     // first start
+    CHECK(p.askAtMenu); CHECK(!p.netAtStart);
+    p = PlanStart(false, true, false);                    // the menus couldn't be extended: the page
+    CHECK(!p.askAtMenu); CHECK(p.openPage); CHECK(!p.netAtStart);
+}
+
+TEST(native_auto_connect_ini) {
+    Settings s; s.autoConnect = false;
+    CHECK_STR(IniValue(ToIni(s), "Network", "AutoConnect").c_str(), "0");
+}
