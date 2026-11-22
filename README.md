@@ -128,7 +128,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Each of you keeps your own career; wins are shared, so both move forward together
 - [x] The host keeps a copy of the partner's save, updated on every autosave, and restores it if theirs is missing. It never replaces a save that exists (`[Career] RestoreOnlyMissing`)
 - [x] A cutscene you both watch is skipped only when both of you press skip
-- [x] Story movies and cutscenes outside events: the other player gets a notice and waits in free roam until it's done (`SyncStoryScenes`). With `SyncStoryScenes=2` the movie plays on their PC too if their career is that far
+- [x] Story movies and cutscenes outside events: the other player gets a notice and waits in free roam until it's done (`SyncStoryScenes`). The next Blacklist rival's intro and the marker picks after beating a rival are each player's own: nobody waits for them. With `SyncStoryScenes=2` the movie plays on their PC too if their career is that far
 - [x] Shared pursuits (`[Coop] SharedPursuits`): you get the same heat, the higher one counts
 - [x] The other player's cops show on your minimap and trigger your radar
 - [x] Ramming their cop starts a pursuit on you

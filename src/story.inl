@@ -341,7 +341,7 @@ namespace {
 
         // watch along (SyncStoryScenes=2): the same movie, when this career has reached it
         const char* movie = peer ? KnownMovie(peer) : nullptr;
-        if (movie && !justWatched && g_cfg.syncStoryScenes >= 2 && roaming && !Game::LocalPursuitHeat() && g_startedFor != peer && !g_startPending &&
+        if (movie && strncmp(movie, "blacklist_", 10) && !justWatched && g_cfg.syncStoryScenes >= 2 && roaming && !Game::LocalPursuitHeat() && g_startedFor != peer && !g_startPending &&
             now - g_peerStorySince > 300 && CareerHasMovie(movie, p.s.pad[2]) && MovieFileExists(movie)) {
             g_startPending = peer; g_startAt = now + 400;     // our streamer drops the other player's area first
             g_streamQuiet = true;
@@ -377,7 +377,12 @@ namespace {
 
         // otherwise wait: hold the world while they watch (free roam only)
         // (the 0.7 s settle only before a hold starts: a scene running straight into the next keeps it)
-        bool want = peer && !mine && roaming && !g_startPending && !justWatched && !g_gaveUpFor &&
+        // (not for a Blacklist rival's intro movie: after beating a rival each player goes through the
+        //  markers and the next rival's movie on their own - the other one had often already skipped it and
+        //  stood frozen in free roam until it ended here)
+        const char* peerName = g_peerStory ? KnownMovie(g_peerStory) : nullptr;
+        bool rivalIntro = peerName && !strncmp(peerName, "blacklist_", 10);
+        bool want = peer && !mine && roaming && !rivalIntro && !g_startPending && !justWatched && !g_gaveUpFor &&
                     (g_storyHold || now - g_peerStorySince > 700);
         if (want && !g_storyHold) StoryHoldOn();
         if (g_storyHold) {
