@@ -95,8 +95,9 @@ enum : uint8_t {
     PURSUIT_SEEN     = 2,   // its own cops saw the sender in the last 7 s (local / vanilla)
     PURSUIT_COOLDOWN = 4,   // the cooldown runs
     PURSUIT_BUSTED   = 8,
-    PURSUIT_READY    = 16,  // evade bar is full (or already in cooldown): may enter cooldown once the peer is ready too
-    PURSUIT_KNOWN_BITS = 0x1F,
+    PURSUIT_READY    = 16,  // evade bar is full, or already in cooldown
+    PURSUIT_EVADED   = 32,  // the sender's pursuit ended as an escape (safehouse, or both finished cooldown)
+    PURSUIT_KNOWN_BITS = 0x3F,
 };
 constexpr uint16_t MAX_HEAT100 = 1500;       // heat 15 (the career stops at 5, mods at 10)
 constexpr uint16_t MAX_COOL_LEFT10 = 6000;   // 10 minutes

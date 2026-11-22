@@ -1,5 +1,5 @@
 // Shared pursuits (src/pursuitutil.h): heat sharing, personal evade bars, frozen cooldown until
-// both are in, escape when both finish, and the pursuit fields of the state packet.
+// both are in, escape when both finish, safehouse hidden until then, and the pursuit fields of the state packet.
 #include "net_helpers.h"
 #include "../src/pursuitutil.h"
 #include <limits>
@@ -215,6 +215,43 @@ TEST(pursuit_reset_and_freeze_progress) {
     acc = 3; sn = 2;                                       // 2 s would look "seen" and cancel cooldown
     FreezeProgress(0, 2, acc, sn);
     CHECK_NEAR(sn, COOLDOWN_FLOOR_S, 1e-4);
+    float acc2 = 2, sn2 = 8, need = 20;
+    CompleteCooldown(need, acc2, sn2);
+    CHECK_NEAR(acc2 + sn2, need, 1e-4);
+    CHECK(sn2 >= COOLDOWN_FLOOR_S);
+}
+
+TEST(pursuit_safehouse_hidden_until_both_cooling) {
+    // live shared pursuit, one still chasing: hide
+    View a = V(true, false, true, 18, true), b = V(true, true, false, 20, false);
+    CHECK(SharedPursuitLive(a, b, true));
+    CHECK(HideSafehouse(a, b, true));
+    CHECK(!SafehouseAllowed(a, b, true));
+    // both in cooldown (progressing or hold-escape): show / allow entry
+    b.seen = false; b.cooling = true; b.ready = true; b.left = 15;
+    CHECK(SafehouseAllowed(a, b, true));
+    CHECK(!HideSafehouse(a, b, true));
+    CHECK(SafehouseAllowed(b, a, true));
+    // peer spotted during a progressing cooldown: hide again (we freeze/reset)
+    b.seen = true; b.cooling = false; b.ready = false;
+    CHECK(HideSafehouse(a, b, true));
+    // disconnect / busted / peer left: solo, markers normal
+    CHECK(!HideSafehouse(a, b, false));
+    CHECK(!HideSafehouse(a, V(true, false, false, 0, false, true), true));
+    CHECK(!HideSafehouse(a, V(false, false, false, 0), true));
+    // neither in a pursuit
+    CHECK(!HideSafehouse(V(false, false, false, 0), V(false, false, false, 0), true));
+}
+
+TEST(pursuit_peer_safehouse_forces_our_escape) {
+    View me = V(true, false, true, 8, true), peer = V(false, false, false, 0);
+    peer.evaded = true;
+    CHECK(DecideCooldown(me, peer, true, true).what == Cool::ForceEscape);
+    // even if we were still in a chase, or frozen waiting
+    View chasing = V(true, true, false, 20, false);
+    CHECK(DecideCooldown(chasing, peer, true).what == Cool::ForceEscape);
+    // disconnect is solo, not a force-escape
+    CHECK(DecideCooldown(me, peer, false, true).what == Cool::Free);
 }
 
 TEST(pursuit_wire_view) {
@@ -226,7 +263,9 @@ TEST(pursuit_wire_view) {
     v = FromWire(PURSUIT_ACTIVE | PURSUIT_READY, 0);
     CHECK(v.ready); CHECK(!v.seen); CHECK(!v.cooling);
     v = FromWire(PURSUIT_BUSTED, 0);
-    CHECK(v.busted); CHECK(!v.inPursuit);
+    CHECK(v.busted); CHECK(!v.inPursuit); CHECK(!v.evaded);
+    v = FromWire(PURSUIT_EVADED, 0);
+    CHECK(v.evaded); CHECK(!v.inPursuit); CHECK(!v.busted);
     CHECK_EQ(LeftToWire(12.34f), 123);
     CHECK_EQ(LeftToWire(-1.f), 0);
     CHECK_EQ(LeftToWire(1.0e9f), MAX_COOL_LEFT10);

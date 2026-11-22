@@ -57,6 +57,13 @@ namespace SharedPursuit {
     // into pursuit because the other was spotted. Disconnect, a busted peer, or a peer who left
     // the pursuit: solo — unfreeze and escape on your own.
     //
+    // Safehouse (1.7.1): during a live shared pursuit (both connected, both in a pursuit, neither
+    // busted) the safehouse world marker and map/radar icon stay hidden, and entry is blocked,
+    // until BOTH are in cooldown (meters running or waiting to escape together). Then either
+    // player may enter a safehouse. The game ends that player's pursuit as evaded, and a
+    // PURSUIT_EVADED flag tells the other game to end theirs the same way (escape/win). Disconnect
+    // or a busted / departed peer: solo — markers and entry as vanilla.
+    //
     // One side of a pursuit as the other game needs it (CarState::pursuitFlags / coolLeft10).
     struct View {
         bool inPursuit;
@@ -65,6 +72,7 @@ namespace SharedPursuit {
         float left;
         bool ready;     // evade bar full, or already cooling (PURSUIT_READY)
         bool busted;
+        bool evaded;    // pursuit ended as an escape (PURSUIT_EVADED)
     };
     inline View FromWire(uint8_t flags, uint16_t left10) {
         View v{};
@@ -74,6 +82,7 @@ namespace SharedPursuit {
         v.left = left10 / 10.f;
         v.ready = (flags & PURSUIT_READY) != 0 || v.cooling;
         v.busted = (flags & PURSUIT_BUSTED) != 0;
+        v.evaded = (flags & PURSUIT_EVADED) != 0;
         return v;
     }
     inline uint16_t LeftToWire(float left) {
@@ -87,6 +96,7 @@ namespace SharedPursuit {
         Freeze,      // we are in cooldown: do not let the meter advance (peer is not in cooldown)
         Reset,       // we are in cooldown: set the meter back to the start (peer was in cooldown and got spotted)
         HoldEscape,  // our meter is finished: do not escape until the peer has finished too
+        ForceEscape, // the peer evaded (safehouse): end ours as an escape/win too
     };
     struct Decision { Cool what; float left; };   // left: remaining time to hold at for HoldEscape
     // The exe float at 0x890D34: not seen this long in the current state starts cooldown.
@@ -110,9 +120,24 @@ namespace SharedPursuit {
         return false;
     }
     // peerWasCooling: the peer's previous tick (so a drop out of cooldown is a spot, not "never entered").
+    // A shared pursuit is live only while both sides are in one and neither is busted.
+    inline bool SharedPursuitLive(const View& me, const View& peer, bool peerConnected) {
+        return peerConnected && me.inPursuit && peer.inPursuit && !me.busted && !peer.busted;
+    }
+    // Vanilla markers / entry, except during a live shared pursuit until both are in cooldown.
+    inline bool SafehouseAllowed(const View& me, const View& peer, bool peerConnected) {
+        if (!SharedPursuitLive(me, peer, peerConnected)) return true;
+        return me.cooling && peer.cooling;
+    }
+    inline bool HideSafehouse(const View& me, const View& peer, bool peerConnected) {
+        return !SafehouseAllowed(me, peer, peerConnected);
+    }
     inline Decision DecideCooldown(const View& me, const View& peer, bool peerConnected = true,
                                    bool peerWasCooling = false) {
         if (!me.inPursuit) return { Cool::Free, 0.f };
+        // Peer entered a safehouse (or otherwise evaded): end ours as an escape, even if we are
+        // still in a chase or a frozen cooldown. A disconnected peer is solo, not a force-escape.
+        if (peerConnected && peer.evaded && !me.busted) return { Cool::ForceEscape, 0.f };
         if (!me.cooling) return { Cool::Free, 0.f };   // enter immediately when vanilla wants
         if (me.seen) return { Cool::Free, 0.f };       // we were spotted: vanilla drops us; do not freeze ourselves
         if (PeerAllowsSolo(peer, peerConnected)) return { Cool::Free, 0.f };  // disconnect / busted / left: unfreeze
@@ -127,6 +152,13 @@ namespace SharedPursuit {
     inline void FreezeProgress(float frozenAccum, float frozenSince, float& accum, float& sinceSeen) {
         accum = frozenAccum;
         sinceSeen = frozenSince < COOLDOWN_FLOOR_S ? COOLDOWN_FLOOR_S : frozenSince;
+    }
+    // Fill the cooldown meter so evade level reaches 1 (vanilla then ends the pursuit as evaded).
+    inline void CompleteCooldown(float required, float& accum, float& sinceSeen) {
+        sinceSeen = sinceSeen < COOLDOWN_FLOOR_S ? COOLDOWN_FLOOR_S : sinceSeen;
+        if (!(required > 0.f)) { accum = 0.f; return; }
+        float need = required - sinceSeen;
+        accum = need > 0.f ? need : 0.f;
     }
 
     // The game's escape progress is accum + sinceSeen (AIPursuit +0x124 / +0x128 from IPursuit*) and the
