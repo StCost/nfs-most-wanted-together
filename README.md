@@ -24,8 +24,10 @@ Wanted online free roam with a friend, Need for Speed Most Wanted two player mod
 
 
 1. Download **[MWTogether.zip](https://github.com/StCost/nfs-most-wanted-together/releases/latest/download/MWTogether.zip)** (the latest release) and unpack it into your game folder, next to `speed.exe`.
-2. Run `MWTogetherLauncher.exe`. Type a nickname, pick **Host LAN** or **Join LAN** (to join, enter the
-   host's IP address) and press **PLAY**.
+2. Run `speed.exe` as usual. On the first start the **Together** page opens on the title screen: type a
+   nickname, pick **Host LAN** or **Join LAN** (to join, enter the host's IP address - the host sees theirs
+   on the same page) and choose **Save & Play**. Open it again any time with **F2** or by holding **BACK** on
+   a pad. (`MWTogetherLauncher.exe` still works too and sets the same things.)
 3. Do the same on the other PC. The game loads your career into free roam and connects you on its own.
 4. To update, unpack the new zip over the old one. Your nickname and settings (`scripts\MWTogether.ini`) stay.
 
@@ -66,7 +68,8 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Quitting (Alt+F4 too) tells the other side right away; a game that just disappears times out
 - [x] Stays connected while paused, minimized or alt-tabbed, and the game keeps running in the background
 - [x] Status overlay on F8 (remembers if you hid it)
-- [x] Launcher (`MWTogetherLauncher.exe`, next to `speed.exe`) styled like the game: name, host or join, host IP, settings, Play
+- [x] In-game **Together** page (F2, or hold BACK on a pad; opens by itself on the first start): name, host or join, host IP, port, map colour, start and menu options, your IP address and the connection state. Saving reconnects right away when needed (`[UI] TogetherKey`)
+- [x] Launcher (`MWTogetherLauncher.exe`, next to `speed.exe`) styled like the game: the same settings before the game starts (optional)
 - [x] Join / leave notices, even with the overlay hidden
 - [x] Notices use the game's own message line in the middle of the screen: joins and leaves in green, problems (connection, firewall, prologue) in orange. Long ones come in parts. In cutscenes and menus the EA Trax song banner shows them
 - [x] Notices stay up for 10 seconds (`[UI] NoticeSeconds`)
@@ -81,7 +84,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Your own car with your full tuning, in free roam and in races
 - [x] The other player's car moves smoothly (1-10 mm of jitter)
 - [x] Spawn protection: two cars appearing on the same spot don't launch each other
-- [x] The other player on the minimap and on the world map, in a colour they pick (launcher: My colour on the map, `[Player] Color`)
+- [x] The other player on the minimap and on the world map, in a colour they pick (Together page or launcher: My colour on the map, `[Player] Color`)
 - [x] Car-to-car collisions with real impact: ram your partner and their car gets thrown on their screen too
 - [x] Your own names in the race standings
 - [x] Your partner's car shows brake lights, damage (dents, broken parts), steering and nitrous
