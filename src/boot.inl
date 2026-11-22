@@ -207,7 +207,7 @@ namespace {
         if (!up) { since = 0; return false; }
         if (!since) since = GetTickCount();
         if (state == 0) {
-            if (GetTickCount() - since < 800) return true;            // let the list fill in
+            if (GetTickCount() - since < 400) return true;            // let the list fill in
             std::vector<std::string> list = GameProfileList();
             std::string names;
             for (auto& s : list) names += (names.empty() ? "" : ", ") + s;
@@ -512,7 +512,7 @@ void Game::BootTick() {
             static DWORD since = 0, lastTap = 0;
             if (SaveSyncHoldsBoot()) return;      // the host's copy of our save may still arrive
             if (!since) since = GetTickCount();
-            if (GetTickCount() - since > 1500 && GetTickCount() - lastTap > 2500) {
+            if (GetTickCount() - since > 300 && GetTickCount() - lastTap > 700) {     // as soon as it takes the key (retried)
                 lastTap = GetTickCount();
                 if (PressAccept(splash)) LOG("Start: pressing START on the title screen (%s)", splash);
             }
@@ -524,7 +524,7 @@ void Game::BootTick() {
             static DWORD since = 0, lastTap = 0;
             if (!since) since = GetTickCount();
             // [Start] SkipLoadComplete: confirm it right away (retry until the screen accepts it)
-            if (GetTickCount() - since > 300 && GetTickCount() - lastTap > 1000) {
+            if (GetTickCount() - since > 100 && GetTickCount() - lastTap > 400) {
                 lastTap = GetTickCount();
                 if (ConfirmLoadScreen(GetTickCount() - since)) LOG("Start: confirming the profile load screen");
             }
@@ -535,7 +535,7 @@ void Game::BootTick() {
                      ((bool(__thiscall*)(void*, const char*))0x516B50)(fe, "MainMenu.fng");
         if (!ready) { g_boot = Boot::Waiting; return; }
         if (g_boot == Boot::Waiting) { g_boot = Boot::Settling; g_bootReadyAt = GetTickCount(); return; }
-        if (GetTickCount() - g_bootReadyAt < 1000) return;   // let the garage finish loading
+        if (GetTickCount() - g_bootReadyAt < 250) return;    // let the garage finish loading (the menu barely shows)
         g_boot = Boot::Done;
         LOG("Start: direct free roam - %s", DirectFreeRoamNow());
     } __except (EXCEPTION_EXECUTE_HANDLER) { g_boot = Boot::Done; LOG("Start: exception in direct free roam"); }
