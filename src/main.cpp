@@ -16,6 +16,7 @@
 #include "overlay.h"
 #include "together.h"
 #include "nativeui.h"
+#include "logo.h"
 #include "game.h"
 #include "input.h"
 #include "mem.h"
@@ -146,6 +147,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         Input::Tick();
         FEScreens::Tick();
         NativeUI::Tick();
+        if (g_gameOk) Logo::Tick(g_dir);
         Together::Tick(flowNow);
         const bool hold = Together::HoldStart();    // the page is open: the quick start waits
         const bool atMenu = Together::WaitAtMenu(); // Host / Join not picked yet: the quick start stops at the main menu

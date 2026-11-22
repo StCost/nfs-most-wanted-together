@@ -145,3 +145,37 @@ TEST(native_auto_connect_ini) {
     Settings s; s.autoConnect = false;
     CHECK_STR(IniValue(ToIni(s), "Network", "AutoConnect").c_str(), "0");
 }
+
+// The logo replacement's .dds reader: src/ddsutil.h
+#include "../src/ddsutil.h"
+static std::vector<uint8_t> MakeDds(uint32_t w, uint32_t h, uint32_t mips, bool dxt5, size_t cut = 0) {
+    std::vector<uint8_t> f(128, 0);
+    auto put = [&](size_t o, uint32_t v) { memcpy(&f[o], &v, 4); };
+    memcpy(&f[0], "DDS ", 4); put(4, 124); put(8, 0x1007 | (mips > 1 ? 0x20000 : 0)); put(12, h); put(16, w); put(28, mips);
+    put(76, 32);
+    if (dxt5) { put(80, 4); put(84, DdsUtil::FMT_DXT5); }
+    else { put(80, 0x41); put(88, 32); put(92, 0x00FF0000); put(96, 0x0000FF00); put(100, 0x000000FF); put(104, 0xFF000000); }
+    size_t data = 0;
+    uint32_t fmt = dxt5 ? DdsUtil::FMT_DXT5 : DdsUtil::FMT_A8R8G8B8;
+    for (uint32_t l = 0; l < mips; ++l) data += DdsUtil::LevelBytes(fmt, DdsUtil::Mip(w, l), DdsUtil::Mip(h, l));
+    f.resize(128 + data - cut, 0x11);
+    return f;
+}
+
+TEST(logo_dds_parse) {
+    DdsUtil::Info i; std::string err;
+    std::vector<uint8_t> a = MakeDds(512, 128, 1, false);
+    CHECK(DdsUtil::Parse(a.data(), a.size(), i, err));
+    CHECK(i.width == 512 && i.height == 128 && i.mips == 1 && i.format == DdsUtil::FMT_A8R8G8B8);
+    CHECK(a.size() == 128 + 512 * 128 * 4);
+    std::vector<uint8_t> b = MakeDds(1024, 256, 11, true);
+    CHECK(DdsUtil::Parse(b.data(), b.size(), i, err));
+    CHECK(i.mips == 11 && i.format == DdsUtil::FMT_DXT5);
+    CHECK(DdsUtil::LevelBytes(DdsUtil::FMT_DXT5, 1, 1) == 16);
+    CHECK(DdsUtil::LevelBytes(DdsUtil::FMT_DXT1, 512, 128) == 512 * 128 / 2);
+    std::vector<uint8_t> c = MakeDds(512, 128, 1, false, 1);           // one byte short
+    CHECK(!DdsUtil::Parse(c.data(), c.size(), i, err));
+    std::vector<uint8_t> d = a; memcpy(&d[0], "PNG ", 4);
+    CHECK(!DdsUtil::Parse(d.data(), d.size(), i, err));
+    CHECK(!DdsUtil::Parse(nullptr, 0, i, err));
+}
