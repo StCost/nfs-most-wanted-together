@@ -19,6 +19,7 @@ namespace {
     bool g_hudHidden = false;
     std::unordered_set<void*> g_hudSet;          // every object F1 hid (the chosen groups and all that is in them)
     std::unordered_map<void*, bool> g_hudWasHidden;   // each one's own state before F1 (restored exactly when shown again)
+    std::unordered_set<void*> g_hudSeen;         // every object of the HUD packages seen by the last build (alive)
     const char* const kHudPackages[] = { "HUD_SingleRace.fng", "HUD_Drag.fng", "HUD_Player1.fng", "HUD_Drag_Player1.fng" };
 
     uint32_t ObjFlags(void* o) { return *(uint32_t*)((uint8_t*)o + 0x1C); }
@@ -32,7 +33,7 @@ namespace {
         return n;
     }
     void CollectTree(void* o, int depth = 0) {
-        g_hudSet.insert(o);
+        g_hudSet.insert(o); g_hudSeen.insert(o);
         if (!g_hudWasHidden.count(o)) g_hudWasHidden[o] = (ObjFlags(o) & 1) != 0;
         if (depth < 12 && ObjType(o) == 5) {
             int c = *(int*)((uint8_t*)o + 0x60); void* ch = *(void**)((uint8_t*)o + 0x64);
@@ -45,13 +46,30 @@ namespace {
     // FEngSetVisible (0x514CC0, cdecl FEObject*), the game's logic, plus: an object F1 hid stays hidden
     void __cdecl hk_FEngSetVisible(void* o) {
         if (!o) return;
-        if (g_hudHidden && g_hudSet.count(o)) { HideObj(o); return; }
+        if (g_hudHidden && g_hudSet.count(o)) {
+            // the game wants it shown (a race HUD that turns its parts on after loading): shown again
+            // when F1 is pressed again - it stayed hidden until the next pause otherwise
+            auto it = g_hudWasHidden.find(o);
+            if (it != g_hudWasHidden.end()) it->second = false;
+            HideObj(o); return;
+        }
         uint32_t& f = *(uint32_t*)((uint8_t*)o + 0x1C);
         if (f & 0x40) return;
         f = (f & ~1u) | 0x2400000;
         if (ObjType(o) == 5) {
             int c = *(int*)((uint8_t*)o + 0x60); void* ch = *(void**)((uint8_t*)o + 0x64);
             for (; c > 0 && ch; --c, ch = *(void**)((uint8_t*)ch + 4)) hk_FEngSetVisible(ch);
+        }
+    }
+    // FEngSetInvisible (0x514C70, cdecl FEObject*), the game's logic, plus: a part F1 hid that the game
+    // hides too stays hidden when F1 shows the HUD again
+    void __cdecl hk_FEngSetInvisible(void* o) {
+        if (!o) return;
+        if (g_hudHidden) { auto it = g_hudWasHidden.find(o); if (it != g_hudWasHidden.end()) it->second = true; }
+        *(uint32_t*)((uint8_t*)o + 0x1C) |= 0x2400001;
+        if (ObjType(o) == 5) {
+            int c = *(int*)((uint8_t*)o + 0x60); void* ch = *(void**)((uint8_t*)o + 0x64);
+            for (; c > 0 && ch; --c, ch = *(void**)((uint8_t*)ch + 4)) hk_FEngSetInvisible(ch);
         }
     }
     bool g_showHooked = false;
@@ -63,7 +81,10 @@ namespace {
         int32_t rel = (int32_t)((uintptr_t)&hk_FEngSetVisible - (0x514CC0 + 5));
         memcpy(jmp + 1, &rel, 4);
         bool ok = Mem::PatchBytes(0x514CC0, expect, jmp, 6);
-        LOG("HUD: FEngSetVisible %s", ok ? "hooked" : "NOT hooked (bytes differ) - the speedometer digits may show again");
+        rel = (int32_t)((uintptr_t)&hk_FEngSetInvisible - (0x514C70 + 5));
+        memcpy(jmp + 1, &rel, 4);
+        bool ok2 = Mem::PatchBytes(0x514C70, expect, jmp, 6);
+        LOG("HUD: FEngSetVisible %s, FEngSetInvisible %s", ok ? "hooked" : "NOT hooked (bytes differ) - the speedometer digits may show again", ok2 ? "hooked" : "NOT hooked");
     }
 
     // An object's position: FEObject +0x2C -> data block, floats [7] x, [8] y, relative to its parent group;
@@ -86,6 +107,7 @@ namespace {
     int HideByZone(void* first, float px, float py, int depth) {
         int roots = 0, guard = 0;
         for (void* o = first; o && guard < 500; o = *(void**)((uint8_t*)o + 4), ++guard) {
+            g_hudSeen.insert(o);
             float x = 0, y = 0;
             if (!ObjPos(o, x, y)) continue;
             x += px; y += py;
@@ -98,7 +120,7 @@ namespace {
 
     // build the set of objects to hide from the HUD package(s)
     int BuildHudSet(bool log) {
-        g_hudSet.clear();
+        g_hudSet.clear(); g_hudSeen.clear();
         void* fe = nullptr;
         if (!Mem::Read(0x91CADC, fe) || !fe) return 0;
         int roots = 0;
@@ -118,8 +140,11 @@ namespace {
             int roots = BuildHudSet(log);
             // forget objects that are no longer in the HUD (a new HUD package after an event loaded: the old
             // one's objects are freed - showing them again later would write into freed memory)
+            // (one still in the HUD but out of the zones now - it moved: back to its own state)
             for (auto it = g_hudWasHidden.begin(); it != g_hudWasHidden.end();) {
-                if (g_hudSet.count(it->first)) ++it; else it = g_hudWasHidden.erase(it);
+                if (g_hudSet.count(it->first)) { ++it; continue; }
+                if (g_hudSeen.count(it->first) && !it->second) ShowObj(it->first);
+                it = g_hudWasHidden.erase(it);
             }
             for (void* o : g_hudSet) HideObj(o);
             return roots;

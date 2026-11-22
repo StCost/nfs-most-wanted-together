@@ -448,8 +448,37 @@ static void AutopilotNos(void* iv, void* hai) {
     }
     (void)holdUntil;
 }
+// After our finish (or knockout) the car went on at full speed under the player's hands while the finish
+// camera / results screen was up. The game's own AI drives it then (the autopilot), until the event is
+// over or the race restarts; then the player has it back.
+static void FinishAutopilotTickImpl() {
+    static bool ours = false;            // we switched the autopilot on for the finish
+    void* rs = nullptr; int mode = 0;
+    if (Mem::Read(0x91E000, rs) && rs) Mem::Read((uintptr_t)rs + 0x1960, mode);
+    bool inEvent = Game::GameFlowState() == 6 && Game::CurrentEventHash() != 0;
+    bool done = false;
+    if (inEvent) {
+        if (void* ri = RacerInfoOfLocal()) {
+            uint8_t fin = 0; uint32_t outs = 0;
+            Mem::Read((uintptr_t)ri + 0x21, fin); Mem::Read((uintptr_t)ri + 0x1C, outs);
+            done = fin || outs;
+        }
+    }
+    void* iv = LocalVehicle();
+    void* hai = IsVehicle(iv) ? Find(iv, 0x403770) : nullptr;
+    if (!hai) { if (!inEvent) ours = false; return; }
+    if (done && !ours && !NisActive() && !AutopilotIsOn(hai)) {
+        ToggleAutopilotSafe(); ours = true;
+        LOG("Race: we're over the line - the AI drives our car until the results are closed");
+    } else if (ours && !done) {
+        if (AutopilotIsOn(hai)) ToggleAutopilotSafe();
+        ours = false;
+        LOG("Race: results closed - our car is ours again");
+    }
+}
 // [Debug] AutoPilot=1: switch the autopilot on whenever we're driving in free roam or a race.
 void Game::AutopilotTick() {
+    if (g_ok && !g_cfg.autoPilot) { __try { FinishAutopilotTickImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) {} }
     if (g_ok && GameFlowState() == 6 && !NisActive()) {
         __try {
             void* iv = LocalVehicle();

@@ -75,6 +75,8 @@ namespace {
         return bin;
     }
 
+    // nothing but the driving HUD is open (no pause, map, Blacklist or other menu)
+    bool PlainHudOnly() { return FEScreens::ListAll().find("pushed: [HUD_SingleRace.fng]") == 0; }
     // Complete one entry here through the game's own calls. *state = the entry's state / flags after.
     SM::Verdict MsApplyRaw(const SM::Msg& m, uint8_t ourBin, int* stateAfter) {
         *stateAfter = -1;
@@ -102,7 +104,11 @@ namespace {
                 // the camera photo, as if we had been caught too: what the trap trigger (0x60A7B0) does in
                 // free roam after completing it - 0x605730(speed m/s, the trap's 0x5E56C0 value) sets the
                 // photo's numbers and pushes InGamePhotoMaster.fng, then 0x605140 posts its message
-                if (SM::SpeedTrapDone((uint16_t)*stateAfter)) {
+                // only over the plain driving HUD: pushed over a menu (pause, map, Blacklist...) or with F1's
+                // hidden HUD, the photo left the player without any HUD after it closed
+                bool plain = PlainHudOnly() && !g_hudHidden;
+                if (!plain) LOG("Milestones: no speed trap photo for the other player's trap - a menu is open here (%s)", FEScreens::Current());
+                if (plain && SM::SpeedTrapDone((uint16_t)*stateAfter)) {
                     float x = ((float(__thiscall*)(void*))0x5E56C0)(e);
                     ((void(__cdecl*)(float, float))0x605730)(speed, x);
                     ((void(__cdecl*)())0x605140)();

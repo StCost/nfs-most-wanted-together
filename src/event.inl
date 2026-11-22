@@ -122,6 +122,26 @@ namespace {
             if (GetTickCount() - lastLog > 10000) { lastLog = GetTickCount(); LOG("Event: %s is a Challenge Series event - join it from the main menu, not from free roam", eventId); }
             return;
         }
+        if (fromPeer && flow == 6) {
+            // a menu over the world (map, pause...): closed first, the event starts with the next copy of the
+            // invitation. Started under the map, the map closed in the middle of the race load and read our
+            // car while there was none (crash 0x54865F, the world map's destructor)
+            static const char* const menus[] = { "WorldMapMain.fng", "Pause_Main.fng", "Pause_Options.fng", "Pause_PCDisplayOptions.fng",
+                                                 "Options_PC_Controller.fng", "SMS_Mailboxes.fng", "SMS_MailBoxes.fng", "SMS_Message.fng",
+                                                 "InGame_MC_Main.fng", "InGame_MC_Main_GC.fng", "RapSheetMain.fng" };
+            const char* open = nullptr;
+            for (const char* m : menus) if (FEScreens::IsPushed(m)) { open = m; break; }
+            if (open) {
+                static DWORD lastBack = 0;
+                void* fe = nullptr;
+                if (GetTickCount() - lastBack > 400 && Mem::Read(0x91CADC, fe) && fe) {
+                    lastBack = GetTickCount();
+                    ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0x911AB364 /*PAD_BACK*/, open, 0xFF);
+                    LOG("Event: %s invited while %s is open - closing it first", eventId, open);
+                }
+                return;                               // the invitation is repeated
+            }
+        }
         g_joiningEvent = fromPeer ? eventHash : 0;   // a local test start is sent on to the peer
         if (fromPeer) g_closeMenusUntil = GetTickCount() + 15000;   // close our event menus that may still be open
         g_startingEventHash = eventHash;             // lets the car factory know which event is loading
