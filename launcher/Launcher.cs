@@ -358,6 +358,7 @@ class LauncherForm : Form {
         Ini.SetB("UI", "IntroInput", introInput.Checked);
         Ini.SetB("Input", "GamepadHotplug", padHotplug.Checked);
         Ini.Set("UI", "MenuSpeed", menuSpeed.ToString());
+        Ini.Set("UI", "TogetherSetupDone", "1");   // set up here: the in-game page needn't open by itself
         Ini.SetB("Debug", "Overlay", overlay.Checked);
         Ini.SetB("Coop", "NoPursuitCams", noPursuitCam.Checked);
         return true;
