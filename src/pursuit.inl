@@ -12,9 +12,12 @@
 //  IPursuit vt+0x08 GetTarget -> AITarget;  cops: IVehicle** at +0x18, count at +0x20
 //  AITarget::Aquire(ISimable*) 0x423860 (thiscall). IPerpetrator handle 0x4037E0, vt+4 GetHeat
 //
-//  [Coop] SharedPursuits (free roam only, see the second half of this file): shared heat, busted
-//  together, cooldown only while neither player is seen, the other player's cops on the minimap and
-//  the radar detector, ramming one of their cops starts a pursuit here.
+//  [Coop] SharedPursuits (free roam only, see the second half of this file): shared heat, the other
+//  player's cops on the minimap and the radar detector, ramming one of their cops starts a pursuit
+//  here. Each evade bar fills locally (vanilla: whether cops see THAT player). Only the transition
+//  into cooldown is shared: a full bar cannot start cooldown while the other player is still seen
+//  or their bar is not full. Both start cooldown when both are ready. Once in cooldown, a peer
+//  getting spotted does not cancel it. Busted and escape are personal.
 // ---------------------------------------------------------------------------
 namespace {
     constexpr uintptr_t AquireFn = 0x423860, IPerpetratorHandle = 0x4037E0;
@@ -183,8 +186,8 @@ std::string Game::DebugForcePursuit() {
 //    progress = +0x124 + +0x128; evade level = progress / needed; not seen for 2.5 s in the current
 //      state (+0x130 > 0x890D34) starts the cooldown (+0x12C = 1, status 2); evade level >= 1 is the
 //      escape (status 4); seen again during the cooldown ends it (status 0). Left = needed - progress.
-//  So: Hold = +0x128 and +0x124 to 0 (the pursuit counts us as seen, the cooldown can't start and a
-//  running one ends); Delay = lower the progress so our time left is the other player's.
+//  So: Wait = keep +0x130 just under the 2.5 s threshold so cooldown cannot start, without
+//  touching +0x124 / +0x128 (the evade bar stays full). Once in cooldown we do not write seen.
 //  Heat: IPerpetrator (handle 0x4037E0) on the player's car (AIPerpVehicle vtable 0x892250): slot 1
 //    GetHeat 0x409400 (fld [ecx+0x1C]), slot 2 SetHeat 0x409060 (raises the heat-level events too;
 //    Game_SetWorldHeat 0x612660 calls the same slot).
@@ -351,8 +354,12 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         left = PRead<float>(pursuit, P_CoolLeft);
         if (!busted && !bailed && status != PS_BUSTED && status != PS_EVADED) {
             g_sp.flags |= PURSUIT_ACTIVE;
-            if (SeenByOwnCops(pursuit) || PeerCopsSeeUs()) g_sp.flags |= PURSUIT_SEEN;
+            // evade bar / seen: local cops only (vanilla). Mirrored peer cops must not fill or empty it.
+            if (SeenByOwnCops(pursuit)) g_sp.flags |= PURSUIT_SEEN;
             if (status == PS_COOLDOWN) g_sp.flags |= PURSUIT_COOLDOWN;
+            float unseen = PRead<float>(pursuit, P_UnseenInState);
+            if (EvadeBarFull((g_sp.flags & PURSUIT_SEEN) != 0, status == PS_COOLDOWN, unseen))
+                g_sp.flags |= PURSUIT_READY;
             g_sp.left10 = LeftToWire(left);
         }
         if (busted) g_sp.flags |= PURSUIT_BUSTED;
@@ -362,7 +369,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
             LOG("Pursuit: ours %s -> %s", StatusName(g_sp.lastStatus < -1 ? -1 : g_sp.lastStatus), StatusName(status));
         g_sp.lastStatus = status;
     }
-    // ---- 4. busted: count our own busts; the other game follows when the count changes ----
+    // ---- 4. busted: count our own busts (personal; the other game is not busted with us) ----
     if (!pursuit || !busted) g_sp.lastBustedPursuit = nullptr;   // the next pursuit may get the same address
     if (pursuit && busted && pursuit != g_sp.lastBustedPursuit) {
         g_sp.lastBustedPursuit = pursuit;
@@ -371,7 +378,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
             LOG("Pursuit: busted here too, as the other player was");
         else if (on) {
             ++g_sp.bustSeq;
-            LOG("Pursuit: we were busted - the other player gets busted too (count %u)", (unsigned)g_sp.bustSeq);
+            LOG("Pursuit: we were busted (count %u) - busts are personal, the other player is not busted with us", (unsigned)g_sp.bustSeq);
         }
         g_sp.bustingForPeerAt = 0;
     }
@@ -395,53 +402,38 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         }
     } else g_sp.heat = {};
 
-    // ---- 4. the other player was busted: bust us too (the game's own arrest) ----
-    if (peer.valid && PeerJustBusted(g_sp.bust, peer.s.bustSeq)) {
-        if (!here) LOG("Pursuit: the other player was busted - not in free roam here, nothing happens");
-        else if (busted) LOG("Pursuit: the other player was busted - we already are");
-        else {
-            g_sp.pendingBustUntil = now + 8000; g_sp.pendingStarted = false;
-            LOG("Pursuit: the other player was busted - %s", pursuit ? "busting us too" : "no pursuit here, starting one to bust us too");
-        }
-    }
-    if (g_sp.pendingBustUntil) {
-        if (!here || (int)(now - g_sp.pendingBustUntil) > 0) {
-            LOG("Pursuit: gave up busting us (%s)", here ? "no pursuit came" : "left free roam");
-            g_sp.pendingBustUntil = 0;
-        } else if (pursuit && !busted && !bailed) {
-            PWrite<float>(pursuit, P_BustTimer, 10.f);           // above the 5 s limit: busted on the next sim tick
-            g_sp.bustingForPeerAt = now;
-        } else if (!pursuit && !g_sp.pendingStarted) {
-            g_sp.pendingStarted = true;
-            DebugForcePursuitImpl();
-        }
-    }
+    // ---- 4. the other player was busted: personal, we are not busted with them ----
+    if (peer.valid && PeerJustBusted(g_sp.bust, peer.s.bustSeq))
+        LOG("Pursuit: the other player was busted - busts are personal, ours continues");
+    g_sp.pendingBustUntil = 0;   // 1.7.1: do not start or continue a shared bust
 
-    // ---- 5. cooldown: only while neither of you is seen, and you escape together ----
+    // ---- 5. cooldown: gate only the entry; the evade bar itself is vanilla / local ----
     int coolNow = -1;
     if ((g_sp.flags & PURSUIT_ACTIVE) && peerHere) {
-        View mine{ true, (g_sp.flags & PURSUIT_SEEN) != 0, status == PS_COOLDOWN, left };
+        View mine{};
+        mine.inPursuit = true;
+        mine.seen = (g_sp.flags & PURSUIT_SEEN) != 0;
+        mine.cooling = status == PS_COOLDOWN;
+        mine.left = left;
+        mine.ready = (g_sp.flags & PURSUIT_READY) != 0;
+        mine.busted = busted;
         View theirs = FromWire(peer.s.pursuitFlags, peer.s.coolLeft10);
-        Decision d = DecideCooldown(mine, theirs);
+        Decision d = DecideCooldown(mine, theirs, true);
         coolNow = (int)d.what;
-        if (d.what == Cool::Hold) {
-            // Do not pretend the local player is seen (that made the HUD say "they see you" with
-            // no cops around). Reset the 2.5 s "unseen in this state" timer so cooldown cannot start.
-            PWrite<float>(pursuit, P_UnseenInState, 0.f);
-            if (status == PS_COOLDOWN) {
-                PWrite<float>(pursuit, P_SinceSeen, 0.f);
-                PWrite<float>(pursuit, P_Search, 0.f);
-            }
-        } else if (d.what == Cool::Delay) {
-            float need = PRead<float>(pursuit, P_CoolNeed), search = PRead<float>(pursuit, P_Search), since = PRead<float>(pursuit, P_SinceSeen);
-            DelayProgress(need, d.left, search, since);
-            PWrite<float>(pursuit, P_Search, search);
-            PWrite<float>(pursuit, P_SinceSeen, since);
+        if (d.what == Cool::Wait && pursuit) {
+            // Keep the bar full: do not zero since-seen / search, and do not cancel a cooldown
+            // we already entered. Hold the 2.5 s unseen-in-state timer just under the threshold.
+            float thresh = COOLDOWN_UNSEEN_S;
+            Mem::Read(0x890D34, thresh);
+            if (!(thresh > 0.f) || thresh > 30.f) thresh = COOLDOWN_UNSEEN_S;
+            PWrite<float>(pursuit, P_UnseenInState, WaitUnseenInState(thresh));
         }
         if (coolNow != g_sp.lastCool) {
-            if (d.what == Cool::Hold) LOG("Pursuit: the other player is still seen - our cooldown waits (%s here)", mine.seen ? "seen" : "out of sight");
-            else if (d.what == Cool::Delay) LOG("Pursuit: both out of sight - ours waits for theirs (%.1f s left there, %.1f s here)", theirs.left, mine.left);
-            else if (theirs.inPursuit) LOG("Pursuit: %s - cooldown runs as usual", mine.seen ? "we are seen ourselves" : "both out of sight");
+            if (d.what == Cool::Wait) LOG("Pursuit: our evade bar is full - cooldown waits until the other player is ready too (%s there)",
+                                          theirs.seen ? "still seen" : "hidden, bar not full");
+            else if (theirs.inPursuit) LOG("Pursuit: cooldown runs as usual (%s here, %s there)",
+                                           mine.seen ? "seen" : (mine.cooling ? "in cooldown" : (mine.ready ? "ready" : "hiding")),
+                                           theirs.seen ? "seen" : (theirs.cooling ? "in cooldown" : (theirs.ready ? "ready" : "hiding")));
         }
     }
     g_sp.lastCool = coolNow;

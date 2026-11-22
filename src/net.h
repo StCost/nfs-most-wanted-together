@@ -92,10 +92,11 @@ struct CarState {
 };
 enum : uint8_t {
     PURSUIT_ACTIVE   = 1,   // in a pursuit that is still running (not busted / escaped)
-    PURSUIT_SEEN     = 2,   // its own cops saw the sender in the last 7 s (before any co-op hold)
+    PURSUIT_SEEN     = 2,   // its own cops saw the sender in the last 7 s (local / vanilla)
     PURSUIT_COOLDOWN = 4,   // the cooldown runs
     PURSUIT_BUSTED   = 8,
-    PURSUIT_KNOWN_BITS = 0x0F,
+    PURSUIT_READY    = 16,  // evade bar is full (or already in cooldown): may enter cooldown once the peer is ready too
+    PURSUIT_KNOWN_BITS = 0x1F,
 };
 constexpr uint16_t MAX_HEAT100 = 1500;       // heat 15 (the career stops at 5, mods at 10)
 constexpr uint16_t MAX_COOL_LEFT10 = 6000;   // 10 minutes

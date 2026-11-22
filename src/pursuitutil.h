@@ -47,14 +47,30 @@ namespace SharedPursuit {
     }
 
     // ---- cooldown ----------------------------------------------------------------------------------
+    // Design (1.7.1): each evade bar fills personally, vanilla, from whether cops see THAT player.
+    // Only the transition into cooldown is shared. A player whose bar is full cannot enter cooldown
+    // while the other is still seen or their bar is not full; both enter when both are ready (bars
+    // full / neither seen). Once in cooldown it is personal: the other player getting spotted does
+    // not cancel it. Busted and escape are personal. A disconnect, a busted peer, or a peer who is
+    // no longer in a pursuit falls back to solo (we enter when our own bar is full).
+    //
     // One side of a pursuit as the other game needs it (CarState::pursuitFlags / coolLeft10).
-    struct View { bool inPursuit; bool seen; bool cooling; float left; };
+    struct View {
+        bool inPursuit;
+        bool seen;      // its own cops see it (PURSUIT_SEEN)
+        bool cooling;   // already in PS_COOLDOWN
+        float left;
+        bool ready;     // evade bar full, or already cooling (PURSUIT_READY)
+        bool busted;
+    };
     inline View FromWire(uint8_t flags, uint16_t left10) {
-        View v;
+        View v{};
         v.inPursuit = (flags & PURSUIT_ACTIVE) != 0;
         v.seen = (flags & PURSUIT_SEEN) != 0;
         v.cooling = (flags & PURSUIT_COOLDOWN) != 0;
         v.left = left10 / 10.f;
+        v.ready = (flags & PURSUIT_READY) != 0 || v.cooling;
+        v.busted = (flags & PURSUIT_BUSTED) != 0;
         return v;
     }
     inline uint16_t LeftToWire(float left) {
@@ -64,16 +80,35 @@ namespace SharedPursuit {
     }
 
     enum class Cool {
-        Free,    // our game runs its cooldown as usual
-        Hold,    // the other player is still seen: ours must not start, and starts over (as if we were seen)
-        Delay,   // both out of sight but they need longer: hold ours back to their time, so you escape together
+        Free,    // vanilla: the evade bar fills or resets locally, cooldown may start or run
+        Wait,    // our bar is full; do not enter cooldown until the other player is also ready
     };
-    struct Decision { Cool what; float left; };   // left: the time ours should show (Delay)
-    inline Decision DecideCooldown(const View& me, const View& peer) {
-        if (!me.inPursuit || !peer.inPursuit) return { Cool::Free, 0.f };   // only one of you is chased
-        if (peer.seen) return { Cool::Hold, 0.f };
-        if (me.seen) return { Cool::Free, 0.f };                             // our own cops see us: the game resets it
-        if (peer.left > me.left + DELAY_SLACK_S) return { Cool::Delay, peer.left };
+    struct Decision { Cool what; float left; };   // left kept for the wire / logs; unused by Wait
+    // The exe float at 0x890D34: not seen this long in the current state starts cooldown.
+    constexpr float COOLDOWN_UNSEEN_S = 2.5f;
+    constexpr float WAIT_UNSEEN_SLACK_S = 0.05f;  // clamp just under the threshold so the bar stays full
+    inline float WaitUnseenInState(float threshold = COOLDOWN_UNSEEN_S) {
+        if (!(threshold > WAIT_UNSEEN_SLACK_S)) return 0.f;
+        return threshold - WAIT_UNSEEN_SLACK_S;
+    }
+    // Hidden long enough that vanilla would enter cooldown (or already in it). Seen resets the bar.
+    inline bool EvadeBarFull(bool seen, bool cooling, float unseenInState, float threshold = COOLDOWN_UNSEEN_S) {
+        if (seen) return false;
+        if (cooling) return true;
+        return threshold > 0.f && unseenInState + WAIT_UNSEEN_SLACK_S >= threshold;
+    }
+    // The other player blocks our entry into cooldown. Not once we are already in it.
+    inline bool PeerBlocksCooldown(const View& peer, bool peerConnected) {
+        if (!peerConnected) return false;          // disconnect: fall back to solo
+        if (!peer.inPursuit || peer.busted) return false;
+        if (peer.cooling || peer.ready) return false;
+        return true;                               // still seen, or hidden but their bar is not full yet
+    }
+    inline Decision DecideCooldown(const View& me, const View& peer, bool peerConnected = true) {
+        if (!me.inPursuit) return { Cool::Free, 0.f };
+        if (me.cooling) return { Cool::Free, 0.f };    // already in cooldown: personal, do not cancel
+        if (me.seen || !me.ready) return { Cool::Free, 0.f };  // vanilla fills or resets the bar
+        if (PeerBlocksCooldown(peer, peerConnected)) return { Cool::Wait, 0.f };
         return { Cool::Free, 0.f };
     }
 

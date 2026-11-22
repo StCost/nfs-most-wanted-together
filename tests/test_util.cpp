@@ -425,7 +425,7 @@ TEST(util_validation_rejects_bad_floats) {
     b = s; b.heat100 = MAX_HEAT100 + 1;    CHECK(!ValidCarState(b));
     b = s; b.heat100 = 0xFFFF;             CHECK(!ValidCarState(b));
     b = s; b.coolLeft10 = MAX_COOL_LEFT10 + 1; CHECK(!ValidCarState(b));
-    b = s; b.pursuitFlags = 0x10;          CHECK(!ValidCarState(b));   // a bit this build doesn't know
+    b = s; b.pursuitFlags = 0x20;          CHECK(!ValidCarState(b));   // a bit this build doesn't know
     b = s; b.pursuitFlags = 0x80;          CHECK(!ValidCarState(b));
     b = s; b.racePct = 100.0f; b.laps = 3; CHECK(ValidCarState(b));    // a finished race
 
