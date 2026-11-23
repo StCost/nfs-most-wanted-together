@@ -155,6 +155,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Blacklist pursuits (milestones, bounty) started from the Blacklist screen take your partner along to the start (`[Coop] FollowToPursuits`)
 - [x] One of you gets busted, you both get busted
 - [x] Escaping: whoever loses the cops first goes into cooldown, but the meter doesn't fill until you're both in cooldown. Then both meters run, a spot restarts the other one's, and you both escape at the same moment. This works in free roam and when you're both in the same event (Challenge Series, career pursuit events, races with cops)
+- [x] Cost to State and bounty count for both of you: cops either of you immobilizes or damages, roadblocks and spike strips dodged and property smashed while you're both in the pursuit are added to both players' totals, so the HUD, milestones, Challenge Series goals and the rap sheet match. Infractions stay personal
 - [x] The pursuit-start camera follows the game's own cinematic camera option in Settings
 - [x] `SharedPursuits=0`: busted and escape only affect the player being chased
 

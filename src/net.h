@@ -30,6 +30,7 @@ enum PacketType : uint16_t {
     PKT_MILESTONE = 21, // "I completed this milestone / speed trap" ([Career] SharedMilestones; older builds ignore it)
     PKT_TRAILER = 23,   // the trailers of the trucks in the PKT_TRAFFIC sent just before (older builds ignore it)
     PKT_RACEPROG = 24,  // host -> client: race progress of the host's AI opponents (older builds ignore it)
+    PKT_PSTATS  = 25,   // what the sender earned itself in its current pursuit (cost to state, bounty; older builds ignore it)
 };
 
 struct PacketHeader {
@@ -140,6 +141,13 @@ struct FollowPacket {
     PacketHeader h;
     uint32_t seq;
     float pos[3], fwd[3], right[3], quat[4];
+};
+// SharedPursuit::TallyStat order; cumulative for the pursuit `pursuitId` (a new pursuit, a new id)
+constexpr int PSTATS_COUNT = 13;
+struct PursuitStatsPacket {
+    PacketHeader h;
+    uint32_t pursuitId;
+    int32_t  v[PSTATS_COUNT];
 };
 struct WeatherPacket {
     PacketHeader h;
@@ -316,6 +324,9 @@ namespace Net {
     void SendRacerName(uint16_t id, const char* name);
     void SendRestart(uint32_t eventHash, uint32_t seq);
     void SendWeather(float rain, float cloud);
+    void SendPursuitStats(uint32_t pursuitId, const int32_t* v);   // PSTATS_COUNT values
+    // the latest one from the peer; recvCount goes up by one for every packet taken
+    bool PeerPursuitStats(uint32_t& pursuitId, int32_t* v, uint32_t& recvCount);
     bool PeerWeather(float& rain, float& cloud);              // the host's, if one came in the last 3 s      // a repeat carries the same seq
     void SendNisSkip(uint32_t sceneHash);
     void SendCarHit(uint16_t id, const float* dv);

@@ -443,3 +443,28 @@ TEST(packets_raceprog_bad_packets) {
     CHECK_EQ(g_rp.e[0].id, 1);
     Net::OnRaceProg = nullptr;
 }
+// ---- pursuit stats (PKT_PSTATS): cost to state / bounty the sender earned itself -----------------
+TEST(packets_pursuit_stats_round_trip_and_bad_values) {
+    NetFixture client(false);
+    Connect("Host");
+    uint32_t id = 0, n0 = 0, n = 0; int32_t v[PSTATS_COUNT] = {};
+    Net::PeerPursuitStats(id, v, n0);
+    PursuitStatsPacket p{};
+    p.h = Hdr(PKT_PSTATS, 5);
+    p.pursuitId = 3;
+    for (int i = 0; i < PSTATS_COUNT; ++i) p.v[i] = i * 10;
+    Inject(p);
+    REQUIRE(Net::PeerPursuitStats(id, v, n));
+    CHECK_EQ(n, n0 + 1);
+    CHECK_EQ(id, 3u);
+    CHECK_EQ(v[4], 40);
+    PursuitStatsPacket bad = p;
+    bad.h = Hdr(PKT_PSTATS, 6); bad.pursuitId = 4; bad.v[2] = -1;           // negative: refused
+    Inject(bad);
+    bad.h = Hdr(PKT_PSTATS, 7); bad.v[2] = 200000000;                       // absurd: refused
+    Inject(bad);
+    InjectRaw(&p, (int)sizeof(p) - 1);                                       // short: refused
+    Net::PeerPursuitStats(id, v, n);
+    CHECK_EQ(n, n0 + 1);
+    CHECK_EQ(id, 3u);
+}

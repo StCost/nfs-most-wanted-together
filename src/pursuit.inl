@@ -360,6 +360,114 @@ namespace {
     }
 }
 
+// ---- 7. cost to state / bounty: both players get credit (see SharedPursuit::TallyShare) ----
+//  IPursuit counters (only ever raised by the game; slot 56 0x40AA00 prices them into Cost to State):
+//    +0x13C cops immobilized (slot 38; also GManager stat "cops_destroyed_in_pursuit")  +0x154 roadblocks
+//    dodged (slot 58, stat "roadblocks_dodged")  +0x15C cops damaged (slot 60, "cops_damaged")  +0x16C spike
+//    strips dodged (slot 63, "tire_spikes_dodged")  +0x174 property damage $ (slot 61, via IPerpetrator
+//    slot 6 0x409410 which also adds to the perp's cost +0x20)  +0x158 +0x168 +0x17C +0x180 +0x184 +0x188
+//    the other priced counters (slots 59, 62, 64..67). The rap sheet (0x580170) reads them at the end.
+//  IPerpetrator bounty: +0x28 (slot 14 0x4094C0 adds) and +0x24 (slot 15 0x409480 adds); both are
+//    "bounty_in_pursuit" (0x601400). Not shared: helicopters deployed +0x150 / units +0x138 (the
+//    game sets those itself) and infractions (personal tickets).
+namespace {
+    constexpr uint32_t TallyOff[SharedPursuit::T_COUNT] = {
+        0x13C, 0x154, 0x158, 0x15C, 0x168, 0x16C, 0x174, 0x17C, 0x180, 0x184, 0x188, 0x28, 0x24 };
+    constexpr uintptr_t GM_SetStat = 0x5EDA20, GM_GetStat = 0x5EDBC0;
+    constexpr uintptr_t S_CopsDestroyedInPursuit = 0x891120, S_CopsDestroyed = 0x892EF0, S_Roadblocks = 0x892B98,
+                        S_Spikes = 0x892B7C, S_CopsDamaged = 0x890EB0;
+    SharedPursuit::TallyShare g_tally;
+    uint32_t g_tallyId = 0, g_tallyPeerCount = 0;
+    void*    g_tallyPursuit = nullptr;
+    DWORD    g_tallyNext = 0, g_tallySendUntil = 0;
+
+    bool TallyRead(void* pursuit, void* perp, int32_t* v) {
+        for (int i = 0; i < SharedPursuit::T_COUNT; ++i) {
+            void* base = i >= SharedPursuit::T_BOUNTY28 ? perp : pursuit;
+            v[i] = 0;
+            if (base && !Mem::Read((uintptr_t)base + TallyOff[i], v[i])) return false;
+            if (v[i] < 0) v[i] = 0;
+        }
+        return true;
+    }
+    void SetStat(uintptr_t name, float v) {
+        void* gm = nullptr;
+        if (Mem::Read(GManagerPtr, gm) && gm) ((void(__thiscall*)(void*, const char*, float))GM_SetStat)(gm, (const char*)name, v);
+    }
+    // only a stat the game already keeps in this context (an unset one reads -1)
+    void AddStatIfSet(uintptr_t name, int add) {
+        void* gm = nullptr;
+        if (add <= 0 || !Mem::Read(GManagerPtr, gm) || !gm) return;
+        float cur = ((float(__thiscall*)(void*, const char*))GM_GetStat)(gm, (const char*)name);
+        if (cur >= 0.f) SetStat(name, cur + (float)add);
+    }
+    void TallyApply(void* pursuit, void* perp, const int32_t* add) {
+        using namespace SharedPursuit;
+        for (int i = 0; i < T_COUNT; ++i) {
+            if (add[i] <= 0) continue;
+            if (i == T_PROPERTY) {
+                int32_t before = PRead<int32_t>(pursuit, TallyOff[i]);
+                if (perp) VCall<void(__thiscall*)(void*, int)>(perp, 6)(perp, add[i]);   // the game's own path
+                if (PRead<int32_t>(pursuit, TallyOff[i]) <= before)                     // not counted there: direct
+                    PWrite<int32_t>(pursuit, TallyOff[i], before + add[i]);
+            } else if (i == T_BOUNTY28) {
+                if (perp) VCall<void(__thiscall*)(void*, int)>(perp, 14)(perp, add[i]);  // the game's gates apply
+            } else if (i == T_BOUNTY24) {
+                if (perp) VCall<void(__thiscall*)(void*, int)>(perp, 15)(perp, add[i]);
+            } else {
+                PWrite<int32_t>(pursuit, TallyOff[i], PRead<int32_t>(pursuit, TallyOff[i]) + add[i]);
+            }
+        }
+        if (add[T_COPS_DESTROYED] > 0) {
+            SetStat(S_CopsDestroyedInPursuit, (float)PRead<int32_t>(pursuit, TallyOff[T_COPS_DESTROYED]));
+            AddStatIfSet(S_CopsDestroyed, add[T_COPS_DESTROYED]);
+        }
+        AddStatIfSet(S_Roadblocks, add[T_ROADBLOCKS]);
+        AddStatIfSet(S_Spikes, add[T_SPIKES]);
+        AddStatIfSet(S_CopsDamaged, add[T_COPS_DAMAGED]);
+    }
+}
+// live: our pursuit runs (not busted / escaped). joint: theirs runs too, in the same place.
+static void SharedTallyTick(void* pursuit, void* perp, bool live, bool joint) {
+    using namespace SharedPursuit;
+    DWORD now = GetTickCount();
+    if ((int)(now - g_tallyNext) < 0) return;
+    g_tallyNext = now + 250;
+    int32_t cur[T_COUNT];
+    if (live && pursuit != g_tallyPursuit) {
+        g_tallyPursuit = pursuit;
+        ++g_tallyId;
+        if (TallyRead(pursuit, perp, cur)) TallyStart(g_tally, cur);
+    }
+    if (!live) {
+        if (g_tally.live) { TallyStop(g_tally); g_tallySendUntil = now + 3000; }
+        g_tallyPursuit = nullptr;
+    } else if (TallyRead(pursuit, perp, cur)) {
+        TallyObserve(g_tally, cur);
+    }
+    uint32_t pid = 0, cnt = 0; int32_t theirs[T_COUNT];
+    if (Net::PeerPursuitStats(pid, theirs, cnt) && cnt != g_tallyPeerCount) {
+        g_tallyPeerCount = cnt;
+        TallyPeer(g_tally, pid, theirs, joint);
+    }
+    int32_t add[T_COUNT];
+    if (live && TallyToAdd(g_tally, add)) {
+        TallyApply(pursuit, perp, add);
+        if (TallyRead(pursuit, perp, cur)) TallyGave(g_tally, add, cur);
+        int cost = VCall<int(__thiscall*)(void*)>(pursuit, 56)(pursuit);
+        LOG("Pursuit: credit from the other player - cops immobilized +%d, damaged +%d, roadblocks +%d, spikes +%d, property $%d, "
+            "other $%lld, bounty +%d (cost to state here now $%d)",
+            add[T_COPS_DESTROYED], add[T_COPS_DAMAGED], add[T_ROADBLOCKS], add[T_SPIKES], add[T_PROPERTY],
+            (long long)(TallyCost(add) - 5000LL * add[T_COPS_DESTROYED] - 250LL * add[T_COPS_DAMAGED] - add[T_PROPERTY]),
+            add[T_BOUNTY28] + add[T_BOUNTY24], cost);
+    }
+    static DWORD nextSend = 0;
+    if ((g_tally.live || (int)(g_tallySendUntil - now) > 0) && (int)(now - nextSend) >= 0) {
+        nextSend = now + 500;
+        Net::SendPursuitStats(g_tallyId, g_tally.own);
+    }
+}
+
 static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     using namespace SharedPursuit;
     DWORD now = GetTickCount();
@@ -482,6 +590,8 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     if (!on) {
         g_sp.heat = {}; g_sp.bust = {}; g_sp.pendingBustUntil = 0; g_sp.lastCool = -1;
         g_sp.sentEvaded = false;
+        if (g_tally.live) SharedPursuit::TallyStop(g_tally);
+        g_tallyPursuit = nullptr;
         ApplySafehouseFlag(false);
         return;
     }
@@ -568,6 +678,14 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         if (!peerHere) g_sp.peerWasCooling = false;
     }
     g_sp.lastCool = coolNow;
+
+    // ---- 7. cost to state / bounty: what either of you earned counts for both ----
+    {
+        bool live = pursuit && (g_sp.flags & PURSUIT_ACTIVE) && !busted;
+        bool joint = live && peerHere && theirs.inPursuit && !theirs.busted;
+        void* perpAll = (pursuit && me) ? Find(me, IPerpetratorHandle) : nullptr;
+        SharedTallyTick(pursuit, perpAll, live, joint);
+    }
 
     // ---- 6. safehouse markers / entry: hidden until both are in cooldown (solo if they disconnect) ----
     ApplySafehouseFlag(freeRoam && HideSafehouse(mine, theirs, peerHere));

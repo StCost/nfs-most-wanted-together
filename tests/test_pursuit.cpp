@@ -365,3 +365,88 @@ TEST(pursuit_event_cooldown_waits_for_both_then_escapes_together) {
     host.evaded = true;                                                       // host's game ended it first
     CHECK(DecideCooldown(client, host, true, true).what == Cool::ForceEscape);
 }
+
+// ---- cost to state / bounty: both get credit (1.7.4) ------------------------------------------------
+namespace {
+    struct Tal { int32_t v[T_COUNT] = {}; };
+}
+TEST(pursuit_tally_sums_both_players_once) {
+    TallyShare a, b;
+    Tal ga, gb;                                              // the two games' counters
+    TallyStart(a, ga.v); TallyStart(b, gb.v);
+    // A immobilizes 2 of A's cops, B dodges a roadblock and smashes $1200 of property
+    ga.v[T_COPS_DESTROYED] = 2; gb.v[T_ROADBLOCKS] = 1; gb.v[T_PROPERTY] = 1200;
+    TallyObserve(a, ga.v); TallyObserve(b, gb.v);
+    TallyPeer(a, 1, b.own, true); TallyPeer(b, 1, a.own, true);
+    int32_t add[T_COUNT];
+    REQUIRE(TallyToAdd(a, add)); for (int i = 0; i < T_COUNT; ++i) ga.v[i] += add[i]; TallyGave(a, add, ga.v);
+    REQUIRE(TallyToAdd(b, add)); for (int i = 0; i < T_COUNT; ++i) gb.v[i] += add[i]; TallyGave(b, add, gb.v);
+    for (int i = 0; i < T_COUNT; ++i) CHECK_EQ(ga.v[i], gb.v[i]);   // both show the joint total
+    CHECK_EQ(ga.v[T_COPS_DESTROYED], 2);
+    CHECK_EQ(ga.v[T_PROPERTY], 1200);
+    CHECK_EQ(TallyCost(ga.v), 2 * 5000 + 1200);
+    // what was credited is never sent back as our own (no ping-pong growth)
+    TallyObserve(a, ga.v); TallyObserve(b, gb.v);
+    CHECK_EQ(a.own[T_ROADBLOCKS], 0);
+    CHECK_EQ(b.own[T_COPS_DESTROYED], 0);
+    TallyPeer(a, 1, b.own, true); TallyPeer(b, 1, a.own, true);
+    CHECK(!TallyToAdd(a, add));
+    CHECK(!TallyToAdd(b, add));
+    // the same packet again (UDP repeat) adds nothing
+    TallyPeer(a, 1, b.own, true);
+    CHECK(!TallyToAdd(a, add));
+}
+TEST(pursuit_tally_lost_packets_and_reorder) {
+    TallyShare a; Tal g; TallyStart(a, g.v);
+    Tal t1, t2, t3; t1.v[T_COPS_DAMAGED] = 1; t2.v[T_COPS_DAMAGED] = 3; t3.v[T_COPS_DAMAGED] = 4;
+    TallyPeer(a, 7, t1.v, true);
+    TallyPeer(a, 7, t3.v, true);                             // t2 was lost: cumulative, nothing is missed
+    TallyPeer(a, 7, t2.v, true);                             // a late copy of t2: ignored
+    int32_t add[T_COUNT]; TallyToAdd(a, add);
+    CHECK_EQ(add[T_COPS_DAMAGED], 4);
+}
+TEST(pursuit_tally_only_while_both_live) {
+    TallyShare a; Tal g;
+    Tal t; t.v[T_SPIKES] = 2;
+    TallyPeer(a, 5, t.v, true);                              // we have no pursuit yet: not ours
+    TallyStart(a, g.v);
+    int32_t add[T_COUNT];
+    CHECK(!TallyToAdd(a, add));
+    t.v[T_SPIKES] = 3;
+    TallyPeer(a, 5, t.v, false);                             // not joint (other event, a menu): not credited later
+    t.v[T_SPIKES] = 5;
+    TallyPeer(a, 5, t.v, true);                              // joint again: only what came now
+    TallyToAdd(a, add);
+    CHECK_EQ(add[T_SPIKES], 2);
+    TallyStop(a);                                            // our pursuit ended (escaped / busted)
+    t.v[T_SPIKES] = 9; TallyPeer(a, 5, t.v, true);
+    CHECK(!TallyToAdd(a, add));
+}
+TEST(pursuit_tally_new_pursuit_and_bank_reset) {
+    TallyShare a; Tal g; g.v[T_BOUNTY28] = 5000;             // pending bounty from before
+    TallyStart(a, g.v);
+    TallyObserve(a, g.v);
+    CHECK_EQ(a.own[T_BOUNTY28], 0);                          // only rises in this pursuit are ours
+    g.v[T_BOUNTY28] = 5600; TallyObserve(a, g.v);
+    CHECK_EQ(a.own[T_BOUNTY28], 600);
+    g.v[T_BOUNTY28] = 0; TallyObserve(a, g.v);               // the game banked it
+    CHECK_EQ(a.own[T_BOUNTY28], 600);
+    g.v[T_BOUNTY28] = 100; TallyObserve(a, g.v);
+    CHECK_EQ(a.own[T_BOUNTY28], 700);
+    // their new pursuit (new id) counts from 0 again
+    Tal t; t.v[T_BOUNTY24] = 800; TallyPeer(a, 1, t.v, true);
+    t.v[T_BOUNTY24] = 300; TallyPeer(a, 2, t.v, true);
+    int32_t add[T_COUNT]; TallyToAdd(a, add);
+    CHECK_EQ(add[T_BOUNTY24], 1100);
+    // garbage is clamped, never negative
+    t.v[T_PROPERTY] = -50; TallyPeer(a, 2, t.v, true);
+    TallyToAdd(a, add);
+    CHECK_EQ(add[T_PROPERTY], 0);
+}
+TEST(pursuit_tally_cost_formula) {
+    Tal t;
+    t.v[T_COPS_DESTROYED] = 1; CHECK_EQ(TallyCost(t.v), 5000);
+    t = Tal{}; t.v[T_COPS_DAMAGED] = 4; CHECK_EQ(TallyCost(t.v), 1000);
+    t = Tal{}; t.v[T_STAT188] = 1; t.v[T_STAT180] = 1; CHECK_EQ(TallyCost(t.v), 675);
+    t = Tal{}; t.v[T_BOUNTY28] = 999; CHECK_EQ(TallyCost(t.v), 0);   // bounty is not a cost
+}

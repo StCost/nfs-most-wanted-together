@@ -35,6 +35,7 @@ namespace {
     char        g_peerCarFile[MAX_PATH] = "";
     bool        g_haveLocalCar = false, g_havePeerCar = false;
     float       g_peerRain = 0, g_peerCloud = 0; uint32_t g_peerWeatherTick = 0;
+    uint32_t    g_peerPStatsId = 0, g_peerPStatsCount = 0; int32_t g_peerPStats[PSTATS_COUNT] = {};
     uint32_t    g_lastMilestoneId = 0;        // PKT_MILESTONE copies share an id
     uint32_t    g_lastCarSend = 0;
 
@@ -453,6 +454,15 @@ namespace {
             if (Net::OnRaceProg) Net::OnRaceProg(ok, k);
             break;
         }
+        case PKT_PSTATS: {
+            if (len < (int)sizeof(PursuitStatsPacket)) return;
+            const PursuitStatsPacket* p = (const PursuitStatsPacket*)buf;
+            for (int i = 0; i < PSTATS_COUNT; ++i) if (p->v[i] < 0 || p->v[i] > 100000000) return;
+            g_peerPStatsId = p->pursuitId;
+            memcpy(g_peerPStats, p->v, sizeof(g_peerPStats));
+            ++g_peerPStatsCount;
+            break;
+        }
         case PKT_WEATHER: {
             if (len < (int)sizeof(WeatherPacket) || g_cfg.isHost) return;
             const WeatherPacket* w = (const WeatherPacket*)buf;
@@ -784,6 +794,21 @@ void Net::SendWeather(float rain, float cloud) {
     FillHeader(p.h, PKT_WEATHER);
     p.rain = rain; p.cloud = cloud;
     SendRaw(&p, sizeof(p));
+}
+void Net::SendPursuitStats(uint32_t pursuitId, const int32_t* v) {
+    if (!g_stats.connected || !v) return;
+    PursuitStatsPacket p{};
+    FillHeader(p.h, PKT_PSTATS);
+    p.pursuitId = pursuitId;
+    memcpy(p.v, v, sizeof(p.v));
+    SendRaw(&p, sizeof(p));
+}
+bool Net::PeerPursuitStats(uint32_t& pursuitId, int32_t* v, uint32_t& recvCount) {
+    recvCount = g_peerPStatsCount;
+    if (!g_peerPStatsCount || !v) return false;
+    pursuitId = g_peerPStatsId;
+    memcpy(v, g_peerPStats, sizeof(g_peerPStats));
+    return true;
 }
 bool Net::PeerWeather(float& rain, float& cloud) {
     if (!g_stats.connected || !g_peerWeatherTick || Tick32() - g_peerWeatherTick > 3000) return false;

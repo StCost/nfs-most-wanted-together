@@ -106,7 +106,7 @@ namespace {
 
     constexpr uint16_t ALL_TYPES[] = { PKT_HELLO, PKT_STATE, PKT_PING, PKT_PONG, PKT_BYE, PKT_CAR, PKT_TRAFFIC,
                                        PKT_EVENT, PKT_ROSTER, PKT_RACERNAME, PKT_RESTART, PKT_NISSKIP,
-                                       PKT_FILE, PKT_FILEACK, PKT_FILEREQ, PKT_NOFILE, PKT_RACEPROG };
+                                       PKT_FILE, PKT_FILEACK, PKT_FILEREQ, PKT_NOFILE, PKT_RACEPROG, PKT_PSTATS };
     // any packet type; a bye only now and then, or the run would sit in the 2 s "ignore after bye"
     // window most of the time
     uint16_t PickType(Rng& r) {
@@ -130,6 +130,7 @@ namespace {
         case PKT_FILEREQ: return sizeof(FileReqPacket);
         case PKT_NOFILE: return sizeof(PacketHeader);
         case PKT_RACEPROG: return sizeof(RaceProgPacket);
+        case PKT_PSTATS: return sizeof(PursuitStatsPacket);
         }
         return sizeof(PacketHeader);
     }

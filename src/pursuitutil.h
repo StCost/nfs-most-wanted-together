@@ -198,6 +198,79 @@ namespace SharedPursuit {
         return true;
     }
 
+    // ---- cost to state / bounty: both players get credit (1.7.4) ------------------------------------
+    // Each game runs its own pursuit with its own cops, roadblocks and spike strips; the other
+    // player's cops are only mirrors here (not in our pursuit) and their car is a ghost that never
+    // counts as our hit. So every immobilized cop, dodged roadblock or smashed prop is counted
+    // exactly once, in ONE of the two games. The joint total is therefore the SUM of the two
+    // players' own counts (a max would drop whatever the other player did differently, and no event
+    // is in both, so the sum can't count one twice).
+    // Rule: each side sends what it earned itself in its current pursuit (never what it was
+    // credited), cumulative, so a lost packet loses nothing. The other side credits only what they
+    // gained while both pursuits were live together, and adds it to its own pursuit counters, so
+    // the HUD Cost to State, the milestone / Challenge goals, the rap sheet and the bounty all see
+    // the joint total. Infractions stay personal: they are tickets against your own car.
+    enum TallyStat {
+        T_COPS_DESTROYED, T_ROADBLOCKS, T_STAT158, T_COPS_DAMAGED, T_STAT168, T_SPIKES,
+        T_PROPERTY, T_STAT17C, T_STAT180, T_STAT184, T_STAT188, T_BOUNTY28, T_BOUNTY24, T_COUNT
+    };
+    constexpr int32_t TALLY_MAX = 100000000;   // $100M / 100M units: anything above is garbage
+    struct TallyShare {
+        bool     live = false;          // our pursuit is running
+        int32_t  last[T_COUNT] = {};    // the game's values at our last look
+        int32_t  own[T_COUNT] = {};     // what we earned ourselves in this pursuit (sent)
+        int32_t  owed[T_COUNT] = {};    // their gains while both were live (to credit here)
+        int32_t  given[T_COUNT] = {};   // what we already added to our counters
+        uint32_t peerId = 0;            // their pursuit (a new id starts at 0)
+        int32_t  peerPrev[T_COUNT] = {};
+    };
+    inline int32_t ClampTally(int64_t v) { return v < 0 ? 0 : v > TALLY_MAX ? TALLY_MAX : (int32_t)v; }
+    // our pursuit started (a new pursuit object): count from the game's values now
+    inline void TallyStart(TallyShare& t, const int32_t cur[T_COUNT]) {
+        t.live = true;
+        for (int i = 0; i < T_COUNT; ++i) { t.last[i] = cur[i]; t.own[i] = t.owed[i] = t.given[i] = 0; }
+    }
+    inline void TallyStop(TallyShare& t) { t.live = false; }
+    // the game's values now: rises are ours. A drop (the game banked / reset it) is not a gain, and
+    // what we gave stays given (nothing is credited twice).
+    inline void TallyObserve(TallyShare& t, const int32_t cur[T_COUNT]) {
+        if (!t.live) return;
+        for (int i = 0; i < T_COUNT; ++i) {
+            if (cur[i] > t.last[i]) t.own[i] = ClampTally((int64_t)t.own[i] + (cur[i] - t.last[i]));
+            t.last[i] = cur[i];
+        }
+    }
+    // their own counts (cumulative for their pursuit `id`). joint: both pursuits are live together
+    // (and in the same place). Gains made while not joint are never credited later.
+    inline void TallyPeer(TallyShare& t, uint32_t id, const int32_t theirs[T_COUNT], bool joint) {
+        if (id != t.peerId) { t.peerId = id; for (int i = 0; i < T_COUNT; ++i) t.peerPrev[i] = 0; }
+        for (int i = 0; i < T_COUNT; ++i) {
+            int32_t v = ClampTally(theirs[i]);
+            if (v <= t.peerPrev[i]) continue;           // old / reordered copy, or nothing new
+            if (joint && t.live) t.owed[i] = ClampTally((int64_t)t.owed[i] + (v - t.peerPrev[i]));
+            t.peerPrev[i] = v;
+        }
+    }
+    // what to add to our counters now; call TallyGave with the same values once they are added
+    inline bool TallyToAdd(const TallyShare& t, int32_t add[T_COUNT]) {
+        bool any = false;
+        for (int i = 0; i < T_COUNT; ++i) {
+            add[i] = t.live && t.owed[i] > t.given[i] ? t.owed[i] - t.given[i] : 0;
+            any = any || add[i] > 0;
+        }
+        return any;
+    }
+    // after adding: the game's values now (what changed meanwhile is the credit, not our own)
+    inline void TallyGave(TallyShare& t, const int32_t add[T_COUNT], const int32_t curAfter[T_COUNT]) {
+        for (int i = 0; i < T_COUNT; ++i) { t.given[i] = ClampTally((int64_t)t.given[i] + add[i]); t.last[i] = curAfter[i]; }
+    }
+    // the game's own Cost to State formula (IPursuit slot 56, 0x40AA00) over the counters we share,
+    // for the log and the tests: cops immobilized $5000, damaged $250, property damage at cost ...
+    inline int64_t TallyCost(const int32_t v[T_COUNT]) {
+        int64_t a = 2 * (10LL * v[T_COPS_DESTROYED] + v[T_STAT168] + v[T_STAT158]) + v[T_STAT184] + v[T_STAT17C] + v[T_COPS_DAMAGED];
+        return a * 250 + 225LL * (v[T_STAT180] + 2LL * v[T_STAT188]) + v[T_PROPERTY];
+    }
+
     // ---- busted ------------------------------------------------------------------------------------
     // CarState::bustSeq counts the sender's own busts. True once for every change after the first value
     // we saw (the first one only tells us where they are).
