@@ -36,8 +36,8 @@ TestPressStart=1
 
 `TestSkipIntro` drops the EA logo, PSA and attract movie from the boot table. `TestPressStart` presses
 START on `WS_MW_LS_Splash.fng` / `MW_LS_Splash.fng`, including when the game is unfocused. After that,
-`[Start] SkipLoadComplete` (still a normal setting) can confirm the profile load screen. Career free roam
-is started with the `freeroam` command, not a user option.
+`[Start] SkipLoadComplete=1` (dev builds only; a release ASI ignores it) can confirm the profile load
+screen. Career free roam is started with the `freeroam` command, not a user option.
 
 `tools\ingame.ps1` is the shared launch helper: it presses START if the splash is still up, then sends
 `freeroam`. `tools\coop-test.ps1` uses it from `Start-Game`. Dot-source that helper from any new in-game
@@ -294,7 +294,7 @@ A pass looks like this (both PCs on fresh careers, linked):
 5. Install the release zip into a copy of the game **without** the Widescreen Fix (and once with it), start
    `speed.exe` as usual: the plain game's title screen is `MW_LS_Splash.fng`, the fixed
    game's `WS_MW_LS_Splash.fng`. A release ASI does not honour `TestSkipIntro` / `TestPressStart`; press
-   START yourself. AutoStart and TestSkipIntro / TestPressStart exist only in dev builds (see section 2).
+   START yourself. AutoStart, SkipLoadComplete, StartInBackground, AutoPilot, and TestSkipIntro / TestPressStart exist only in dev builds (see section 2).
    and should not stall at intro or Press START.
 6. Update the checklist in `README.md`: a new feature gets `(?)` until it was seen working on two PCs.
 

@@ -42,8 +42,13 @@ void Config::Load(const char* ini) {
     noSpeedbreaker = ReadInt(ini, "Coop", "NoSpeedbreaker", 1) != 0;
     noPause = ReadInt(ini, "Coop", "NoPause", 1) != 0;
     runInBackground = ReadInt(ini, "Coop", "RunInBackground", 1) != 0;
+#ifdef MWT_DEVTOOLS
     autoPilot = ReadInt(ini, "Debug", "AutoPilot", 0) != 0;
     autoPilotNos = ReadInt(ini, "Debug", "AutoPilotNos", 1) != 0;
+#else
+    autoPilot = false;           // release ignores [Debug] AutoPilot
+    autoPilotNos = ReadInt(ini, "Debug", "AutoPilotNos", 1) != 0;
+#endif
     syncControls = ReadInt(ini, "Ghost", "SyncControls", 1) != 0;
     syncDamage = ReadInt(ini, "Ghost", "SyncDamage", 1) != 0;
     perf = ReadInt(ini, "Debug", "Perf", 0) != 0;
@@ -56,7 +61,11 @@ void Config::Load(const char* ini) {
     coopPrologue = ReadInt(ini, "Coop", "Prologue", 1) != 0;
     catchUpLeader = ReadInt(ini, "Coop", "CatchUpLeader", 1) != 0;
     bossHelper = ReadInt(ini, "Coop", "BossHelper", 1) != 0;
+#ifdef MWT_DEVTOOLS
     bossHelperSolo = ReadInt(ini, "Debug", "BossHelperSolo", 0) != 0;
+#else
+    bossHelperSolo = false;
+#endif
     noSlowMotion = ReadInt(ini, "Coop", "NoSlowMotion", 0) != 0;
     partnerInRivalRaces = ReadInt(ini, "Coop", "PartnerInRivalRaces", 1) != 0;
     syncWeather = ReadInt(ini, "Coop", "SyncWeather", 1) != 0;
@@ -65,8 +74,16 @@ void Config::Load(const char* ini) {
     sharedPursuits = ReadInt(ini, "Coop", "SharedPursuits", 1) != 0;
     syncStoryScenes = ReadInt(ini, "Coop", "SyncStoryScenes", 1);
     if (syncStoryScenes < 0 || syncStoryScenes > 2) syncStoryScenes = 1;
+#ifdef MWT_DEVTOOLS
     readyDelayMs = ReadInt(ini, "Debug", "ReadyDelayMs", 0);
+#else
+    readyDelayMs = 0;
+#endif
+#ifdef MWT_DEVTOOLS
     startInBackground = ReadInt(ini, "Window", "StartInBackground", 0) != 0;
+#else
+    startInBackground = false;   // release ignores [Window] StartInBackground
+#endif
     gameNotices = ReadInt(ini, "UI", "GameNotices", 1) != 0;
     hideHudKey = ReadInt(ini, "UI", "HideHudKey", 0x70);
     noticeSeconds = ReadInt(ini, "UI", "NoticeSeconds", 10);
@@ -76,7 +93,11 @@ void Config::Load(const char* ini) {
     keepPadBindings = ReadInt(ini, "Input", "KeepPadBindings", 1) != 0;
     lastProfile = ReadStr(ini, "Start", "LastProfile", "");
     iniFile = ini ? ini : "";
-    skipLoadComplete = ReadInt(ini, "Start", "SkipLoadComplete", 1) != 0;
+#ifdef MWT_DEVTOOLS
+    skipLoadComplete = ReadInt(ini, "Start", "SkipLoadComplete", 0) != 0;
+#else
+    skipLoadComplete = false;   // release ignores [Start] SkipLoadComplete
+#endif
     streamAroundPeer = ReadInt(ini, "Coop", "StreamAroundPeer", 1) != 0;
     uiIntroInput = ReadInt(ini, "UI", "IntroInput", 1) != 0;
     uiMenuSpeed  = ReadInt(ini, "UI", "MenuSpeed", 2);

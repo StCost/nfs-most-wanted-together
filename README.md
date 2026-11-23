@@ -156,10 +156,8 @@ You can play the prologue (the opening BMW races) together too: start a new care
 </details>
 <details><summary><b>Quality of life (settings in <code>[Start]</code>, <code>[UI]</code> and <code>[Input]</code>)</b></summary>
 
-- [x] Can confirm the profile "load complete" screen by itself (`SkipLoadComplete`)
 - [x] Several profiles: the quick start loads the one you used last (`[Start] LastProfile`); the first time you pick it yourself
 - [x] **F1** hides the minimap, heat meter and speedometer, keeping the rear-view mirror. F1 again brings them back (`[UI] HideHudKey`)
-- [x] Confirms the "load complete" screen for you (`SkipLoadComplete`)
 
 - [x] Menus react during their opening animation and animate twice as fast (`IntroInput`, `MenuSpeed`)
 
@@ -170,8 +168,8 @@ You can play the prologue (the opening BMW races) together too: start a new care
 </details>
 <details><summary><b>Test tools (<code>[Debug] TestKeys=1</code>)</b></summary>
 
-- [x] **F5** autopilot: the game's AI drives your car around free roam or along the race route, using nitrous on straights (`AutoPilot`, `AutoPilotNos`)
-- [x] `[Window] StartInBackground=1`: the game starts without stealing focus, goes into free roam in the background and stays muted until you click it
+- [x] **F5** autopilot (dev builds only): the game's AI drives your car around free roam or along the race route, using nitrous on straights (`AutoPilot`, `AutoPilotNos`). A release ASI ignores `AutoPilot=1`.
+- [x] `[Window] StartInBackground=1` (dev builds only): the game starts without stealing focus, can boot in the background and stays muted until you click it. A release ASI ignores this key.
 - [x] Car budget log: the game fits 20 cars in the world (both players, traffic, cops). The log says which cars got removed or refused to make room, plus a summary every 30 s
 - [x] `[Debug] Perf=1` logs fps, 1% lows, the worst frame and the mod's own cost every 5 seconds (also in the F8 overlay)
 - [x] **F7** starts the test event (`TestEvent`) for both players

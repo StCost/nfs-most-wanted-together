@@ -44,6 +44,7 @@ TEST(config_defaults_when_file_is_missing) {
     CHECK(c.trafficNoSpawnNearPlayers);
     CHECK(c.noSpeedbreaker); CHECK(c.noPause); CHECK(c.runInBackground); CHECK(c.streamAroundPeer);
     CHECK(!c.autoStart);
+    CHECK(!c.skipLoadComplete);
     CHECK_STR(c.autoStartTarget, "freeroam");
     CHECK(c.uiIntroInput);
     CHECK_EQ(c.uiMenuSpeed, 2);
@@ -69,7 +70,7 @@ TEST(config_parses_values) {
         "[Ghost]\r\nEnabled=0\r\nInterpDelayMs=150\r\nCollisions=0\r\nSafeDistance=25\r\n"
         "[Traffic]\r\nSync=0\r\nMirrorClass=6\r\nSharedInRaces=0\r\nSmoothHandover=0\r\nNoSpawnNearPlayers=0\r\n"
         "[Coop]\r\nNoSpeedbreaker=0\r\nNoPause=0\r\nRunInBackground=0\r\nStreamAroundPeer=0\r\nSyncStoryScenes=2\r\nSharedPursuits=0\r\nNoPursuitCams=0\r\nBossHelper=0\r\n"
-        "[Start]\r\nSkipIntro=0\r\nDirectFreeRoam=0\r\nSkipLeaveSafeHouseDialog=0\r\n"
+        "[Start]\r\nSkipIntro=0\r\nDirectFreeRoam=0\r\nSkipLeaveSafeHouseDialog=0\r\nSkipLoadComplete=1\r\n"
         "[AutoStart]\r\nEnabled=0\r\nTarget=race\r\nDelayMs=10\r\nIntervalMs=20\r\nSequence=ENTER,ENTER\r\n"
         "[UI]\r\nIntroInput=0\r\nMenuSpeed=3\r\nSkipPursuitResults=1\r\nNoticeSeconds=15\r\n"
         "[Input]\r\nGamepadHotplug=0\r\nKeepPadBindings=0\r\n"
@@ -102,10 +103,11 @@ TEST(config_parses_values) {
     CHECK(!c.gamepadHotplug); CHECK(!c.keepPadBindings);
     CHECK_EQ(c.syncStoryScenes, 2);
     CHECK(!c.sharedPursuits);
-    CHECK(!c.bossHelper); CHECK(c.bossHelperSolo);
+    CHECK(!c.bossHelper); CHECK(!c.bossHelperSolo);   // BossHelperSolo is ignored without MWT_DEVTOOLS
     CHECK(!c.hideCursor);
-    CHECK(c.startInBackground);
-    CHECK(c.showOverlay); CHECK(c.testKeys); CHECK(c.autoPilot); CHECK(c.perf);
+    CHECK(!c.startInBackground);                      // StartInBackground is ignored without MWT_DEVTOOLS
+    CHECK(!c.skipLoadComplete);                       // SkipLoadComplete is ignored without MWT_DEVTOOLS
+    CHECK(c.showOverlay); CHECK(c.testKeys); CHECK(!c.autoPilot); CHECK(c.perf);
     CHECK_EQ(c.toggleKey, 0x7A);                     // hex is accepted
     CHECK_STR(c.testEvent, "1.2.3");
 }
@@ -117,6 +119,19 @@ TEST(config_release_ignores_autostart_enabled) {
     CHECK_EQ(c.autoStartDelayMs, 10);
     CHECK_EQ(c.autoStartIntervalMs, 20);
     CHECK_STR(c.autoStartSequence, "ENTER");
+}
+
+TEST(config_release_ignores_test_boot_automation) {
+    // SkipLoadComplete, StartInBackground, AutoPilot, BossHelperSolo and ReadyDelayMs are dev-only.
+    Config c = LoadText(
+        "[Start]\r\nSkipLoadComplete=1\r\n"
+        "[Window]\r\nStartInBackground=1\r\n"
+        "[Debug]\r\nAutoPilot=1\r\nBossHelperSolo=1\r\nReadyDelayMs=5000\r\n");
+    CHECK(!c.skipLoadComplete);
+    CHECK(!c.startInBackground);
+    CHECK(!c.autoPilot);
+    CHECK(!c.bossHelperSolo);
+    CHECK_EQ(c.readyDelayMs, 0);
 }
 
 
@@ -192,7 +207,7 @@ TEST(config_long_and_odd_strings) {
 
 TEST(config_shipped_ini_matches_built_in_defaults) {
     // MWTogether.ini in the repository is what players get: it must load to the same values as no
-    // file at all. AutoStart is not shipped (dev builds may still read it from a local ini).
+    // file at all. AutoStart and SkipLoadComplete are not shipped (dev builds may still read them from a local ini).
     char exe[MAX_PATH];
     GetModuleFileNameA(nullptr, exe, MAX_PATH);
     std::string dir = exe;
@@ -230,6 +245,8 @@ TEST(config_shipped_ini_matches_built_in_defaults) {
     CHECK_EQ(shipped.bossHelper, def.bossHelper);
     CHECK_EQ(shipped.coopPrologue, def.coopPrologue);
     CHECK_EQ(shipped.autoStart, def.autoStart);
+    CHECK_EQ(shipped.skipLoadComplete, def.skipLoadComplete);
+    CHECK(!shipped.skipLoadComplete);
     CHECK_STR(shipped.autoStartTarget, def.autoStartTarget);
     CHECK_STR(shipped.autoStartSequence, def.autoStartSequence);
     CHECK_EQ(shipped.uiIntroInput, def.uiIntroInput);

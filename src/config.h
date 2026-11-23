@@ -23,7 +23,7 @@ struct Config {
     bool        noSpeedbreaker = true;   // [Coop] NoSpeedbreaker
     bool        noPause = true;          // [Coop] NoPause - the world keeps running while a pause menu / map is open (connected only)
     bool        streamAroundPeer = true; // [Coop] StreamAroundPeer - load the world around the other player (full physics there)
-    bool        skipLoadComplete = true; // [Start] SkipLoadComplete - confirm the "load complete" screen by itself
+    bool        skipLoadComplete = false; // [Start] SkipLoadComplete - dev only: confirm the profile load screen
     std::string lastProfile;             // [Start] LastProfile - written by the mod: the profile loaded last
     std::string iniFile;                 // the ini this was loaded from (the mod writes LastProfile there)
     bool        gameNotices = true;       // [UI] GameNotices - notices in the game's message line (centre of the screen; banner in cutscenes / menus)
@@ -31,7 +31,7 @@ struct Config {
     int         noticeSeconds = 10;       // [UI] NoticeSeconds - how long a notice stays on screen (2..60)
     bool        gamepadHotplug = true;    // [Input] GamepadHotplug - pick up pads connected while the game runs
     bool        keepPadBindings = true;   // [Input] KeepPadBindings - starting without the pad keeps its bindings
-    bool        startInBackground = false; // [Window] StartInBackground - give focus back on start, game muted until clicked
+    bool        startInBackground = false; // [Window] StartInBackground - dev only: return focus, boot muted in the background
     bool        restoreOnlyMissing = true; // [Career] RestoreOnlyMissing - the host restores our save only if it is gone
     bool        syncWeather = true;
     bool        followToPursuits = true; // [Coop] FollowToPursuits - come along when the other player starts a Blacklist pursuit      // [Coop] SyncWeather - the client shows the host's rain

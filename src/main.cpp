@@ -626,6 +626,15 @@ BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
         Together::Init(iniPath.c_str());
 #ifndef MWT_DEVTOOLS
         if (g_cfg.testKeys) LOG("Debug: TestKeys=1 has no effect - this is a release build without test keys and commands");
+        if (!g_cfg.iniFile.empty()) {
+            const char* ini = g_cfg.iniFile.c_str();
+            if (GetPrivateProfileIntA("Start", "SkipLoadComplete", 0, ini) != 0)
+                LOG("Start: SkipLoadComplete=1 has no effect - this is a release build (dev only)");
+            if (GetPrivateProfileIntA("Window", "StartInBackground", 0, ini) != 0)
+                LOG("Window: StartInBackground=1 has no effect - this is a release build (dev only)");
+            if (GetPrivateProfileIntA("Debug", "AutoPilot", 0, ini) != 0)
+                LOG("Debug: AutoPilot=1 has no effect - this is a release build (dev only)");
+        }
 #endif
         Net::SetDataDir(g_dir);
         Game::SetDataDir(g_dir);

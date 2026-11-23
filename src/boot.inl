@@ -1,6 +1,6 @@
 // Included from game.cpp (after stream.inl).
 // ---------------------------------------------------------------------------
-// Fast start leftovers: [Start] SkipLoadComplete still confirms the profile load screen.
+// Fast start leftovers: [Start] SkipLoadComplete (dev builds only) confirms the profile load screen.
 // DebugFreeRoam (test command) can still jump into career free roam. The old SkipIntro /
 // DirectFreeRoam / SkipLeaveSafeHouseDialog settings and hooks are gone.
 // ---------------------------------------------------------------------------

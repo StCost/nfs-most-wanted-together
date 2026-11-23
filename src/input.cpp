@@ -164,8 +164,8 @@ bool Input::KeyDown(int vk) {
 // Keys are sent as real keyboard events (SendInput with scan codes). The game's menus read arrow keys
 // from real input only: DirectInput-state injection worked for Enter but not for arrows. SendInput goes
 // to whatever window is focused, so we ONLY send while the game window is in the foreground.
-// Release builds do not import SendInput: AutoStart / Macro / test taps are dev-only, and
-// SkipLoadComplete confirms the profile screen through the front-end message path.
+// Release builds do not import SendInput: AutoStart / Macro / test taps are dev-only.
+// SkipLoadComplete (dev only) confirms the profile screen through the front-end message path.
 static void SendScan(unsigned char dik, bool up) {
     INPUT in{};
     in.type = INPUT_KEYBOARD;
