@@ -2,6 +2,7 @@
 // Races in co-op: the decisions that don't need the game, so the test suite covers them
 // (tests\test_race.cpp). coopwin.inl and traffic.inl read the game, ask these, and do what they say.
 #include <cstdint>
+#include <cmath>
 
 namespace CoopRace {
     constexpr int kTypeSprint = 0, kTypeCircuit = 1, kTypeDrag = 2, kTypeKnockout = 3,
@@ -179,5 +180,48 @@ namespace CoopRace {
             return false;                           // they're loaded too (holding, or already past it)
         if (in.peerElsewhere && in.heldMs >= kLoadHoldElsewhereMs) return false;
         return true;
+    }
+
+    // An event start with no grid slot for the other player (their racer isn't one of ours, or both games
+    // put the two cars on one spot): where to show them. The grid is read from the cars around us - how far
+    // apart a row's cars stand side by side, and how far the rows are apart - and the first free slot is
+    // taken: straight behind us, then the slots beside that one, then the free one beside us in our row,
+    // then two rows back. Only slots the grid shows exist are used (no car beside anyone: no side slots), so
+    // they are not off the road; with nothing to read, one car length straight behind us, as before.
+    struct GridCar { float along, side; };          // another car, relative to us: metres ahead (+) / right (+)
+    constexpr float kGridSlotFree = 3.0f;           // no car's centre within this of a slot
+    constexpr float kGridDefaultRow = 6.0f;
+    inline bool GridSlotFor(const GridCar* cars, int n, float& along, float& side) {
+        float row = 0.f, width = 0.f;
+        for (int i = 0; i < n; ++i) {
+            float a = fabsf(cars[i].along), w = fabsf(cars[i].side);
+            if (!(a < 40.f) || !(w < 40.f)) continue;
+            if (a < 2.f && w >= 2.5f && w <= 8.f && (width == 0.f || w < width)) width = w;   // beside us
+            if (w < 2.f && a >= 4.f && a <= 15.f && (row == 0.f || a < row)) row = a;       // in our lane
+        }
+        // a staggered grid: the nearest car of the next row stands diagonally - its offsets still give both
+        if (width == 0.f || row == 0.f)
+            for (int i = 0; i < n; ++i) {
+                float a = fabsf(cars[i].along), w = fabsf(cars[i].side);
+                if (a >= 2.f && a <= 15.f && w >= 2.5f && w <= 8.f) {
+                    if (width == 0.f) width = w;
+                    if (row == 0.f) row = a;
+                }
+            }
+        if (row == 0.f) row = kGridDefaultRow;
+        struct Cand { float a, s; bool beside; };
+        Cand c[7] = { { -row, 0.f, false }, { -row, width, true }, { -row, -width, true }, { 0.f, width, true },
+                      { 0.f, -width, true }, { -2.f * row, 0.f, false }, { -2.f * row, width, true } };
+        for (const Cand& k : c) {
+            if (k.beside && width == 0.f) continue;
+            bool free = true;
+            for (int i = 0; i < n && free; ++i) {
+                float da = cars[i].along - k.a, ds = cars[i].side - k.s;
+                if (da * da + ds * ds < kGridSlotFree * kGridSlotFree) free = false;
+            }
+            if (free) { along = k.a; side = k.s; return true; }
+        }
+        along = -kGridDefaultRow; side = 0.f;      // all taken: behind us as before
+        return false;
     }
 }

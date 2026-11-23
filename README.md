@@ -125,6 +125,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Joining from far away still gives the other player a spot in the standings (in an AI car's body if their car isn't loaded on your PC yet)
 - [x] Separate grid slots, and you see each other from the countdown on (`SeparateGridSlots`)
 - [x] Whoever loads first keeps the loading screen up until the other has loaded too, so both intro cutscenes start together; any difference left is evened out on the grid, without a message (`StartTogether`)
+- [x] At a start with no grid slot of its own for your partner, their car is shown on a free slot of the grid around you (behind you, or beside that, or beside you), never on top of a rival
 - [x] Restart restarts the race for both of you, from the results screen too
 - [x] AI catch-up (rubber banding) follows whoever of you is ahead, Blacklist rivals included (`CatchUpLeader`)
 - [x] Race intro cutscenes play for both

@@ -706,14 +706,41 @@ namespace {
     // deleted and our pointer then drove a cop or traffic car (seen as "his car turned into a taxi").
     void* g_keepCars[64] = {};                // every car we spawned (the other player's car, mirrors)
     uint32_t g_keepWid[64] = {};              // their world ids: the same address may later hold another car
-    // one car length (6 m) straight behind a car, at its height, facing the same way: where the other player is
-    // shown when both games put the two cars on the same start spot
+    // where the other player is shown when both games put the two cars on the same start spot: a free slot
+    // of the grid around us (CoopRace::GridSlotFor - behind us, beside that, beside us), at our height,
+    // facing the same way. With no cars around, one car length (6 m) straight behind us.
     void BehindUs(void* rb, float out[3]) {
         __try {
             float f[3];
             VCall<void(__thiscall*)(void*, float*)>(rb, 13 /*GetForwardVector*/)(rb, f);
             const float* p = RB_GetVec(rb, RB_GetPosition);
-            out[0] = p[0] - f[0] * 6.f; out[1] = p[1]; out[2] = p[2] - f[2] * 6.f;
+            float fl = sqrtf(f[0] * f[0] + f[2] * f[2]);
+            if (!(fl > 0.1f)) { out[0] = p[0] - f[0] * 6.f; out[1] = p[1]; out[2] = p[2] - f[2] * 6.f; return; }
+            float fx = f[0] / fl, fz = f[2] / fl, rx = fz, rz = -fx;        // forward and right on the ground
+            CoopRace::GridCar cars[24]; int n = 0;
+            void* self = LocalVehicle();
+            void** b = nullptr;
+            int total = ListSize(VL_ALL, &b);
+            for (int i = 0; i < total && n < 24; ++i) {
+                void* iv = ListGet(VL_ALL, i);
+                if (!iv || iv == self || iv == g_ghost || !IsVehicle(iv)) continue;
+                void* orb = RigidBodyOf(iv);
+                if (!orb) continue;
+                const float* q = RB_GetVec(orb, RB_GetPosition);
+                if (!q) continue;
+                float dx = q[0] - p[0], dy = q[1] - p[1], dz = q[2] - p[2];
+                if (fabsf(dy) > 4.f || dx * dx + dz * dz > 40.f * 40.f) continue;
+                cars[n].along = dx * fx + dz * fz; cars[n].side = dx * rx + dz * rz; ++n;
+            }
+            float along = 0.f, side = 0.f;
+            bool found = CoopRace::GridSlotFor(cars, n, along, side);
+            out[0] = p[0] + fx * along + rx * side; out[1] = p[1]; out[2] = p[2] + fz * along + rz * side;
+            static float lastA = 1e9f, lastS = 1e9f;
+            if (along != lastA || side != lastS) {
+                lastA = along; lastS = side;
+                LOG("Start: the other player shown on a grid slot %.1f m %s, %.1f m %s of us (%d car(s) around%s)",
+                    fabsf(along), along < 0 ? "behind" : "ahead", fabsf(side), side < 0 ? "left" : "right", n, found ? "" : ", all slots taken");
+            }
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
     uint32_t WorldIdOf(void* iv) {            // ISimable slot 28 (0x686AF0): unique per car, never reused

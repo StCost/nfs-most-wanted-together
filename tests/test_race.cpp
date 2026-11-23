@@ -347,3 +347,41 @@ TEST(race_load_hold_never_without_reason) {
 TEST(race_grid_stage_is_2_or_3_only) {
     CHECK(!OnGridStage(0) && !OnGridStage(1) && OnGridStage(2) && OnGridStage(3) && !OnGridStage(kStageLoadHeld));
 }
+
+// ---- a grid slot for the other player (1.7.5) ----------------------------------------------------
+TEST(race_grid_slot_nothing_around_is_behind_us) {
+    float a = 0, s = 0;
+    CHECK(GridSlotFor(nullptr, 0, a, s));
+    CHECK(a == -kGridDefaultRow && s == 0.f);
+}
+TEST(race_grid_slot_skips_a_rival_behind_us) {
+    // a 2-wide grid: a car beside us (4.5 m right), one straight behind (7 m), one behind-right
+    GridCar cars[] = { { 0.f, 4.5f }, { -7.f, 0.f }, { -7.f, 4.5f } };
+    float a = 0, s = 0;
+    CHECK(GridSlotFor(cars, 3, a, s));
+    CHECK(fabsf(a + 7.f) < 0.01f && fabsf(s + 4.5f) < 0.01f);    // behind-left: the free one of that row
+}
+TEST(race_grid_slot_reads_the_row_spacing) {
+    GridCar cars[] = { { 9.f, 0.f } };          // the car ahead of us, 9 m: rows are 9 m apart
+    float a = 0, s = 0;
+    CHECK(GridSlotFor(cars, 1, a, s));
+    CHECK(fabsf(a + 9.f) < 0.01f && s == 0.f);
+}
+TEST(race_grid_slot_no_side_slots_without_a_wide_grid) {
+    GridCar cars[] = { { -6.f, 0.f } };         // single file (a tollbooth / a narrow start): only behind
+    float a = 0, s = 0;
+    CHECK(GridSlotFor(cars, 1, a, s));
+    CHECK(fabsf(a + 12.f) < 0.01f && s == 0.f); // two rows back, not beside the road
+}
+TEST(race_grid_slot_staggered_grid) {
+    GridCar cars[] = { { 5.f, 4.f }, { -5.f, 4.f } };   // diagonal neighbours only
+    float a = 0, s = 0;
+    CHECK(GridSlotFor(cars, 2, a, s));
+    CHECK(fabsf(a + 5.f) < 0.01f && s == 0.f);           // straight behind, one row (5 m) back, is free
+}
+TEST(race_grid_slot_all_taken_falls_back) {
+    GridCar cars[] = { { 0.f, 4.f }, { 0.f, -4.f }, { -6.f, 0.f }, { -6.f, 4.f }, { -6.f, -4.f }, { -12.f, 0.f }, { -12.f, 4.f } };
+    float a = 0, s = 0;
+    CHECK(!GridSlotFor(cars, 7, a, s));
+    CHECK(a == -kGridDefaultRow && s == 0.f);
+}
