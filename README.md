@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" alt="NFS MW Together" width="420">
+</p>
+
 # NFS MW Together: co-op career for Need for Speed: Most Wanted (2005)
 
 ![NFS MW Together](docs/banner.png)
