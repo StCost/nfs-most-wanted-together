@@ -50,6 +50,11 @@ static int RaceTypeOfCurrent() {
     if (!Mem::Read((uintptr_t)rs + 0x1968, parms) || !parms) return -1;
     return ((int(__thiscall*)(void*))0x5FAA20)(parms);
 }
+// busted in this run of the current event (pursuit.inl sets it; a pursuit challenge is lost then)
+static bool BustedThisEventRun() {
+    uint32_t ev = Game::CurrentEventHash();
+    return ev && g_bustedEvent == ev;
+}
 namespace {
     bool g_coopWinLogged = false;
     uint32_t g_peerWonEvent = 0;    // event the other player has won (kept until our event changes)
@@ -67,7 +72,7 @@ namespace {
         }
         // Rank 1 is a win only if the course was actually completed (a Tollbooth timeout
         // leaves the leader in 1st with the timer expired — that must not pay or mark the career).
-        if (CoopRace::LocalObjectiveWin(rank, pct, RaceTypeOfCurrent())) return true;
+        if (CoopRace::LocalObjectiveWin(rank, pct, RaceTypeOfCurrent(), BustedThisEventRun())) return true;
         if (!g_cfg.sharedWins) return false;
         if (ScriptedLossEvent()) return false;      // the prologue's Razor race: the story needs the loss
         uint32_t ev = Game::CurrentEventHash();
@@ -140,7 +145,7 @@ uint8_t Game::LocalFinishRank(void* localRi) {
     if (!localRi || !Mem::Read((uintptr_t)localRi + 0x21, fin) || !fin) return 0;
     Mem::Read((uintptr_t)localRi + 0x10, rank);
     Mem::Read((uintptr_t)localRi + 0x18, pct);
-    return CoopRace::FinishRankToReport(fin, rank, pct, RaceTypeOfCurrent());
+    return CoopRace::FinishRankToReport(fin, rank, pct, RaceTypeOfCurrent(), BustedThisEventRun());
 }
 
 // Forget the other player's win when the event changes, the race is restarted (here or there: their
@@ -153,6 +158,7 @@ static void CoopWinLatchTick(bool connected, const Net::Snapshot& peer) {
     uint8_t pfin = sameEvent ? peer.s.finished : 0;
     if (ev != lastEvent || (restart && !lastRestart) || (lastPeerFin && !pfin && sameEvent && peer.s.inRace)) {
         g_coopWinLogged = false; g_peerWonEvent = 0; g_peerRacedHere = false;
+        g_bustedEvent = 0;   // a new run: not busted in it (yet)
     }
     lastEvent = ev; lastRestart = restart; lastPeerFin = pfin;
     // their win counts only for a race we drove together: they were racing while our race was running too,
@@ -251,12 +257,20 @@ static void CoopFinishTickImpl() {
     in.haveLocalRacer = ri != nullptr; in.localFinished = fin != 0; in.timerRunning = timer != 0;
     in.restartPending = restart != 0; in.cutscene = NisActive(); in.alreadyTried = g_forcedFinishTried;
     in.raceType = in.peerWon ? ((int(__thiscall*)(void*))0x5FAA20)(parms) : -1;
+    static DWORD peerWonAt = 0;
+    if (!in.peerWon) peerWonAt = 0; else if (!peerWonAt) peerWonAt = GetTickCount();
+    in.peerWonForMs = peerWonAt ? (int)(GetTickCount() - peerWonAt) : 0;
+    if (in.peerWon && in.raceType == CoopRace::kTypePursuitChallenge) {
+        static uint32_t loggedFor = 0;
+        if (loggedFor != ev) { loggedFor = ev; LOG("Race: the other player won this pursuit challenge - our goal should follow from the shared stats / escape; if not, we finish in %d s", CoopRace::kPursuitChallengeFinishDelayMs / 1000); }
+    }
     if (!CoopRace::ShouldFinishAsWinner(in)) return;
+    bool pursuitChallenge = in.raceType == CoopRace::kTypePursuitChallenge;
     {   // not under the pause menu / map (co-op keeps the race running there), and not before we drove off
         int req = 0; Mem::Read(0x91CAE4, req);
         if (req > 0 || FEScreens::IsPushed("Pause_Main.fng") || FEScreens::IsPushed("WorldMapMain.fng")) return;   // next tick
         float pct = 0.f; if (ri) Mem::Read((uintptr_t)ri + 0x18, pct);
-        if (!(pct > 1.0f)) return;
+        if (!pursuitChallenge && !(pct > 1.0f)) return;   // (a pursuit challenge has no course)
     }
     g_forcedFinishTried = true;
     void* sim = LocalSimable();

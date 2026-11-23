@@ -1260,8 +1260,15 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
         }
     }
     {
-        void* rs = nullptr; int mode = 0;
-        bool racing = Mem::Read(0x91E000, rs) && rs && Mem::Read((uintptr_t)rs + 0x1960, mode) && mode == 1;
+        void* rs = nullptr; int mode = 0; void* parms = nullptr; int type = -1;
+        if (Mem::Read(0x91E000, rs) && rs && Mem::Read((uintptr_t)rs + 0x1960, mode) && mode == 1 &&
+            Mem::Read((uintptr_t)rs + 0x1968, parms) && parms)
+            type = ((int(__thiscall*)(void*))0x5FAA20)(parms);              // GRaceParameters type
+        bool racing = CoopRace::ClientTrafficAsRace(mode, type);
+        {
+            static bool lastPc = false; bool pc = mode == 1 && type == CoopRace::kTypePursuitChallenge;
+            if (pc != lastPc) { lastPc = pc; if (pc) LOG("Traffic: pursuit challenge - sharing the host's traffic as in free roam"); }
+        }
         if (racing != g_clientRacing) {
             // our spawned traffic mirrors go (as before); cars bound to the host's are our own: just released
             int released = 0;

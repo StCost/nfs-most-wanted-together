@@ -4,6 +4,8 @@
 #include <cstdint>
 
 namespace CoopRace {
+    constexpr int kTypeSprint = 0, kTypeCircuit = 1, kTypeDrag = 2, kTypeKnockout = 3,
+                  kTypeTollbooth = 4, kTypeSpeedtrap = 5, kTypePursuitChallenge = 8;
     // GRaceParameters race type (0x5FAA20): 0 sprint, 1 circuit, 2 drag, 3 lap knockout, 4 tollbooth,
     // 5 speedtrap. These end at the finish line through the basic race script; the others (pursuit
     // challenges, ...) end some other way and are left alone.
@@ -22,11 +24,16 @@ namespace CoopRace {
         bool cutscene;        // a cutscene plays over the race
         int  raceType;        // GRaceParameters type
         bool alreadyTried;    // we finished it once for this win (never twice)
+        int  peerWonForMs;    // how long ago their win came in
     };
+    // Pursuit challenge: the shared counters and the shared escape normally complete our goal on
+    // their own within a second; only if they haven't after this long is our racer finished for us.
+    constexpr int kPursuitChallengeFinishDelayMs = 8000;
     inline bool ShouldFinishAsWinner(const FinishInputs& in) {
+        bool typeOk = FinishLineRaceType(in.raceType) ||
+                      (in.raceType == kTypePursuitChallenge && in.peerWonForMs >= kPursuitChallengeFinishDelayMs);
         return in.sharedWins && in.peerWon && in.racing && in.haveLocalRacer && !in.localFinished &&
-               in.timerRunning && !in.restartPending && !in.cutscene && FinishLineRaceType(in.raceType) &&
-               !in.alreadyTried;
+               in.timerRunning && !in.restartPending && !in.cutscene && typeOk && !in.alreadyTried;
     }
 
     // The race script asks CalculateRanking for a racer's place when it crosses the line and passes the
@@ -96,18 +103,26 @@ namespace CoopRace {
     // COMPLETED after a shared loss; the client, often 2nd, was left un-marked.
     // Losing, restarting or quitting must never count as a win, and a win of event A must never
     // complete event B.
-    constexpr int kTypeSprint = 0, kTypeCircuit = 1, kTypeDrag = 2, kTypeKnockout = 3,
-                  kTypeTollbooth = 4, kTypeSpeedtrap = 5;
     constexpr float kCourseCompletePct = 99.f;   // GRacerInfo +0x18 is 0-100
 
     inline bool CourseCompleted(float racePct) { return racePct >= kCourseCompletePct; }
 
+    // The client's traffic in an event: a race keeps its own traffic (race scripts own some of it, or
+    // SharedInRaces binds it to the host's); a pursuit challenge is open-world driving with cops and no
+    // opponents, so the host's traffic is mirrored there as in free roam (1.7.4).
+    inline bool ClientTrafficAsRace(int playMode, int raceType) {
+        return playMode == 1 && raceType != kTypePursuitChallenge;
+    }
     // Lap knockout can be won mid-lap when the last opponent is eliminated. Every other finish-line
     // type (and an unknown type) needs the course actually completed; rank 1 at a timeout is a loss.
-    inline bool RankOneNeedsCourseComplete(int raceType) { return raceType != kTypeKnockout; }
+    // A Challenge Series pursuit (type 8) has no course: the game finishes the racer when the goal is
+    // met (cost to state, bounty, cops immobilized, escape ...), so rank 1 there is the win unless we
+    // were busted in this run (1.7.4: these wins were reported as 2 and never reached the partner).
+    inline bool RankOneNeedsCourseComplete(int raceType) { return raceType != kTypeKnockout && raceType != kTypePursuitChallenge; }
 
-    inline bool LocalObjectiveWin(int rank, float racePct, int raceType) {
+    inline bool LocalObjectiveWin(int rank, float racePct, int raceType, bool pursuitFailed = false) {
         if (rank != 1) return false;
+        if (raceType == kTypePursuitChallenge && pursuitFailed) return false;
         if (RankOneNeedsCourseComplete(raceType)) return CourseCompleted(racePct);
         return true;
     }
@@ -115,10 +130,10 @@ namespace CoopRace {
     // What CarState::finished should carry once GRacerInfo +0x21 is set.
     // 0 = still racing (flag not set). 1 = won. 2+ = finished and did not win (their rank, or 2
     // when they were leading but did not complete the course — a Tollbooth timeout).
-    inline uint8_t FinishRankToReport(uint8_t finishedFlag, int rank, float racePct, int raceType) {
+    inline uint8_t FinishRankToReport(uint8_t finishedFlag, int rank, float racePct, int raceType, bool pursuitFailed = false) {
         if (!finishedFlag) return 0;
         if (rank < 1 || rank > 255) return 255;   // unreadable: never a win
-        if (rank == 1 && !LocalObjectiveWin(rank, racePct, raceType)) return 2;
+        if (rank == 1 && !LocalObjectiveWin(rank, racePct, raceType, pursuitFailed)) return 2;
         return (uint8_t)rank;
     }
 

@@ -173,3 +173,38 @@ TEST(race_win_same_event_host_and_client) {
     CHECK_EQ((int)FinishRankToReport(1, 1, 40.f, kTypeKnockout), 1);
     CHECK(!LocalObjectiveWin(2, 40.f, kTypeKnockout));
 }
+
+// ---- Challenge Series pursuits (race type 8, 1.7.4) ----------------------------------------------
+TEST(race_pursuit_challenge_win_is_reported_as_a_win) {
+    // no course: the game finishes the racer when the goal is met. Before 1.7.4 this went out as 2
+    // (course "unfinished") and the partner never got the win.
+    CHECK(LocalObjectiveWin(1, 0.f, kTypePursuitChallenge));
+    CHECK_EQ((int)FinishRankToReport(1, 1, 0.f, kTypePursuitChallenge), 1);
+    // busted in this run: a loss, never a win
+    CHECK(!LocalObjectiveWin(1, 0.f, kTypePursuitChallenge, true));
+    CHECK_EQ((int)FinishRankToReport(1, 1, 0.f, kTypePursuitChallenge, true), 2);
+    CHECK_EQ((int)FinishRankToReport(1, 2, 0.f, kTypePursuitChallenge), 2);
+    CHECK_EQ((int)FinishRankToReport(0, 1, 0.f, kTypePursuitChallenge), 0);       // still going
+    // "busted" only matters there: a tollbooth timeout still needs the course
+    CHECK(!LocalObjectiveWin(1, 80.f, kTypeTollbooth, false));
+    CHECK(LocalObjectiveWin(1, 100.f, kTypeSprint, true));
+}
+TEST(race_pursuit_challenge_partner_win_finishes_us_only_after_a_grace) {
+    FinishInputs in = Ready();
+    in.raceType = kTypePursuitChallenge;
+    in.peerWonForMs = 0;      CHECK(!ShouldFinishAsWinner(in));     // the shared stats / escape get there first
+    in.peerWonForMs = kPursuitChallengeFinishDelayMs - 1; CHECK(!ShouldFinishAsWinner(in));
+    in.peerWonForMs = kPursuitChallengeFinishDelayMs;     CHECK(ShouldFinishAsWinner(in));
+    in.alreadyTried = true;   CHECK(!ShouldFinishAsWinner(in));     // once
+    in = Ready(); in.raceType = kTypePursuitChallenge; in.peerWonForMs = 60000; in.localFinished = true;
+    CHECK(!ShouldFinishAsWinner(in));                                // we got there ourselves
+    in = Ready(); in.raceType = 7; in.peerWonForMs = 60000;
+    CHECK(!ShouldFinishAsWinner(in));                                // other non-course types: still left alone
+}
+TEST(race_client_traffic_in_a_pursuit_challenge_is_shared) {
+    CHECK(!ClientTrafficAsRace(0, -1));                              // free roam
+    CHECK(ClientTrafficAsRace(1, kTypeSprint));
+    CHECK(ClientTrafficAsRace(1, kTypeTollbooth));
+    CHECK(ClientTrafficAsRace(1, -1));                               // unknown type: as before
+    CHECK(!ClientTrafficAsRace(1, kTypePursuitChallenge));           // host's traffic mirrored as in free roam
+}
