@@ -1,5 +1,5 @@
 // File details of MWTogether.asi (Explorer: Properties > Details). build.bat passes the release number:
-// MWT_VERSION_STR "1.7.0" and MWT_VERSION_NUM 1,7,0,0 (from MWT_VERSION, the same number as the release).
+// MWT_VERSION_STR and MWT_VERSION_NUM come from MWT_VERSION (the same number as the release).
 #include <winver.h>
 
 #ifndef MWT_VERSION_STR
@@ -38,3 +38,6 @@ BEGIN
         VALUE "Translation", 0x409, 1200
     END
 END
+
+// asInvoker, uiAccess=false. Embedded here so the linker does not add a second manifest.
+1 24 "MWTogether.manifest"

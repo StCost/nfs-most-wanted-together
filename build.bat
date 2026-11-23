@@ -31,13 +31,14 @@ rc /nologo %RCDEF% /fo "build\version.res" src\version.rc || exit /b 1
 rem /Gy + /OPT:REF: code nothing calls is left out. /OPT:NOICF: identical functions stay separate
 rem (with /OPT:ICF the game crashed at 0x46578C loading career free roam). /DYNAMICBASE: the plugin is
 rem relocatable (the game's addresses are constants, ours are fixed up by the loader). /SAFESEH: only
-rem our own registered exception handlers.
-cl /nologo /O2 /Gy /MT /EHsc /std:c++17 /W3 /DWIN32_LEAN_AND_MEAN /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS %VERDEF% %DEVDEF% ^
+rem our own registered exception handlers. /guard:cf: Control Flow Guard on our code (not the game's).
+rem /Brepro: reproducible timestamps. /MANIFEST:NO: the asInvoker manifest is already in version.res.
+cl /nologo /O2 /Gy /MT /EHsc /std:c++17 /W3 /guard:cf /Brepro /DWIN32_LEAN_AND_MEAN /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS %VERDEF% %DEVDEF% ^
    /Fo"build\\" /Fd"build\\" ^
    src\main.cpp src\log.cpp src\config.cpp src\net.cpp src\overlay.cpp src\mem.cpp src\game.cpp src\input.cpp src\pad.cpp src\together.cpp src\nativeui.cpp src\logo.cpp ^
    build\version.res ^
    /LD /Fe"build\MWTogether.asi" ^
-   /link /SAFESEH /DYNAMICBASE /NXCOMPAT /OPT:REF /OPT:NOICF ws2_32.lib user32.lib gdi32.lib dxguid.lib shell32.lib iphlpapi.lib xinput9_1_0.lib || exit /b 1
+   /link /SAFESEH /DYNAMICBASE /NXCOMPAT /GUARD:CF /Brepro /MANIFEST:NO /OPT:REF /OPT:NOICF ws2_32.lib user32.lib gdi32.lib dxguid.lib shell32.lib iphlpapi.lib xinput9_1_0.lib || exit /b 1
 if defined DEVDEF (echo Dev build: test commands included) else (echo Release build: no test commands)
 
 if not exist "..\speed.exe" (echo Built build\MWTogether.asi & exit /b 0)
