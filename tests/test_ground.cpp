@@ -32,3 +32,20 @@ TEST(ground_step_is_smooth) {
     CHECK(Ground::Step(0.f, 1.f, 5.f) <= 0.15f + 1e-4f);               // a long frame is capped
     CHECK_EQ(Ground::Step(0.1f, 0.1f, 0.016f), 0.1f);
 }
+
+TEST(ground_far_from_owner_counts_as_floating) {
+    CHECK(Ground::LikelyFloating(true, 10.f, 0.f));
+    CHECK(Ground::LikelyFloating(false, 300.f, 0.f));       // host spawned it near the client: no collision there
+    CHECK(!Ground::LikelyFloating(false, 50.f, 0.f));       // full physics near the host: as sent
+    CHECK(!Ground::LikelyFloating(true, 300.f, -5.f));      // falling / jumping: leave it
+}
+
+TEST(ground_ride_height_sources) {
+    using Ground::RideFrom;
+    CHECK(Ground::PickRide(true, true, 0.6f) == RideFrom::Car);
+    CHECK(Ground::PickRide(false, true, 0.6f) == RideFrom::Model);
+    CHECK(Ground::PickRide(false, false, 0.6f) == RideFrom::Shape);
+    CHECK(Ground::PickRide(false, false, 0.f) == RideFrom::None);
+    CHECK_EQ(Ground::ShapeTarget(-0.4f), -0.4f);            // floating: pulled down
+    CHECK_EQ(Ground::ShapeTarget(0.2f), 0.f);               // never lifted on a guess
+}

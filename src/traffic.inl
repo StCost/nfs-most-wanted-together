@@ -141,6 +141,7 @@ namespace {
         // on the ground (groundutil.h): the car's ride height, learned from full-physics samples, and
         // the height correction we apply now (follows its target smoothly)
         float    ride = 0; bool rideKnown = false;
+        bool     ownSampled = false;          // our own car's ride height read when it took this host car over
         float    groundFix = 0; DWORD groundAt = 0, learnAt = 0;
         // semi trucks: the owner's states of its trailer (PKT_TRAILER), and our own hitch fixes
         NetUtil::MotionKey ts[4] = {};
@@ -303,24 +304,62 @@ namespace {
     }
     int   g_groundFixed = 0, g_groundLearned = 0;   // statistics for the log
     float g_groundMaxFix = 0;
-    // Our copy of a car the owner runs in the emulated mode: put it on our ground (see groundutil.h).
-    void GroundMirror(Mirror& m, void* rb, float* pos, const float* vel) {
+    // ride heights by model (any copy's full-physics samples, or our own car of that model on our ground)
+    struct ModelRide { uint32_t model; float ride; bool known; };
+    ModelRide g_modelRide[64]; int g_modelRideN = 0;
+    ModelRide* ModelRideOf(uint32_t model, bool add) {
+        for (int i = 0; i < g_modelRideN; ++i) if (g_modelRide[i].model == model) return &g_modelRide[i];
+        if (!add || !model) return nullptr;
+        ModelRide* r = &g_modelRide[g_modelRideN < 64 ? g_modelRideN++ : (int)(model % 64)];
+        r->model = model; r->ride = 0; r->known = false;
+        return r;
+    }
+    float HalfHeightOf(void* rb) {          // IRigidBody slot 19 GetDimension (half extents, +0x98)
+        __try {
+            float d[3] = {};
+            VCall<void(__thiscall*)(void*, float*)>(rb, 19)(rb, d);
+            return std::isfinite(d[1]) ? d[1] : 0.f;
+        } __except (EXCEPTION_EXECUTE_HANDLER) { return 0.f; }
+    }
+    // Our copy of a car that may float on the owner: put it on our ground (see groundutil.h). Marked by
+    // the owner (emulated physics, flag 8), or far from the owner's player, where its game has no world
+    // collision (the host's traffic around the client: it never had full physics there, so it has no
+    // ride height of its own - the model's, or the car's shape, then).
+    void GroundMirror(Mirror& m, void* rb, float* pos, const float* vel, const float* ownPosBefore) {
         const TrafficEntry& e = m.s[m.n - 1].e;
-        bool floating = (e.flags & 8) != 0;
+        const Net::Snapshot& owner = Net::Latest();
+        float dOwner = 0.f;
+        if (owner.valid && owner.s.hasCar) dOwner = Dist(pos, owner.s.pos);
+        bool floating = Ground::LikelyFloating((e.flags & 8) != 0, dOwner, vel[1]);
         DWORD now = GetTickCount();
         float dt = m.groundAt ? (now - m.groundAt) / 1000.f : 0.f;
         m.groundAt = now;
+        ModelRide* mr = ModelRideOf(e.model, true);
+        if (ownPosBefore && !m.ownSampled) {      // our own car, on our ground, just took this host car over
+            m.ownSampled = true;
+            float gy, zero = 0;
+            if (mr && GroundHeightAt(ownPosBefore, gy) && Ground::Learn(ownPosBefore[1], gy, zero, mr->ride, mr->known)) ++g_groundLearned;
+        }
         float target = 0;
         if (!floating) {
             if (now - m.learnAt >= 500) {                                     // learn the ride height now and then
                 m.learnAt = now;
                 float gy;
-                if (GroundHeightAt(pos, gy) && Ground::Learn(pos[1], gy, vel[1], m.ride, m.rideKnown)) ++g_groundLearned;
+                if (GroundHeightAt(pos, gy) && Ground::Learn(pos[1], gy, vel[1], m.ride, m.rideKnown)) {
+                    ++g_groundLearned;
+                    if (mr) { float r = mr->ride; bool k = mr->known; float z = 0; if (Ground::Learn(gy + m.ride, gy, z, r, k)) { mr->ride = r; mr->known = k; } }
+                }
             }
         } else {
             float gy;
             bool have = GroundHeightAt(pos, gy);
-            target = Ground::Target(true, have, pos[1], gy, m.rideKnown, m.ride);
+            float half = (m.rideKnown || (mr && mr->known)) ? 0.f : HalfHeightOf(rb);
+            switch (Ground::PickRide(m.rideKnown, mr && mr->known, half)) {
+            case Ground::RideFrom::Car:   target = Ground::Target(true, have, pos[1], gy, true, m.ride); break;
+            case Ground::RideFrom::Model: target = Ground::Target(true, have, pos[1], gy, true, mr->ride); break;
+            case Ground::RideFrom::Shape: target = Ground::ShapeTarget(Ground::Target(true, have, pos[1], gy, true, half)); break;
+            default: break;
+            }
         }
         if (target == 0 && m.groundFix == 0) return;
         m.groundFix = Ground::Step(m.groundFix, target, dt);
@@ -362,9 +401,11 @@ namespace {
             for (int i = 0; i < 3; ++i) { pos[i] = n.e.pos[i] + n.e.linVel[i] * ex; vel[i] = stale ? 0.f : n.e.linVel[i]; av[i] = stale ? 0.f : n.e.angVel[i]; }
             q = *(const Quat*)n.e.rot;
         }
+        float ownBefore[3]; bool haveOwnBefore = false;
         if (m.blendPending) {   // start the glide from where the car is right now
             m.blendPending = false;
             const float* cp = RB_GetVec(rb, RB_GetPosition);
+            memcpy(ownBefore, cp, sizeof(ownBefore)); haveOwnBefore = true;
             for (int i = 0; i < 3; ++i) m.blendOff[i] = cp[i] - pos[i];
             memcpy(m.blendRot, RB_GetVec(rb, RB_GetOrientation), 16);
             m.blendT0 = GetTickCount() | 1;
@@ -384,7 +425,7 @@ namespace {
         RB_SetVec(rb, RB_SetPosition, pos);
         RB_SetVec(rb, RB_SetLinearVelocity, vel);
         RB_SetVec(rb, RB_SetAngularVelocity, av);
-        GroundMirror(m, rb, pos, vel);
+        GroundMirror(m, rb, pos, vel, haveOwnBefore ? ownBefore : nullptr);
     }
 
     // ---- semi truck trailers (all verified in speed.exe v1.3) -------------------------------------

@@ -27,6 +27,25 @@ namespace Ground {
         float t = groundY + ride - carY;
         return std::fabs(t) > MaxFix ? 0.f : t;
     }
+    // The owner's game has full world collision only around its own player: a car far from the owner
+    // (traffic the host spawned near the client) may float there even when it isn't marked (flag 8).
+    // Not while it jumps or falls (big vertical speed).
+    constexpr float OwnerPhysicsRadius = 120.f;
+    inline bool LikelyFloating(bool flagged, float distToOwner, float velY) {
+        if (std::fabs(velY) > 3.0f) return false;
+        return flagged || distToOwner > OwnerPhysicsRadius;
+    }
+    // A car that only ever floated on the owner has no learned ride height. Where it comes from, best
+    // first: this car's samples, the same model's (any copy, or one of our own cars on our ground when it
+    // took a host car over), else the car's own half height - then only pulled down, never lifted.
+    enum class RideFrom { None, Car, Model, Shape };
+    inline RideFrom PickRide(bool carKnown, bool modelKnown, float halfHeight) {
+        if (carKnown) return RideFrom::Car;
+        if (modelKnown) return RideFrom::Model;
+        if (halfHeight >= 0.3f && halfHeight <= MaxRide) return RideFrom::Shape;
+        return RideFrom::None;
+    }
+    inline float ShapeTarget(float target) { return target < 0.f ? target : 0.f; }
     // Move the current correction towards the target, at most FixSpeed * dt.
     inline float Step(float cur, float target, float dt) {
         if (dt < 0) dt = 0; if (dt > 0.1f) dt = 0.1f;
