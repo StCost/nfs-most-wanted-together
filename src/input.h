@@ -22,6 +22,8 @@ namespace FEScreens {
     std::string ListAll();               // test command "screens": every pushed screen whose name is in the exe  // cFEng::IsPackagePushed (0x516B50) on cFEng::mInstance (0x91CADC)
     void Tick();                          // ~2x/s: logs when the set of open screens changes
     const char* Current();                // comma-separated open screens (from a known list)
+    const char* NextCloseableOverlay();   // top in-game overlay that should be closed, or nullptr
+    bool        AnyCloseableOverlay();
 }
 
 // Macro: run a short key/screen sequence in any game state (same step syntax as AutoStart),

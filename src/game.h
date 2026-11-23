@@ -56,6 +56,7 @@ namespace Game {
     std::string DebugRam(bool cop = false);   // test: hit the other player's car (cop: their nearest police car)
     std::string DebugPos();             // test: our position and speed
     std::string DebugTeleport(const char* args);   // test: 'tp x y z' puts our car there (2 m up, stopped)
+    bool CloseInGameOverlays();         // PAD_BACK the top in-game FE overlay (pause, map, SMS, ...); true if one was / is still open
     std::string DebugNisSkip();         // test: press skip on the current cutscene
     std::string DebugStopOpponents();   // test: AI opponents stop driving (so a player wins)
     std::string DebugCash();            // test: career cash and whether the current event is won

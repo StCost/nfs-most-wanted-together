@@ -123,22 +123,11 @@ namespace {
             return;
         }
         if (fromPeer && flow == 6) {
-            // a menu over the world (map, pause...): closed first, the event starts with the next copy of the
-            // invitation. Started under the map, the map closed in the middle of the race load and read our
-            // car while there was none (crash 0x54865F, the world map's destructor)
-            static const char* const menus[] = { "WorldMapMain.fng", "Pause_Main.fng", "Pause_Options.fng", "Pause_PCDisplayOptions.fng",
-                                                 "Options_PC_Controller.fng", "SMS_Mailboxes.fng", "SMS_MailBoxes.fng", "SMS_Message.fng",
-                                                 "InGame_MC_Main.fng", "InGame_MC_Main_GC.fng", "RapSheetMain.fng" };
-            const char* open = nullptr;
-            for (const char* m : menus) if (FEScreens::IsPushed(m)) { open = m; break; }
-            if (open) {
-                static DWORD lastBack = 0;
-                void* fe = nullptr;
-                if (GetTickCount() - lastBack > 400 && Mem::Read(0x91CADC, fe) && fe) {
-                    lastBack = GetTickCount();
-                    ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0x911AB364 /*PAD_BACK*/, open, 0xFF);
-                    LOG("Event: %s invited while %s is open - closing it first", eventId, open);
-                }
+            // a menu over the world (map, pause, SMS, Blacklist, ...): closed first, the event starts
+            // with the next copy of the invitation. Started under the map, the map closed in the middle
+            // of the race load and read our car while there was none (crash 0x54865F, the world map's destructor)
+            if (Game::CloseInGameOverlays()) {
+                LOG("Event: %s invited while a menu is open - closing it first", eventId);
                 return;                               // the invitation is repeated
             }
         }
@@ -210,20 +199,28 @@ namespace {
     bool g_restartIgnoredNotice = false;   // the partner restarted while our race was already over
 }
 
-// Joined the other player's event while one of the event menus was open here (the rival's race list with
-// "Challenge Rival", the race sheet, "engage event?"): close it with PAD_BACK (FEngHash 0x911AB364).
-static void CloseEventMenusSafe() {
-    static const char* const menus[] = { "InGameRivalChallenge.fng", "InGameRivalBio.fng", "InGameRaceSheet.fng", "EngageEventDialog.fng" };
+// Close the top in-game FE overlay with PAD_BACK (FEngHash 0x911AB364), as if Back was pressed,
+// so we return to the driving HUD (and unpause). One screen per call, at most every 400 ms,
+// so a stacked menu (Options over Pause, SMS over the world) peels cleanly. Movies, the HUD,
+// loading screens and post-race results are left alone (see feutil.h).
+bool Game::CloseInGameOverlays() {
     __try {
+        const char* open = FEScreens::NextCloseableOverlay();
+        if (!open) return false;
+        static DWORD lastBack = 0;
+        DWORD now = GetTickCount();
+        if (now - lastBack < 400) return true;
         void* fe = nullptr;
-        if (!Mem::Read(0x91CADC, fe) || !fe) return;
-        for (const char* m : menus)
-            if (FEScreens::IsPushed(m)) {
-                ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0x911AB364, m, 0xFF);
-                LOG("Event: closing %s - we join the other player's event", m);
-            }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        if (!Mem::Read(0x91CADC, fe) || !fe) return false;
+        lastBack = now;
+        ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0x911AB364, open, 0xFF);
+        LOG("FE: closing %s (PAD_BACK) so the world is clear", open);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
+
+// Joined the other player's event while one of our menus was still open: keep closing until the HUD.
+static void CloseEventMenusSafe() { Game::CloseInGameOverlays(); }
 
 static void EventTickImpl(bool connected) {
     int mode = 0, ctx = 0;

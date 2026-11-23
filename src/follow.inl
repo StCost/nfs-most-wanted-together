@@ -43,11 +43,14 @@ namespace {
         DWORD now = GetTickCount();
         void* rb = RigidBodyOf(me);
         if (!rb || Game::CurrentEventHash() || now - g_follow.loadAt > 30000) { g_follow.pending = false; return; }
+        Game::CloseInGameOverlays();   // peel menus during the world load, so the move finds a clear HUD
         float spot[3];
         for (int i = 0; i < 3; ++i) spot[i] = g_follow.pos[i] - g_follow.fwd[i] * 8.f - g_follow.right[i] * 3.f;
         spot[1] += 0.5f;
         if (Dist(RB_GetVec(rb, RB_GetPosition), g_follow.pos) < 150.f) { g_follow.pending = false; return; }   // already there
         if ((int)(now - g_follow.moveAt) < 0) return;                       // the world there is still loading
+        // a pause / map / SMS / Blacklist screen still open: close it first (the HUD after Back / unpause)
+        if (Game::CloseInGameOverlays() && now - g_follow.moveAt < 8000) return;
         float zero[3] = { 0, 0, 0 };
         g_testJumpOkUntil = now + 500;
         RB_SetVec(rb, RB_SetPosition, spot); RB_SetVec(rb, RB_SetLinearVelocity, zero); RB_SetVec(rb, RB_SetAngularVelocity, zero);

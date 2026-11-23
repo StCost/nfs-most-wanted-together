@@ -13,6 +13,7 @@
 #include "overlay.h"
 #include "together.h"
 #include "nativeui.h"
+#include "feutil.h"
 
 namespace {
     // tap state (Input::Tap)
@@ -219,7 +220,17 @@ namespace {
         "InGameBounty.fng",
         "Infractions.fng",
         "HUD_SingleRace.fng",
-        "InGameRaceSheet.fng"
+        "InGameRaceSheet.fng",
+        "Pause_Options.fng",
+        "Pause_PCDisplayOptions.fng",
+        "Options_PC_Controller.fng",
+        "SMS_Mailboxes.fng",
+        "SMS_MailBoxes.fng",
+        "SMS_Message.fng",
+        "InGame_MC_Main.fng",
+        "InGame_MC_Main_GC.fng",
+        "InGameBounty.fng",
+        "PerformanceTuning.fng"
     };
     char  g_screens[512] = "";
     DWORD g_lastScreenPoll = 0;
@@ -284,6 +295,17 @@ void FEScreens::Tick() {
 }
 
 const char* FEScreens::Current() { return g_screens; }
+
+const char* FEScreens::NextCloseableOverlay() {
+    int n = 0;
+    const char* const* order = FeClose::CloseOrder(&n);
+    for (int i = 0; i < n; ++i)
+        if (IsPushedRaw(order[i]) && FeClose::ShouldCloseBeforeRemoteMove(order[i])) return order[i];
+    for (const char* s : kScreens)
+        if (IsPushedRaw(s) && FeClose::ShouldCloseBeforeRemoteMove(s)) return s;
+    return nullptr;
+}
+bool FEScreens::AnyCloseableOverlay() { return NextCloseableOverlay() != nullptr; }
 
 // ---------------------------------------------------------------------------
 namespace {

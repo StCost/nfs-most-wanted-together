@@ -713,6 +713,8 @@ std::string Game::DebugTeleport(const char* args) {
     static float last[3] = { 1e9f, 1e9f, 1e9f }; static DWORD loadedAt = 0;
     bool same = fabsf(last[0] - p[0]) < 1.f && fabsf(last[1] - p[1]) < 1.f && fabsf(last[2] - p[2]) < 1.f;
     StreamHoldAt(p, 30000);
+    if (Game::CloseInGameOverlays())
+        return "closing the menu first - send the same tp again";
     if (!same || GetTickCount() - loadedAt > 60000) {
         memcpy(last, p, 12); loadedAt = GetTickCount();
         return "loading the world there - send the same tp again in about 5 s";
