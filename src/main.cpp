@@ -179,9 +179,9 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         }
 
         }
-        // Hotkeys: F8 overlay, F9 ghost on/off (only while game window focused)
-        bool fg = Overlay::GameWindow() == GetForegroundWindow();   // hotkeys only for the focused game
-        bool down = (fg && GetAsyncKeyState(g_cfg.toggleKey) & 0x8000) != 0;
+        // Hotkeys: F8 overlay, F1 hide HUD (only while the game window is focused).
+        // Hotkeys use the hooked DirectInput keyboard, so the release IAT has no async key import.
+        bool down = Input::KeyDown(g_cfg.toggleKey);
         if (down && !g_keyWasDown) {
             Overlay::SetVisible(!Overlay::IsVisible());
             // remember it for the next launch
@@ -190,12 +190,12 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         g_keyWasDown = down;
         {   // [UI] HideHudKey (F1): hide / show the minimap and the speedometer
             static bool hudWas = false;
-            bool hd = (fg && g_cfg.hideHudKey && GetAsyncKeyState(g_cfg.hideHudKey) & 0x8000) != 0;
+            bool hd = g_cfg.hideHudKey && Input::KeyDown(g_cfg.hideHudKey);
             if (g_gameOk && hd && !hudWas) g_spawnMsg = Game::ToggleHud();
             hudWas = hd;
         }
 #ifdef MWT_DEVTOOLS   // test keys ([Debug] TestKeys=1): only in dev builds
-        bool gdown = (fg && g_cfg.testKeys && GetAsyncKeyState(VK_F9) & 0x8000) != 0;   // test key only: players hid each other by accident
+        bool gdown = (g_cfg.testKeys && Input::KeyDown(VK_F9));   // test key only: players hid each other by accident
         if (gdown && !g_ghostKeyWasDown) {
             g_ghostOn = !g_ghostOn;
             if (!g_ghostOn) Game::ReleaseGhost();
@@ -205,19 +205,19 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
 
         // Debug: F10 spawn a clone of my car, F11 remove it
         static bool f10 = false, f11 = false;
-        bool d10 = (fg && g_cfg.testKeys && GetAsyncKeyState(VK_F10) & 0x8000) != 0, d11 = (fg && g_cfg.testKeys && GetAsyncKeyState(VK_F11) & 0x8000) != 0;
+        bool d10 = (g_cfg.testKeys && Input::KeyDown(VK_F10)), d11 = (g_cfg.testKeys && Input::KeyDown(VK_F11));
         if (g_cfg.testKeys && d10 && !f10) g_spawnMsg = Game::DebugSpawnClone();
         if (g_cfg.testKeys && d11 && !f11) g_spawnMsg = Game::DebugKillClone();
         static bool f7 = false;
-        bool d7 = (fg && g_cfg.testKeys && GetAsyncKeyState(VK_F7) & 0x8000) != 0;
+        bool d7 = (g_cfg.testKeys && Input::KeyDown(VK_F7));
         if (g_cfg.testKeys && d7 && !f7) g_spawnMsg = Game::DebugStartEvent(g_cfg.testEvent.c_str());
         f7 = d7;
         static bool f5 = false;
-        bool d5 = (fg && g_cfg.testKeys && GetAsyncKeyState(VK_F5) & 0x8000) != 0;
+        bool d5 = (g_cfg.testKeys && Input::KeyDown(VK_F5));
         if (g_cfg.testKeys && d5 && !f5 && Overlay::GameWindow() == GetForegroundWindow()) g_spawnMsg = Game::ToggleAutopilot();
         f5 = d5;
         static bool f12 = false;
-        bool d12 = (fg && g_cfg.testKeys && GetAsyncKeyState(VK_F12) & 0x8000) != 0;
+        bool d12 = (g_cfg.testKeys && Input::KeyDown(VK_F12));
         if (g_cfg.testKeys && d12 && !f12) g_spawnMsg = Game::DebugSpawnCop();
         f12 = d12;
         f10 = d10; f11 = d11;

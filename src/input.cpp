@@ -15,12 +15,14 @@
 #include "nativeui.h"
 #include "feutil.h"
 
+#ifdef MWT_DEVTOOLS
 namespace {
     // tap state (Input::Tap)
     unsigned char g_dik = 0;
     bool     g_down = false;        // key currently held
     DWORD    g_downAt = 0;
 }
+#endif
 
 // DirectInput device hooks (GetDeviceState / GetDeviceData on the game's own devices). They read nothing
 // else: the Together settings page (together.cpp) takes the keys the game just polled from its keyboard
@@ -45,6 +47,7 @@ namespace {
     GetData_t      o_GetData = nullptr;
 
     void* g_keyboard = nullptr;   // the game's keyboard device
+    unsigned char g_kb[256] = {}; // last polled keyboard state (not swallowed)
 
 #ifdef MWT_DEVTOOLS
     volatile unsigned char g_bgKey = 0; volatile DWORD g_bgKeyAt = 0;   // test command "key" (no focus needed)
@@ -77,6 +80,7 @@ namespace {
             }
 #endif
             if (SUCCEEDED(hr)) {
+                memcpy(g_kb, data, 256);   // real keys, before anything is filtered or swallowed
                 NativeUI::FilterKeyboardState((uint8_t*)data);
                 Together::OnKeyboard((const uint8_t*)data);
             }
@@ -90,6 +94,13 @@ namespace {
     HRESULT STDMETHODCALLTYPE hk_GetData(void* dev, DWORD cbObj, LPDIDEVICEOBJECTDATA rg, LPDWORD inOut, DWORD flags) {
         HRESULT hr = o_GetData(dev, cbObj, rg, inOut, flags);
         if (dev == g_keyboard && SUCCEEDED(hr) && !g_loggedData && rg && inOut && *inOut) { g_loggedData = true; LOG("Input: game reads keyboard with GetDeviceData"); }
+        if (dev == g_keyboard && SUCCEEDED(hr) && rg && inOut) {
+            DWORD n = *inOut;
+            for (DWORD i = 0; i < n; ++i) {
+                auto* ev = (LPDIDEVICEOBJECTDATA)((char*)rg + i * cbObj);
+                if (ev->dwOfs < 256) g_kb[ev->dwOfs] = (unsigned char)(ev->dwData & 0x80);
+            }
+        }
         if (dev == g_keyboard && SUCCEEDED(hr) && rg && inOut && !(flags & DIGDD_PEEK))
             NativeUI::FilterKeyboardData(rg, (unsigned*)inOut, (unsigned)cbObj);
         if (SUCCEEDED(hr) && inOut && !(flags & DIGDD_PEEK) && Together::CapturesInput()) *inOut = 0;   // the page has the input
@@ -136,9 +147,25 @@ bool Input::InstallHooks() {
 }
 
 
+bool Input::KeyDown(int vk) {
+    if (!vk) return false;
+    HWND w = Overlay::GameWindow();
+    if (!w || GetForegroundWindow() != w) return false;   // only the focused game
+    UINT scan = MapVirtualKeyA((UINT)vk, MAPVK_VK_TO_VSC_EX);
+    if (!scan) scan = MapVirtualKeyA((UINT)vk, MAPVK_VK_TO_VSC);
+    if (!scan) return false;
+    unsigned dik = scan & 0xFF;
+    if (scan > 0xFF) dik |= 0x80;                         // extended DIK_* codes
+    if (dik >= 256) return false;
+    return (g_kb[dik] & 0x80) != 0;
+}
+
+#ifdef MWT_DEVTOOLS
 // Keys are sent as real keyboard events (SendInput with scan codes). The game's menus read arrow keys
 // from real input only: DirectInput-state injection worked for Enter but not for arrows. SendInput goes
 // to whatever window is focused, so we ONLY send while the game window is in the foreground.
+// Release builds do not import SendInput: AutoStart / Macro / test taps are dev-only, and
+// SkipLoadComplete confirms the profile screen through the front-end message path.
 static void SendScan(unsigned char dik, bool up) {
     INPUT in{};
     in.type = INPUT_KEYBOARD;
@@ -147,9 +174,8 @@ static void SendScan(unsigned char dik, bool up) {
     SendInput(1, &in, sizeof(in));
 }
 
-#ifdef MWT_DEVTOOLS
 void Input::TapBackground(unsigned char dik) { g_bgKeyAt = GetTickCount(); g_bgKey = dik; }
-#endif
+
 bool Input::Tap(unsigned char dik) {
     if (Busy()) return false;
     HWND w = Overlay::GameWindow();
@@ -169,6 +195,9 @@ void Input::Tick() {
         SendScan(g_dik, true);                                    // release even if focus moved
     }
 }
+#else
+void Input::Tick() {}
+#endif
 
 // ---------------------------------------------------------------------------
 // FE screens
@@ -368,13 +397,14 @@ static bool StepScreenOpen(const char* screen) {
     return false;
 }
 
+#ifdef MWT_DEVTOOLS
 void AutoStart::Tick(int flow) {
     if (!g_cfg.autoStart) { g_as = AS::Off; strcpy_s(g_status, "off"); return; }
     if (g_as == AS::Done || g_as == AS::GaveUp || g_as == AS::Off) return;
 
     // A human pressing Esc cancels it, so it never fights a person in the menus.
     // Only Esc, and only while the game window is focused (Esc typed in another app doesn't count).
-    if (g_presses > 0 && !Together::IsOpen() && Overlay::GameWindow() && Overlay::GameWindow() == GetForegroundWindow() && (GetAsyncKeyState(VK_ESCAPE) & 0x8000)) {
+    if (g_presses > 0 && !Together::IsOpen() && Input::KeyDown(VK_ESCAPE)) {
         g_as = AS::GaveUp; strcpy_s(g_status, "cancelled (Esc)"); LOG("AutoStart: cancelled by Esc"); return;
     }
 
@@ -475,6 +505,10 @@ void AutoStart::Tick(int flow) {
     }
 }
 
+#else
+void AutoStart::Tick(int) {}
+#endif
+
 const char* AutoStart::Status() { return g_status; }
 
 
@@ -487,6 +521,7 @@ namespace {
     DWORD g_mStart = 0, g_mTimeout = 0, g_mLast = 0, g_mSeen = 0;
 }
 
+#ifdef MWT_DEVTOOLS
 void Macro::Run(const char* sequence, int timeoutMs) {
     g_mLen = g_mPos = 0;
     char buf[256];
@@ -532,3 +567,8 @@ void Macro::Tick() {
     ++g_mPos;
     if (g_mPos >= g_mLen) LOG("Macro: done");
 }
+#else
+void Macro::Run(const char*, int) {}
+bool Macro::Active() { return false; }
+void Macro::Tick() {}
+#endif

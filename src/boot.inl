@@ -30,11 +30,10 @@ namespace {
         return ((bool(__thiscall*)(void*, uint32_t, int))0x5DCA70)(db, eh, 2);
     }
 
-    // "Press accept" on a front-end screen: a real key when the game is focused, otherwise the FE
-    // message the pad/keyboard would produce (PAD_ACCEPT 0x406415E3 via cFEng::QueueGameMessage
-    // 0x516C50), so the fast start also works with the game in the background.
+    // "Press accept" on a front-end screen: the FE message the pad/keyboard would produce
+    // (PAD_ACCEPT 0x406415E3 via cFEng::QueueGameMessage 0x516C50). Used focused and unfocused
+    // so the release plugin does not import SendInput.
     bool PressAccept(const char* pkg) {
-        if (Overlay::GameWindow() == GetForegroundWindow()) return Input::Tap(0x1C);
         void* fe = nullptr;
         if (!Mem::Read(0x91CADC, fe) || !fe) return false;
         ((void(__thiscall*)(void*, uint32_t, const char*, uint32_t))0x516C50)(fe, 0x406415E3, pkg, 0xFF);
@@ -261,7 +260,7 @@ namespace {
         if (btn != lastBtn || op != lastOp) { lastBtn = btn; lastOp = op; seenAt = GetTickCount(); sentAt = 0; return false; }
         if (GetTickCount() - seenAt < 600) return false;                       // let the box finish appearing
         if (sentAt && GetTickCount() - sentAt < 5000) return false;            // once; again only if it's still there after 5 s
-        if (Overlay::GameWindow() == GetForegroundWindow()) { sentAt = GetTickCount(); return Input::Tap(0x1C); }
+        // Focused and unfocused use the same NotificationMessage path (not a Windows key event).
         if (g_mcScreenKind < 0 || !g_origMcNotify[g_mcScreenKind] || !g_mcScreen || GetTickCount() - g_mcScreenSeen > 1000) return false;
         sentAt = GetTickCount();
         g_mcReq = { g_mcScreen, btn, op, GetTickCount(), 1, 0 };             // McNotify delivers it with the screen's next message

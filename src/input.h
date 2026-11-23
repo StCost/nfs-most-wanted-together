@@ -5,15 +5,17 @@
 // DirectInput, so synthetic Windows key events are ignored). Used by AutoStart to get from the
 // title screen into the career without anyone touching the menus.
 namespace Input {
-    bool InstallHooks();
-    void TapBackground(unsigned char dik);   // test: a key press the game sees without focus (keyboard device state)              // IAT hook on DirectInput8Create; call from DllMain
-
+    bool InstallHooks();              // IAT hook on DirectInput8Create; call from DllMain
+#ifdef MWT_DEVTOOLS
+    void TapBackground(unsigned char dik);   // test: a key the game sees without focus
     // Press-and-release a DirectInput key (DIK_* scan code) over the next few frames.
     bool Tap(unsigned char dik);      // false if not sent (game window not focused / busy)
     bool Busy();                      // a tap is in progress
-
-    // Called once per frame from the game thread.
-    void Tick();
+#endif
+    void Tick();                      // once per frame from the game thread (release: no-op)
+    // True while the game window is focused and the hooked DirectInput keyboard shows this
+    // virtual-key down. Does not swallow the key: the game still sees it.
+    bool KeyDown(int vk);
 }
 
 // Front-end screens (FEng packages). Lets AutoStart wait for the right menu before pressing keys.
