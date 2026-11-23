@@ -291,7 +291,9 @@ A pass looks like this (both PCs on fresh careers, linked):
 3. Save backup and restore pass.
 4. One real session by two people with `TestKeys=0`: free roam, a race started from the game's own menus
    (not `event`), a pursuit, a rival race.
-5. Install the release zip into a copy of the game **without** the Widescreen Fix (and once with it), start
+5. Install the release zip into a copy of the game **without** the Widescreen Fix (and once with it). The
+   zip does not include `dinput8.dll`: put Ultimate ASI Loader's x86 `dinput8.dll` next to `speed.exe`
+   first (already there if the copy was a 1.7.2 or earlier install). Start
    `speed.exe` as usual: the plain game's title screen is `MW_LS_Splash.fng`, the fixed
    game's `WS_MW_LS_Splash.fng`. A release ASI does not honour `TestSkipIntro` / `TestPressStart`; press
    START yourself. AutoStart, SkipLoadComplete, StartInBackground, AutoPilot, and TestSkipIntro / TestPressStart exist only in dev builds (see section 2).

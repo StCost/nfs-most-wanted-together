@@ -23,14 +23,15 @@ Wanted online free roam with a friend, Need for Speed Most Wanted two player mod
 <details open><summary><h2>Install</h2></summary>
 
 
-1. Download **[MWTogether.zip](https://github.com/StCost/nfs-most-wanted-together/releases/latest/download/MWTogether.zip)** (the latest release) and unpack it into your game folder, next to `speed.exe`.
-2. Run `speed.exe` as usual. The game stops at the main menu: pick the **Together** icon there, type a
+1. Download [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases) — the x86/Win32 `dinput8.dll` build (e.g. [v10.0.4](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/tag/v10.0.4), which we tested) — and put `dinput8.dll` next to `speed.exe`. Skip this if you are updating from 1.7.2 or earlier: you already have it.
+2. Download **[MWTogether.zip](https://github.com/StCost/nfs-most-wanted-together/releases/latest/download/MWTogether.zip)** (the latest release) and unpack it into your game folder, next to `speed.exe`.
+3. Run `speed.exe` as usual. The game stops at the main menu: pick the **Together** icon there, type a
    nickname, set **Connection** to **Host** or **Join**, and (if joining) enter the host's IP under
    **Connect to IP**. Press **Start Host** or **Connect**. **Stop Host** / **Disconnect** end the session.
    With **Reconnect on launch** on, the next start hosts or joins by itself. Main menu Together, pause Together, and **Options > Together** all open the same screen. Remaining options are also on the overlay page (**F2** or hold **BACK** on a
    pad).
-3. Do the same on the other PC. The game loads your career into free roam and connects you on its own.
-4. To update, unpack the new zip over the old one. Your nickname and settings (`scripts\MWTogether.ini`) stay.
+4. Do the same on the other PC. The game loads your career into free roam and connects you on its own.
+5. To update, unpack the new zip over the old one. Your nickname and settings (`scripts\MWTogether.ini`) stay. Leave the existing `dinput8.dll` as is.
 
 You can play the prologue (the opening BMW races) together too: start a new career on both PCs. Whoever is ahead waits on the next race's grid (`[Coop] Prologue`). After the car lot you both drive to Mia, and co-op picks up again once you've both met her. You both need to be in the same part of the career: both in the prologue, or both past it.
 
@@ -41,6 +42,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 
 
 - Need for Speed: Most Wanted (2005) for PC, patched to **v1.3**. No game files are included, bring your own copy.
+- [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases), the x86/Win32 `dinput8.dll` next to `speed.exe` (v10.0.4 is the build we tested). Already present if you used 1.7.2 or earlier.
 - The same version of the mod on both PCs.
 - A LAN, a VPN (Hamachi, Radmin VPN, ZeroTier), or UDP port 47555 forwarded to the host.
 - If one of you can't see the other, a firewall or another VPN (Surfshark, say) is blocking it. Allow UDP 47555 for `speed.exe` on that PC or pause the VPN. The game tells you when only one side gets through.
@@ -198,8 +200,8 @@ All options are in `scripts\MWTogether.ini`, with a comment on each. Sections:
   That is a dev build with the test keys and commands (`docs/TESTING.md`); `set MWT_RELEASE=1` first for a
   release build without them (`tools\release.ps1` and the workflow do this).
 - Nothing builds automatically on GitHub. The **Build** workflow under **Actions** runs only when you start it
-  by hand: it builds the plugin, runs the tests and packages the zip with the ASI loader. Give
-  it a version number and it also creates the GitHub release.
+  by hand: it builds the plugin, runs the tests and packages the zip (the ASI loader is a separate
+  required download; see Install). Give it a version number and it also creates the GitHub release.
 - Local release, without Actions: `tools\release.ps1 -Version 0.2.0` publishes a pre-release; add `-Final` for a
   normal release. `-DryRun` only builds the zip in `dist\`.
 - Every release lists the SHA256 of its files, and files built by the workflow carry a build provenance
@@ -277,7 +279,7 @@ Pull requests welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 <details><summary><h2>License</h2></summary>
 
-MIT - see [LICENSE](LICENSE). The bundled Ultimate ASI Loader (`dinput8.dll`) is MIT too: [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
+MIT - see [LICENSE](LICENSE). Ultimate ASI Loader is a separate required download (also MIT): [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
 
 
 </details>

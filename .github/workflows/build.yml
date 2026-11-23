@@ -42,8 +42,8 @@ jobs:
           fi
 
       # The same script as a local release (tools\release.ps1 -DryRun): the plugin built as a release
-      # (/DMWT_VERSION, no test commands), Ultimate ASI Loader pinned to one version and checked by
-      # SHA256, and dist\MWTogether-<version>-notes.md with the SHA256 of every file.
+      # (/DMWT_VERSION, no test commands) and dist\MWTogether-<version>-notes.md with the SHA256 of
+      # every file. The zip does not include Ultimate ASI Loader (a separate required download).
       - name: Build and package
         shell: pwsh
         run: tools/release.ps1 -Version "${{ steps.ver.outputs.version }}" -DryRun
