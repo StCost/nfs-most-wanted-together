@@ -303,3 +303,15 @@ TEST(spectate_ends_with_their_result) {
     CHECK(Tick(Racing(), true, false, false) == Next::EndQuiet);   // restarted
     CHECK(Tick(Racing(), false, true, false) == Next::EndQuiet);   // left the event
 }
+
+TEST(spectate_lose_screen_gives_way_to_the_winners_screen) {
+    using namespace Spectate;
+    CHECK(LoseScreenToWinner(false, false, true, true, true, false, false));
+    CHECK(!LoseScreenToWinner(true, false, true, true, true, false, false));    // spectating: its own ending
+    CHECK(!LoseScreenToWinner(false, true, true, true, true, false, false));    // knockout hold: its own release
+    CHECK(!LoseScreenToWinner(false, false, false, true, true, false, false));  // they haven't won
+    CHECK(!LoseScreenToWinner(false, false, true, false, true, false, false));  // no Restart / Quit screen up
+    CHECK(!LoseScreenToWinner(false, false, true, true, false, false, false));  // we still race (a plain pause)
+    CHECK(!LoseScreenToWinner(false, false, true, true, true, true, false));    // we won ourselves
+    CHECK(!LoseScreenToWinner(false, false, true, true, true, false, true));    // once per run
+}

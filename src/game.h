@@ -91,7 +91,6 @@ namespace Game {
     const char* StoryStatus();
     std::string DebugIcons();                  // test: log the minimap icons drawn in the next second (GPS target etc.)
     std::string DebugStory(const char* arg);   // test: "story" state / "story <movie>" play a movie here
-    bool TakeCoopWinNotice();           // true once after a shared win was counted
     bool TakeRestartIgnoredNotice();    // true once after the partner restarted while our race was over
     bool InstallSharedMilestones();     // [Career] SharedMilestones (milestone.inl)
     void MilestoneTick(bool linked);    // find our completions, send them, apply the other player's

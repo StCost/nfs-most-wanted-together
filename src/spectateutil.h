@@ -28,4 +28,11 @@ namespace Spectate {
         if (PeerStillRacing(p)) return Next::Keep;
         return Next::EndLost;                                      // they lost too, quit, or left: our Restart / Quit
     }
+
+    // Not spectating, out of the event with the race-over Restart / Quit screen up, and then the other
+    // player wins: that screen gives way to the winner's flow (once per run of the event).
+    inline bool LoseScreenToWinner(bool spectating, bool knockoutHeld, bool peerWon, bool loseScreenUp,
+                                   bool localOut, bool localWon, bool doneThisRun) {
+        return !spectating && !knockoutHeld && peerWon && loseScreenUp && localOut && !localWon && !doneThisRun;
+    }
 }
