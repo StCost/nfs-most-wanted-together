@@ -218,6 +218,16 @@ TEST(native_soft_edit_package) {
     CHECK(!BeginEditOnBlockedLeave());
 }
 
+TEST(native_soft_wait_release) {
+    CHECK(SoftWaitReleaseDone(false, 0));
+    CHECK(!SoftWaitReleaseDone(true, 0));
+    CHECK(!SoftWaitReleaseDone(true, 249));
+    CHECK(SoftWaitReleaseDone(true, 250));
+    CHECK(SoftWaitReleaseDone(true, 400));
+    CHECK(SoftWaitReleaseDone(false, 10));
+    // Esc is not modeled here; the UI always treats Esc as cancel during the wait.
+}
+
 
 // The logo replacement's .dds reader: src/ddsutil.h
 #include "../src/ddsutil.h"

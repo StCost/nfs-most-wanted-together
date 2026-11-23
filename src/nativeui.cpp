@@ -189,6 +189,7 @@ namespace {
     bool     g_eatingEnter = false, g_eatingUp = false, g_eatingDown = false;
     bool     g_softEdit = false;          // pause Together: we own typing so the value stays visible
     bool     g_softWaitRelease = false;   // ignore the Enter that opened the field
+    DWORD    g_softWaitSince = 0;         // when that wait started (stuck Accept times out)
     uint8_t  g_softPrev[256] = {};
 
     bool IsText(int r) { return r == W_NAME || r == W_HOSTIP; }
@@ -301,6 +302,7 @@ namespace {
             // and a mouse click can open a blank page on the main-menu Options screen.
             g_softEdit = true;
             g_softWaitRelease = true;
+            g_softWaitSince = GetTickCount();
             memset(g_softPrev, 0x80, sizeof(g_softPrev));  // every key currently down is already down
             LOG("Native: typing %s (soft)", TitleOf(r));
             return;
@@ -349,16 +351,29 @@ namespace {
     }
     void ProcessSoftEdit(uint8_t* state) {
         if (!g_softEdit || g_editRow < 0 || !state) return;
-        if (g_softWaitRelease) {
-            memcpy(g_softPrev, state, 256);
-            if (((state[0x1C] | state[0x9C]) & 0x80) == 0) g_softWaitRelease = false;
-            return;
-        }
         auto down = [&](int d) { return (state[d] & 0x80) != 0; };
         auto pressed = [&](int d) { return down(d) && (g_softPrev[d] & 0x80) == 0; };
+        // Esc always cancels, even while we wait for the key that opened the field
+        // (a mouse click / ImproveGamepadSupport can leave Accept held, which used
+        // to make this wait never end - no typing and no Esc).
+        if (pressed(0x01)) {
+            EndEdit(false);
+            if (g_softEdit) memcpy(g_softPrev, state, 256);
+            return;
+        }
+        if (g_softWaitRelease) {
+            bool enterDown = ((state[0x1C] | state[0x9C]) & 0x80) != 0;
+            unsigned waited = GetTickCount() - g_softWaitSince;
+            if (NativeUtil::SoftWaitReleaseDone(enterDown, waited)) {
+                if (enterDown) LOG("Native: opening key still held after %u ms - typing anyway", waited);
+                g_softWaitRelease = false;
+            }
+            memcpy(g_softPrev, state, 256);
+            if (g_softWaitRelease) return;
+            return;   // next poll treats edges against this snapshot
+        }
         bool shift = down(0x2A) || down(0x36);
-        if (pressed(0x01)) EndEdit(false);
-        else if (pressed(0x1C) || pressed(0x9C)) EndEdit(true);
+        if (pressed(0x1C) || pressed(0x9C)) EndEdit(true);
         else if (pressed(0x0E)) SoftBackspace();
         else {
             for (int d = 1; d < 256; ++d) {
@@ -826,6 +841,52 @@ namespace {
         g_profileShown = label == me ? std::string() : label;
     }
 
+    // The game's FEngBeginTextInput (0x5865E0) opens a separate keyboard page. A mouse
+    // click on a Together row can call it with an empty buffer (blank screen, no typing,
+    // Esc eaten by soft-edit underneath). Block it on our screen and keep soft-edit.
+    constexpr uintptr_t kBeginTextAddr = 0x5865E0;
+    const uint8_t kBeginTextHead[7] = { 0x6A, 0xFF, 0x68, 0x24, 0x23, 0x87, 0x00 };
+    BeginText_t o_BeginTextInput = nullptr;
+
+    void __fastcall hk_BeginTextInput(void* self, void*, uint32_t object, uint32_t mode,
+                                      const char* text, const char* title, uint32_t maxLen) {
+        if (self && g_screen && self == g_screen && (g_softEdit || SoftEditPkg() || OurScreenUp())) {
+            LOG("Native: blocked the game's text entry (%s) - typing stays on the row",
+                title && title[0] ? title : "?");
+            if (!g_softEdit) {
+                uint8_t* w = *(uint8_t**)(g_screen + 0x34);
+                if (w && *(void**)w == g_widgetVt) {
+                    int r = RowOf(w);
+                    if (IsText(r) && g_editRow < 0) BeginEdit(w, r);
+                }
+            }
+            return;
+        }
+        if (o_BeginTextInput) o_BeginTextInput(self, object, mode, text, title, maxLen);
+    }
+
+    bool HookBeginTextInput() {
+        uint8_t head[7] = {};
+        if (!Mem::SafeRead((const void*)kBeginTextAddr, head, 7) || memcmp(head, kBeginTextHead, 7) != 0)
+            return false;
+        void* tr = VirtualAlloc(nullptr, 32, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        if (!tr) return false;
+        memcpy(tr, kBeginTextHead, 7);
+        uint8_t* back = (uint8_t*)tr + 7;
+        back[0] = 0xE9;
+        *(int32_t*)(back + 1) = (int32_t)((kBeginTextAddr + 7) - ((uintptr_t)back + 5));
+        o_BeginTextInput = (BeginText_t)tr;
+        uint8_t hook[7] = { 0xE9, 0, 0, 0, 0, 0x90, 0x90 };
+        *(int32_t*)(hook + 1) = (int32_t)((uintptr_t)&hk_BeginTextInput - (kBeginTextAddr + 5));
+        if (!Mem::PatchBytes(kBeginTextAddr, kBeginTextHead, hook, 7)) {
+            VirtualFree(tr, 0, MEM_RELEASE);
+            o_BeginTextInput = nullptr;
+            return false;
+        }
+        FlushInstructionCache(GetCurrentProcess(), (void*)kBeginTextAddr, 7);
+        return true;
+    }
+
     // Drop LEAVE_SCREEN while Enter on a Together row should stay on this screen.
     constexpr uintptr_t kQueueMessageAddr = 0x516BE0;
     const uint8_t kQueueMessageHead[6] = { 0x8B, 0x44, 0x24, 0x08, 0x85, 0xC0 };
@@ -919,6 +980,8 @@ bool NativeUI::Install() {
     done = done && PatchCallTo(kCallMainAdd, (uintptr_t)AddOption, (void*)&hk_MainAdd);
     done = done && HookQueueMessage();
     if (!done) { LOG("Native: a menu patch failed half way"); return false; }
+    if (!HookBeginTextInput())
+        LOG("Native: could not hook the game's text entry (mouse clicks may still open a blank page)");
     g_active = true;
     LOG("Native: Together in the main menu and in Options");
     return true;
@@ -935,6 +998,15 @@ void NativeUI::Tick() {
         EditOnOpenTick();
         // pause text entry may not redraw the row itself: push the live string onto the value object
         if (g_editRow >= 0 && g_screen) {
+            if (g_softEdit && Capturing()) {
+                void* none = nullptr;
+                Mem::Write(kKeyboard + 0x414, none);
+                static DWORD lastCapLog = 0;
+                if (GetTickCount() - lastCapLog > 1000) {
+                    lastCapLog = GetTickCount();
+                    LOG("Native: closed the game's text entry so typing stays on the row");
+                }
+            }
             if (!g_softEdit) {
                 const char* t = EditedText(g_screen);
                 if (t && t[0]) strncpy_s(g_value[g_editRow], t, _TRUNCATE);

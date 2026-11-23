@@ -109,6 +109,16 @@ inline bool SoftEditPackage(const char* pkg) {
 // Enter opened a soft-edit and left the player stuck on a blank screen.
 inline bool BeginEditOnBlockedLeave() { return false; }
 
+// After soft-edit starts we wait for the opening Enter (or a gamepad-mapped
+// Accept that Widescreen Fix may hold) to go up, so that key does not also
+// commit the field. Esc always cancels, even during this wait. If the key
+// stays down (sticky Accept), stop waiting after SoftWaitReleaseMs.
+constexpr unsigned SoftWaitReleaseMs = 250;
+inline bool SoftWaitReleaseDone(bool enterDown, unsigned waitedMs,
+                                unsigned timeoutMs = SoftWaitReleaseMs) {
+    return !enterDown || waitedMs >= timeoutMs;
+}
+
 // A window of `slots` rows over `count` rows. MoveScroll steps `focus` by `dir` and
 // shifts `scroll` only when the new focus would leave the window (including wrap).
 // When every row fits, moved is false so the game can change the highlight itself.
