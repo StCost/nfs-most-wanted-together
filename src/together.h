@@ -6,7 +6,7 @@
 // The "Together" settings: nickname, host / join, host address, start and menu options.
 //   - normally in the game's own menus (nativeui.cpp): Options > Together, and Main menu > Together to
 //     host or join. Until Host / Join is picked ([UI] TogetherSetupDone=0, or [Network] AutoConnect=0)
-//     the quick start stops at the main menu; with AutoConnect=1 it connects as last time.
+//     AutoStart stops at the main menu; with AutoConnect=1 it connects as last time.
 //   - the overlay page (F2 or holding BACK on a pad) has the same rows; it opens by itself on the
 //     first start only when the game's menus couldn't get their entries
 //   - Save & Play writes scripts\MWTogether.ini (comments kept) and applies the settings; a changed
@@ -19,8 +19,8 @@ namespace Together {
     void OnKeyboard(const uint8_t* dik256);   // the game's keyboard state, from its GetDeviceState call
     bool CapturesInput();                 // the page is open: the game gets no input
     bool IsOpen();
-    bool HoldStart();                     // the quick start / AutoStart must wait (the page is open)
-    bool WaitAtMenu();                    // the quick start stops at the main menu: Host / Join isn't picked yet
+    bool HoldStart();                     // AutoStart must wait (the page is open)
+    bool WaitAtMenu();                    // AutoStart stops at the main menu: Host / Join isn't picked yet
 
     // The game's own menus (nativeui.cpp). SetNativeMenus once at the first frame (did the menus get their
     // Together entries?) - it decides what the start does; NetAtStart: connect right away.

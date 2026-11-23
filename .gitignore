@@ -8,7 +8,6 @@ package/
 *.ilk
 *.log
 *.peercar.bin
-tools/saves.ps1
 .vs/
 dist/
 tools/re/huff.exe

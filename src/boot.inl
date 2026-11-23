@@ -145,7 +145,7 @@ namespace {
     // memory card's file list (circular list at [[0x91CB20]+0xCC]+0x7C; each node's name at node+8,
     // after a prefix as long as the string 0x6CBE20([0x91CB20]+0xD0) returns) in list order, filtered
     // by Profiles::Listed - all read the same way by the list setup at 0x563A26.
-    // With DirectFreeRoam the profile loaded last ([Start] LastProfile, written below) is picked by
+    // The profile loaded last ([Start] LastProfile, written below) is picked by
     // itself: PAD_DOWN to its row, then PAD_ACCEPT. A name that isn't in the list: left to the player.
     std::vector<std::string> SavedProfileNames() {                // Documents\NFS Most Wanted\<name>\<name>
         std::vector<std::string> out;
@@ -471,10 +471,7 @@ void Game::InstallBootPatches() {
     }
 }
 
-bool Game::DirectStartActive() { return false; }
-
-void Game::BootTick(bool stopAtMenu) {
-    (void)stopAtMenu;
+void Game::BootTick() {
     if (!g_ok || g_boot == Boot::Done) return;
 #ifdef MWT_DEVTOOLS
     const bool pressStart = g_cfg.testPressStart;

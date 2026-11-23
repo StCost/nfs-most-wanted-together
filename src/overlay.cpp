@@ -32,7 +32,6 @@ namespace {
     std::string g_text, g_texText;
     int  g_textW = 0, g_textH = 0;
     bool g_visible = true;
-    bool g_forceShow = false;
     std::string g_shotPath;
     bool g_shotOverlay = false;   // test command "shot+": the frame as shown, with our overlay / page     // test command: save the next frame (without our overlay) as a BMP
 
@@ -297,7 +296,7 @@ namespace {
 
         D3DSURFACE_DESC bd{}; bb->GetDesc(&bd);
         if (SUCCEEDED(dev->BeginScene())) {
-            if (g_visible || g_forceShow) DrawOverlay(dev);
+            if (g_visible) DrawOverlay(dev);
             DrawTogether(dev, bd.Width, bd.Height);
             dev->EndScene();
         }
@@ -411,7 +410,7 @@ namespace {
             ++g_frames;
             if (g_cb) g_cb(dev);
             if (!g_shotPath.empty() && !g_shotOverlay) { SaveBackBuffer(dev, g_shotPath); g_shotPath.clear(); }   // before our overlay
-            if (g_visible || g_forceShow || Together::Visible()) DrawOnBackBuffer(dev);
+            if (g_visible || Together::Visible()) DrawOnBackBuffer(dev);
             if (!g_shotPath.empty() && g_shotOverlay) { SaveBackBuffer(dev, g_shotPath); g_shotPath.clear(); }
         }
         HRESULT hr = o_Present(dev, src, dst, wnd, dirty);
@@ -512,7 +511,6 @@ void Overlay::SetText(const std::string& text) {
 }
 
 void Overlay::SetVisible(bool v) { g_visible = v; }
-void Overlay::SetForceShow(bool v) { g_forceShow = v; }
 void Overlay::Screenshot(const std::string& path, bool withOverlay) { g_shotOverlay = withOverlay; g_shotPath = path; }
 bool Overlay::IsVisible() { return g_visible; }
 IDirect3DDevice9* Overlay::Device() { return g_dev; }

@@ -169,7 +169,6 @@ namespace {
     bool     g_stayOnAccept = false;      // this ACCEPT is an in-place row action: do not leave
     int      g_reopenRow = -1;            // fallback: open again on this row if the package still left
     bool     g_reopening = false;         // ... keeping the edits not saved yet
-    DWORD    g_startAt = 0;               // unused for Start now (the action stays on the screen)
     // Pause_Options.fng may leave first and send ACCEPT after: where to go is decided a moment later
     uint8_t* g_leftScreen = nullptr;      // the screen that has left (it may still get that ACCEPT)
     DWORD    g_leftAt = 0;                // 0 = nothing pending
@@ -683,10 +682,9 @@ namespace {
             QueuePackageSwitch(fe, g_leftPause ? kPauseOptionsFng : kOptionsFng, g_leftPause ? 1 : 0, 0, false);
         } else {
             g_reopenRow = -1; g_editOnOpen = -1;
-            if (!g_startAt && GetTickCount() - g_acceptAt < 1500) SaveQuietly();   // ACCEPT = keep
+            if (GetTickCount() - g_acceptAt < 1500) SaveQuietly();   // ACCEPT = keep
             ExitTo(g_leftPause, g_leftCat);
         }
-        g_startAt = 0;
     }
 
     void EditOnOpenTick() {

@@ -518,7 +518,6 @@ std::string Game::ToggleAutopilot() {
 // Visual state of a car: its IInput controls (handle 0x403F90; controls block at IInput+8: steering
 // +0x0C, gas +0x1C, brake +0x20, handbrake +0x24, NOS byte +0x29 - relative to the IInput pointer;
 // setters slot 5 steering, 6 gas, 7 brake, 8 NOS(bool), 9 handbrake) and its light bits (IVehicle+0x9C).
-static void FlashSeenOnGhost(uint32_t glare);
 static uint8_t Unit8(float v) { return (uint8_t)(v <= 0.f ? 0 : v >= 1.f ? 255 : (int)(v * 255.f + 0.5f)); }
 static void ReadCarControls(void* iv, CarState& out) {
     const uint8_t* in = (const uint8_t*)Find(iv, 0x403F90 /*IInput*/);

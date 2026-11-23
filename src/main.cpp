@@ -37,8 +37,6 @@ namespace {
     std::string g_spawnMsg;
     bool        g_bgBoot = false;             // booting without focus
     HWND        g_prevForeground = nullptr;   // the window that had focus when the game started
-    std::string g_toast;                      // (no longer shown: notices use the game's banner only)
-    uint32_t    g_toastAt = 0;
     bool        g_coopHere = true;            // this profile may play co-op (career started; prologue done, or [Coop] Prologue)
     bool        g_inPrologue = false;         // this career is in the prologue
     bool        g_careerStarted = true;       // this profile has started its career
@@ -153,9 +151,9 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         NativeUI::Tick();
         if (g_gameOk) Logo::Tick(g_dir);
         Together::Tick(flowNow);
-        const bool hold = Together::HoldStart();    // the page is open: the quick start waits
-        const bool atMenu = Together::WaitAtMenu(); // Host / Join not picked yet: the quick start stops at the main menu
-        if (g_gameOk && !hold) Game::BootTick(atMenu);
+        const bool hold = Together::HoldStart();    // the page is open: AutoStart waits
+        const bool atMenu = Together::WaitAtMenu(); // Host / Join not picked yet: AutoStart stops at the main menu
+        if (g_gameOk && !hold) Game::BootTick();
         if (g_gameOk) Game::PursuitResultTick();
         if (g_gameOk) Pad::Tick(flowNow);
         if (g_gameOk) Game::ChyronTick();
@@ -533,21 +531,14 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
             if (ss != lastStory) { if (!ss.empty()) Toast(ss); lastStory = ss; }
         }
         if (g_gameOk) Game::NoticeTick();
-        bool toastOn = false;   // the black corner box is gone
-        Overlay::SetForceShow(toastOn);
-
         // --- overlay text (rebuild ~5x per second, texture upload is not free) ---
         uint32_t now = GetTickCount();
         Perf::Scope perfOverlay(Perf::Overlay);
-        if (toastOn && !Overlay::IsVisible() && now - g_lastOverlay > 200) {
-            g_lastOverlay = now;
-            Overlay::SetText("MW Together: " + g_toast + "\n");
-        } else if (Overlay::IsVisible() && now - g_lastOverlay > 200) {
+        if (Overlay::IsVisible() && now - g_lastOverlay > 200) {
             g_lastOverlay = now;
             char buf[1024];
             std::string s;
-            if (toastOn) s += ">> " + g_toast + "\n";
-            sprintf_s(buf, "MW Together %s  [%s]  F8: hide  F9: ghost %s\n", MWT_VERSION,
+            sprintf_s(buf, "MW Together %s  [%s]  F8: hide  ghost %s\n", MWT_VERSION,
                       g_cfg.isHost ? "HOST" : "CLIENT", g_ghostOn ? "ON" : "OFF");
             s += buf;
 

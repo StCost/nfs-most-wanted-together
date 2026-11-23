@@ -76,7 +76,7 @@ namespace Game {
     bool InstallRestartSync();
     bool InstallStreamHook();
     void InstallBootPatches();          // call from DllMain (before the front end starts)
-    void BootTick(bool stopAtMenu);   // stopAtMenu: the direct free roam start waits at the main menu
+    void BootTick();                  // profile-load confirm / TestPressStart (dev builds)
     void PursuitResultTick();
     bool InstallNisHook();              // cutscene skip voting
     void NisTick(bool connected);
@@ -108,7 +108,6 @@ namespace Game {
     const char* SaveStatus();
     void SetDataDir(const char* dir);   // scripts\ folder
     const char* NisStatus();
-    bool DirectStartActive();   // always false (DirectFreeRoam removed)
     std::string DebugStartEvent(const char* eventId);   // F7 test
     std::string DebugListEvents();   // test command 'events': log every event ID with race type / boss / preset car
     void TrafficTick(bool connected, const Net::Snapshot& peer);
