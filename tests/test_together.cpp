@@ -228,6 +228,58 @@ TEST(native_soft_wait_release) {
     // Esc is not modeled here; the UI always treats Esc as cancel during the wait.
 }
 
+TEST(native_enter_acts_once_per_press) {
+    KeyLatch k;
+    CHECK(StepKey(k, false) == KeyStep::Pass);
+    CHECK(StepKey(k, true) == KeyStep::Act);          // the press
+    k.eating = true;                                  // ... handled: the game must not see it
+    CHECK(StepKey(k, true) == KeyStep::Swallow);      // still held: no second action, still hidden
+    CHECK(StepKey(k, true) == KeyStep::Swallow);
+    CHECK(StepKey(k, false) == KeyStep::Pass);        // let go
+    CHECK(!k.eating);
+    CHECK(StepKey(k, true) == KeyStep::Act);          // the next press acts again
+    // a press nobody handled passes to the game, also while it is held
+    KeyLatch p;
+    CHECK(StepKey(p, true) == KeyStep::Act);
+    CHECK(StepKey(p, true) == KeyStep::Pass);
+}
+
+TEST(native_enter_that_ended_typing_does_not_reopen) {
+    // 1.7.3: the Enter that kept the field was still down on the next poll and opened it again
+    KeyLatch k;
+    HoldKey(k, true);                                 // typing ended on this Enter
+    CHECK(StepKey(k, true) == KeyStep::Swallow);      // held: not a new press, not for FEng
+    CHECK(StepKey(k, true) == KeyStep::Swallow);
+    CHECK(StepKey(k, false) == KeyStep::Pass);
+    CHECK(StepKey(k, true) == KeyStep::Act);
+    // typing that ended some other way (pad A) with Enter up: the next Enter is a normal press
+    KeyLatch u;
+    HoldKey(u, false);
+    CHECK(StepKey(u, true) == KeyStep::Act);
+}
+
+TEST(native_key_held_when_screen_opens_is_not_a_press) {
+    KeyLatch k{ true, false };                        // the Enter that picked Together is still down
+    CHECK(StepKey(k, true) == KeyStep::Pass);
+    CHECK(StepKey(k, false) == KeyStep::Pass);
+    CHECK(StepKey(k, true) == KeyStep::Act);
+}
+
+TEST(native_pad_edge) {
+    const uint16_t A = 0x1000, B = 0x2000;
+    CHECK(PadEdge(A, 0, A));
+    CHECK(!PadEdge(A, A, A));                         // the A that opened the field is still down
+    CHECK(!PadEdge(0, A, A));
+    CHECK(PadEdge(A | B, A, B));
+    CHECK(!PadEdge(B, 0, A));
+}
+
+TEST(native_soft_edit_shows_cursor) {
+    CHECK_STR(SoftEditShown("").c_str(), "_");
+    CHECK_STR(SoftEditShown("StCost").c_str(), "StCost_");
+    CHECK_STR(SoftEditShown("25.35.160.230").c_str(), "25.35.160.230_");
+}
+
 
 // The logo replacement's .dds reader: src/ddsutil.h
 #include "../src/ddsutil.h"

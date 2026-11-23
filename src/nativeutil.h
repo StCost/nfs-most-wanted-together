@@ -119,6 +119,29 @@ inline bool SoftWaitReleaseDone(bool enterDown, unsigned waitedMs,
     return !enterDown || waitedMs >= timeoutMs;
 }
 
+// One key on the Together screen (Enter, Esc), polled each time the game reads its keyboard.
+// It acts once per press, on the down edge; a press that acted (or that ended a text edit)
+// stays hidden from the game until it is let go, so one press can't also confirm, reopen
+// the field or make the screen leave. A press that did not act passes to the game.
+struct KeyLatch { bool prev = false; bool eating = false; };
+enum class KeyStep { Pass, Act, Swallow };
+inline KeyStep StepKey(KeyLatch& k, bool down) {
+    bool edge = down && !k.prev;
+    k.prev = down;
+    if (!down) { k.eating = false; return KeyStep::Pass; }
+    if (k.eating) return KeyStep::Swallow;
+    return edge ? KeyStep::Act : KeyStep::Pass;
+}
+// The key was handled somewhere else this poll (the text edit): eat it while it stays down.
+inline void HoldKey(KeyLatch& k, bool down) { k.prev = down; k.eating = down; }
+
+// The same for the pad's buttons (XInput bits): a button that was already down when the
+// edit started (the A that opened it) has to go up before it counts.
+inline bool PadEdge(uint16_t now, uint16_t prev, uint16_t bit) { return (now & bit) && !(prev & bit); }
+
+// The row while it is being typed: the text and a cursor, so it is plain that typing goes there.
+inline std::string SoftEditShown(const std::string& text) { return text + "_"; }
+
 // A window of `slots` rows over `count` rows. MoveScroll steps `focus` by `dir` and
 // shifts `scroll` only when the new focus would leave the window (including wrap).
 // When every row fits, moved is false so the game can change the highlight itself.

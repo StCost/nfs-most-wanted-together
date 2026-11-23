@@ -85,7 +85,7 @@ namespace {
                 Together::OnKeyboard((const uint8_t*)data);
             }
             if (Together::CapturesInput()) { memset(data, 0, 256); }
-        } else if (data && SUCCEEDED(hr) && Together::CapturesInput()) {
+        } else if (data && SUCCEEDED(hr) && (Together::CapturesInput() || NativeUI::CapturesPad())) {
             ClearPad(cb, data);
         }
         return hr;
