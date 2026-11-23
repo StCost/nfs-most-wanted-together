@@ -61,9 +61,31 @@ namespace {
     //  front end (flow 3):          db = *(0x91E004); c = db->0x603440(parms); db->0x600AB0(c, 2 /*career*/);
     //                               db->0x5E39E0(c); 0x57ECA0()  (GameFlowManager::LoadTrack)
     DWORD g_closeMenusUntil = 0;   // our event menus are closed until then (joining the other player's event)
-    void OnEventPacket(uint32_t eventHash, const char* eventId, bool fromPeer = true) {
+
+    // Quit to the main menu like the pause menu's "Quit" does: EQuitToFE(1, "MainMenu.fng") from the
+    // event pool (0x627400 alloc, ctor 0x62FE40 thiscall(reason, screen) queues it; found by RE of the
+    // callers at 0x5502FF / 0x5A4983). A Challenge Series event or quick race of the other player is
+    // only joined from the menus.
+    bool QuitToFrontEnd() {
+        void* ev = ((void*(__cdecl*)(uint32_t))0x627400)(0x10);
+        if (!ev) return false;
+        ((void*(__thiscall*)(void*, int, const char*))0x62FE40)(ev, 1, (const char*)0x89AE54);
+        return true;
+    }
+    // one notice per invitation and kind (the invitation is repeated)
+    void NoticeOnce(uint32_t hash, int kind, const char* text, bool warn) {
+        static uint32_t lastHash = 0; static int lastKind = -1;
+        if (hash == lastHash && kind == lastKind) return;
+        lastHash = hash; lastKind = kind;
+        Game::QueueNotice(text, warn);
+    }
+
+    // Returns true while the invitation should be kept and retried (EventTickImpl, g_pending): a step
+    // was taken (menu closed, results left, quit to the main menu) or we're loading. False when it's
+    // done (started), or refused.
+    bool OnEventPacket(uint32_t eventHash, const char* eventId, bool fromPeer = true, int sentContext = -1) {
         // the sender repeats an invitation for a few seconds (UDP may lose it): act on it once
-        if (fromPeer && g_handledHash == eventHash && GetTickCount() - g_handledAt < 30000) return;
+        if (fromPeer && g_handledHash == eventHash && GetTickCount() - g_handledAt < 30000) return false;
         int flow = Game::GameFlowState();
         int mode = 0;
         void* cur = CurrentParms(&mode);
@@ -77,10 +99,11 @@ namespace {
         if (cur && mode == 1 && fromPeer && EventHashOf(cur) != eventHash && resultsScreen) {
             void* db0 = nullptr; Mem::Read(0x91E004, db0);
             void* next = db0 ? ((void*(__thiscall*)(void*, uint32_t))0x5FB710)(db0, eventHash) : nullptr;
-            if (!next || IsChallengeEvent(next) || !Prologue::BossEventJoinable(((bool(__thiscall*)(void*))0x5FBD90)(next), eventId, Game::CareerBin(), PeerCareerBin())) {
+            // a Challenge Series event / quick race is joined too now: Continue to free roam, then to the menus
+            if (!next || !Prologue::BossEventJoinable(((bool(__thiscall*)(void*))0x5FBD90)(next), eventId, Game::CareerBin(), PeerCareerBin())) {
                 static DWORD lastRefuseLog = 0;            // one we'd refuse in free roam anyway: stay on the results
-                if (GetTickCount() - lastRefuseLog > 10000) { lastRefuseLog = GetTickCount(); LOG("Event: %s invited while we're on the results screen - not joined (challenge event, or a rival event of another Blacklist rival: ours #%d, theirs #%d)", eventId, (int)Game::CareerBin(), PeerCareerBin()); }
-                return;
+                if (GetTickCount() - lastRefuseLog > 10000) { lastRefuseLog = GetTickCount(); LOG("Event: %s invited while we're on the results screen - not joined (a rival event of another Blacklist rival: ours #%d, theirs #%d)", eventId, (int)Game::CareerBin(), PeerCareerBin()); }
+                return false;
             }
             static DWORD lastExit = 0;
             void* fe = nullptr;
@@ -98,37 +121,52 @@ namespace {
                     LOG("Event: joining %s through the rival's next race - using %s", eventId, g_usePeerRoster ? "the peer's opponents" : "our own opponents (no roster received)");
                 }
             }
-            return;                               // the invitation is repeated; the next copy finds us in free roam
+            return true;                          // kept: the next try finds us in free roam
         }
+        if (cur && fromPeer && EventHashOf(cur) == eventHash) return false;   // already in it
         if (cur && (mode == 1 || fromPeer)) {     // racing, or already loading into an event
             static DWORD lastLog = 0;
-            if (GetTickCount() - lastLog > 5000) { lastLog = GetTickCount(); LOG("Event: %s requested but we're already in an event - ignored", eventId); }
-            return;
+            if (GetTickCount() - lastLog > 5000) { lastLog = GetTickCount(); LOG("Event: %s requested but we're already in an event - %s", eventId, mode == 1 ? "not joined (we stay in ours)" : "waiting"); }
+            if (mode == 1 && fromPeer) {          // driving another event: never yanked out of it (JoinUtil::Step::Busy)
+                char t[128]; sprintf_s(t, "Your partner started %s - you're in another event, so you stay in yours", eventId);
+                NoticeOnce(eventHash, 1, t, true);
+                return false;
+            }
+            return fromPeer;                      // loading: retry
         }
         void* db = nullptr;
         Mem::Read(0x91E004, db);
         void* parms = db ? ((void*(__thiscall*)(void*, uint32_t))0x5FB710)(db, eventHash) : nullptr;
-        if (!parms) { LOG("Event: unknown event %s (%08X)", eventId, eventHash); return; }
+        if (!parms) { LOG("Event: unknown event %s (%08X)", eventId, eventHash); return false; }
         if (fromPeer && !Prologue::BossEventJoinable(((bool(__thiscall*)(void*))0x5FBD90)(parms), eventId, Game::CareerBin(), PeerCareerBin())) {
             // a Blacklist rival's race or story event (Razor's races, the final pursuit) of a rival our career
             // isn't at: winning it here would count for the wrong rival
             static DWORD lastLog = 0;
             if (GetTickCount() - lastLog > 10000) { lastLog = GetTickCount(); LOG("Event: %s is a rival event of another Blacklist rival than ours (#%d) - not joined", eventId, (int)Game::CareerBin()); }
-            return;
+            return false;
         }
-        if (fromPeer && flow == 6 && IsChallengeEvent(parms)) {
-            // a Challenge Series event needs its preset car, which only a start from the menu builds
-            static DWORD lastLog = 0;
-            if (GetTickCount() - lastLog > 10000) { lastLog = GetTickCount(); LOG("Event: %s is a Challenge Series event - join it from the main menu, not from free roam", eventId); }
-            return;
-        }
+        // a Challenge Series event (needs its preset car, which only a start from the menu builds) or a
+        // quick race (context 0): from free roam we quit to the main menu first, then start it there
+        bool frontEndOnly = sentContext == 0 || IsChallengeEvent(parms);
         if (fromPeer && flow == 6) {
             // a menu over the world (map, pause, SMS, Blacklist, ...): closed first, the event starts
             // with the next copy of the invitation. Started under the map, the map closed in the middle
             // of the race load and read our car while there was none (crash 0x54865F, the world map's destructor)
             if (Game::CloseInGameOverlays()) {
                 LOG("Event: %s invited while a menu is open - closing it first", eventId);
-                return;                               // the invitation is repeated
+                return true;                          // kept and retried
+            }
+            if (frontEndOnly) {
+                static DWORD lastQuit = 0;
+                if (GetTickCount() - lastQuit > 10000) {
+                    lastQuit = GetTickCount();
+                    if (QuitToFrontEnd()) {
+                        LOG("Event: %s is a %s - quitting to the main menu to join it", eventId, IsChallengeEvent(parms) ? "Challenge Series event" : "quick race");
+                        char t[128]; sprintf_s(t, "Your partner started %s - going to the main menu to join", eventId);
+                        NoticeOnce(eventHash, 2, t, false);
+                    } else LOG("Event: %s - could not quit to the main menu", eventId);
+                }
+                return true;                          // the main menu starts it (EventTickImpl retries)
             }
         }
         g_joiningEvent = fromPeer ? eventHash : 0;   // a local test start is sent on to the peer
@@ -158,31 +196,37 @@ namespace {
         if (flow == 6) {
             void* gm = nullptr;
             Mem::Read(0x91E00C, gm);
-            if (!gm) { LOG("Event: no GManager"); return; }
+            if (!gm) { LOG("Event: no GManager"); return false; }
             ((void(__thiscall*)(void*, uint32_t))0x5FDCB0)(gm, eventHash);
             sprintf_s(g_eventStatus, "starting %s (free roam)", eventId);
             LOG("Event: starting %s from free roam (GManager 0x5FDCB0)", eventId);
             if (fromPeer) { g_handledHash = eventHash; g_handledAt = GetTickCount(); }   // only once it really started
         } else if (flow == 3) {
             void* c = ((void*(__thiscall*)(void*, void*))0x603440)(db, parms);
-            if (!c) { LOG("Event: could not create the race for %s", eventId); return; }
-            // challenge events use context 0 (the world load then builds the preset car), career 2
-            ((void(__thiscall*)(void*, void*, int))0x600AB0)(db, c, IsChallengeEvent(parms) ? 0 : 2);
+            if (!c) { LOG("Event: could not create the race for %s", eventId); return false; }
+            // challenge events and quick races use context 0 (the world load then builds the preset car), career 2
+            ((void(__thiscall*)(void*, void*, int))0x600AB0)(db, c, fromPeer ? JoinUtil::LoadContext(sentContext, IsChallengeEvent(parms)) : (IsChallengeEvent(parms) ? 0 : 2));
             ((void(__thiscall*)(void*, void*))0x5E39E0)(db, c);
             ((void(__cdecl*)())0x57ECA0)();
             sprintf_s(g_eventStatus, "starting %s (menu)", eventId);
             LOG("Event: starting %s from the front end (LoadTrack)", eventId);
             if (fromPeer) { g_handledHash = eventHash; g_handledAt = GetTickCount(); }
         } else {
-            LOG("Event: %s requested while loading (flow %d) - ignored", eventId, flow);
+            static DWORD lastLoadLog = 0;
+            if (!fromPeer || GetTickCount() - lastLoadLog > 5000) { lastLoadLog = GetTickCount(); LOG("Event: %s requested while loading (flow %d) - %s", eventId, flow, fromPeer ? "retrying" : "ignored"); }
             g_joiningEvent = 0;
+            return fromPeer;
         }
+        return false;
     }
 }
 
 namespace {
     RosterEntry g_inviteRoster[8]; int g_inviteN = 0;
     uint32_t g_inviteHash = 0; char g_inviteId[40] = ""; DWORD g_inviteUntil = 0, g_inviteNext = 0;
+    int      g_inviteCtx = -1;
+    // the other player's invitation we're still working towards (results -> free roam -> main menu -> load)
+    JoinUtil::Pending g_pending; char g_pendingId[41] = "";
     void SendInvite() {
         for (int i = 0; i < g_inviteN; ++i) {
             RosterPacket rp{};
@@ -192,7 +236,7 @@ namespace {
             memcpy(rp.custom, g_inviteRoster[i].custom, sizeof(rp.custom));
             Net::SendRoster(rp);
         }
-        Net::SendEvent(g_inviteHash, g_inviteId);
+        Net::SendEvent(g_inviteHash, g_inviteId, g_inviteCtx);
     }
     DWORD g_restartResendAt[2] = { 0, 0 }; uint32_t g_restartResendHash = 0;
     uint32_t g_restartSeq = 0, g_peerRestartSeq = 0; DWORD g_ownRestartAt = 0;
@@ -241,12 +285,12 @@ static void EventTickImpl(bool connected) {
             } else if (Prologue::IsPrologueEvent(id)) {
                 // the prologue: the other game loads the same event by itself (its own chain), the start waits for it
                 LOG("Event: prologue event - not sent (each game runs its own prologue, the start waits for the other player)");
-            } else if (connected && (ctx == 2 /*career*/ || (ctx == 0 && IsChallengeEvent(parms)))) {
+            } else if (connected && JoinUtil::InviteContext(ctx)) {   // career, Challenge Series, quick race
                 // our AI opponents first, so the peer builds the same ones. Kept and repeated for a
                 // few seconds (SendInvite) until the peer is in the race too.
                 g_inviteN = g_localRosterN;
                 for (int i = 0; i < g_inviteN; ++i) g_inviteRoster[i] = g_localRoster[i];
-                g_inviteHash = h; strncpy_s(g_inviteId, id, _TRUNCATE);
+                g_inviteHash = h; strncpy_s(g_inviteId, id, _TRUNCATE); g_inviteCtx = ctx;
                 g_inviteUntil = GetTickCount() + 12000; g_inviteNext = GetTickCount() + 1500;   // long enough for a partner to leave a results screen
                 SendInvite();
                 LOG("Event: sent %d opponent(s) to peer", g_inviteN);
@@ -263,11 +307,39 @@ static void EventTickImpl(bool connected) {
         const Net::Snapshot& pr = Net::Latest();
         // a partner still on the results of the previous race reports inRace too: only being in OUR event counts
         if (!connected || (int)(now - g_inviteUntil) > 0 || (pr.valid && pr.s.inRace && pr.s.eventHash == g_inviteHash)) g_inviteHash = 0;
+        else if (pr.valid && JoinUtil::PeerBusyElsewhere(g_inviteHash, pr.s.eventHash, pr.s.inRace != 0, pr.s.finished != 0) &&
+                 (int)(now - (g_inviteUntil - 12000)) > 4000) {   // still so after 4 s (a results screen is left by then)
+            // they're driving another event: they stay in it (their side says so too) - we go alone
+            LOG("Event: the other player is in another event (%08X) - not inviting them into %s", pr.s.eventHash, g_inviteId);
+            char t[128]; sprintf_s(t, "Your partner is in another event - %s without them", g_inviteId);
+            NoticeOnce(g_inviteHash, 3, t, true);
+            sprintf_s(g_eventStatus, "started %s - partner busy", g_inviteId);
+            g_inviteHash = 0;
+        }
         else if ((int)(now - g_inviteNext) >= 0) { g_inviteNext = now + 1500; SendInvite(); }
     }
     {   // while joining their event, an event menu of ours may still be open: close it (twice a second)
         static DWORD next = 0;
         if (g_closeMenusUntil && (int)(g_closeMenusUntil - GetTickCount()) > 0 && GetTickCount() >= next) { next = GetTickCount() + 500; CloseEventMenusSafe(); }
+    }
+    // the other player's invitation we're working towards: retry each second until we're in it
+    if (g_pending.hash) {
+        DWORD now = GetTickCount();
+        const Net::Snapshot& pr = Net::Latest();
+        int flow = Game::GameFlowState();
+        static int lastFlow = -1; static DWORD flowSince = 0; static DWORD nextTry = 0;
+        if (flow != lastFlow) { lastFlow = flow; flowSince = now; }
+        if (!connected || !g_coopLinked ||
+            !JoinUtil::KeepPending(g_pending, now, pr.valid ? pr.s.eventHash : 0, pr.valid && pr.s.gameFlowState == 6, g_curEventHash == g_pending.hash)) {
+            if (g_curEventHash != g_pending.hash) LOG("Event: stopped working towards %s (partner left it, or it took too long)", g_pendingId);
+            g_pending = JoinUtil::Pending{};
+        } else if (now - flowSince > 2000 && (int)(now - nextTry) >= 0) {   // a new screen settles first (the main menu)
+            nextTry = now + 1000;
+            bool keep = false;
+            __try { keep = OnEventPacket(g_pending.hash, g_pendingId, true, g_pending.context); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Event: exception joining"); }
+            if (!keep && g_handledHash != g_pending.hash) g_pending = JoinUtil::Pending{};   // refused / busy
+            else if (g_handledHash == g_pending.hash) g_pending = JoinUtil::Pending{};       // started
+        }
     }
     if (g_joiningEvent && GetTickCount() - g_joinStartedAt > 20000) {
         LOG("Event: joining timed out");
@@ -291,7 +363,13 @@ bool Game::InstallEventSync() {
     Net::OnEvent = [](uint32_t hash, const char* id) {
         if (!g_coopLinked) return;     // one of us is in the prologue and the other past it: no shared events
         if (Prologue::IsPrologueEvent(id) || Game::PrologueNow().inPrologue) { LOG("Event: %s from the other player ignored - in the prologue each game runs its own chain", id); return; }
-        __try { OnEventPacket(hash, id); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Event: exception handling peer event"); }
+        int ctx = Net::LastEventContext();
+        bool keep = false;
+        __try { keep = OnEventPacket(hash, id, true, ctx); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Event: exception handling peer event"); }
+        if (keep && g_pending.hash != hash) {   // a step on the way (menu, results, main menu): keep working on it
+            g_pending.hash = hash; g_pending.since = GetTickCount(); g_pending.context = ctx;
+            strncpy_s(g_pendingId, id, _TRUNCATE);
+        }
     };
     return true;
 }

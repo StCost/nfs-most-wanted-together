@@ -180,7 +180,7 @@ constexpr int MAX_TRAFFIC_PER_PACKET = 20;
 struct EventPacket {
     PacketHeader h;
     uint32_t eventHash;   // Attrib::StringHash32 of the event ID
-    char     eventId[40]; // e.g. "1.2.3"
+    char     eventId[40]; // e.g. "1.2.3"; [39] = 0x80 | race context (JoinUtil::ContextToWire), 0 from older builds
 };
 struct RosterPacket {
     PacketHeader h;
@@ -317,7 +317,8 @@ namespace Net {
     extern void (*OnTraffic)(const TrafficEntry* e, int count, double sendMs);
     void   SendTrailers(const TrailerEntry* e, int count, float simTime);
     extern void (*OnTrailers)(const TrailerEntry* e, int count, double sendMs);
-    void SendEvent(uint32_t eventHash, const char* eventId);
+    void SendEvent(uint32_t eventHash, const char* eventId, int context = -1);   // context: GRaceStatus race context (-1 = not sent)
+    int  LastEventContext();   // race context of the last event invitation received (-1 = an older build)
     extern void (*OnEvent)(uint32_t eventHash, const char* eventId);
     void SendRoster(const RosterPacket& p);                 // header is filled in here; sent 3x
     extern void (*OnRoster)(const RosterPacket& p);

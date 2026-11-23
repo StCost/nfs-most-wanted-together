@@ -4,6 +4,7 @@
 #include "pursuitutil.h"
 #include "milestoneutil.h"
 #include "raceutil.h"
+#include "joinutil.h"
 #include "profileutil.h"
 #include "prologueutil.h"
 #include "groundutil.h"

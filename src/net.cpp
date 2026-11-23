@@ -10,6 +10,7 @@
 #include "config.h"
 #include "log.h"
 #include "logutil.h"
+#include "joinutil.h"
 #include <cstring>
 #include <cstddef>
 #include <cstdio>
@@ -19,6 +20,7 @@
 #pragma comment(lib, "ws2_32.lib")
 
 namespace {
+    int         g_lastEventContext = -1;   // race context of the last PKT_EVENT (-1 = not sent)
     SOCKET      g_sock = INVALID_SOCKET;
     sockaddr_in g_peer{};
     bool        g_havePeer = false;     // host: learned from first packet; client: from config
@@ -412,6 +414,7 @@ namespace {
                 LOG("Peer started event %s (%08X)", id, p->eventHash);
                 lastEv = p->eventHash; lastEvAt = nowEv;
             }
+            g_lastEventContext = JoinUtil::ContextFromWire((uint8_t)p->eventId[39]);
             if (Net::OnEvent) Net::OnEvent(p->eventHash, id);
             break;
         }
@@ -840,14 +843,16 @@ void Net::SendRoster(const RosterPacket& in) {
     for (int i = 0; i < 3; ++i) SendRaw(&p, sizeof(p));
 }
 
-void Net::SendEvent(uint32_t eventHash, const char* eventId) {
+void Net::SendEvent(uint32_t eventHash, const char* eventId, int context) {
     if (!g_stats.connected) return;
     EventPacket p{};
     FillHeader(p.h, PKT_EVENT);
     p.eventHash = eventHash;
-    strncpy_s(p.eventId, eventId ? eventId : "", _TRUNCATE);
+    strncpy_s(p.eventId, sizeof(p.eventId) - 1, eventId ? eventId : "", _TRUNCATE);   // [39] stays free for the context
+    p.eventId[39] = (char)JoinUtil::ContextToWire(context);
     for (int i = 0; i < 3; ++i) SendRaw(&p, sizeof(p));   // important + tiny: send 3 copies (UDP)
 }
+int Net::LastEventContext() { return g_lastEventContext; }
 
 // Clock mapping (our ms - peer ms). The raw estimate (fastest packet in the last ~0.5 s) jumps by a
 // few ms whenever that packet ages out, which would make remote cars jump. So we glide the estimate

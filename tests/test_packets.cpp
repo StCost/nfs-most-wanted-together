@@ -170,8 +170,8 @@ TEST(packets_event_id_limits) {
     });
     REQUIRE(d.size() == 6);
     const EventPacket* p = (const EventPacket*)d[0].data();
-    CHECK_EQ(p->eventId[39], 0);
-    CHECK_EQ(strnlen(p->eventId, 40), 39);           // truncated to the 40-byte field
+    CHECK_EQ(p->eventId[39], 0);                     // no race context given
+    CHECK_EQ(strnlen(p->eventId, 40), 38);           // truncated; the last byte carries the race context
     CHECK_EQ(((const EventPacket*)d[3].data())->eventId[0], 0);
 
     // an id that fills the field without a terminator must still reach the callback terminated
@@ -185,6 +185,22 @@ TEST(packets_event_id_limits) {
     Inject(raw);
     CHECK_EQ(g_seen.eventCalls, 1);
     CHECK_EQ(g_seen.eventId.size(), 40);
+    CHECK_EQ(Net::LastEventContext(), -1);           // 'Z' is no context byte
+}
+
+TEST(packets_event_carries_the_race_context) {
+    Datagrams d = SerializeOnHost([] { Net::SendEvent(0x1234, "Q.1", 0); Net::SendEvent(0x5678, "1.2.3", 2); Net::SendEvent(9, "1.1", -1); });
+    REQUIRE(d.size() == 9);
+    NetFixture client(false);
+    Connect("Host");
+    HookCallbacks();
+    DeliverToClient(Datagrams(d.begin(), d.begin() + 1));
+    CHECK_STR(g_seen.eventId, "Q.1");
+    CHECK_EQ(Net::LastEventContext(), 0);            // quick race / Challenge Series
+    DeliverToClient(Datagrams(d.begin() + 3, d.begin() + 4));
+    CHECK_EQ(Net::LastEventContext(), 2);            // career
+    DeliverToClient(Datagrams(d.begin() + 6, d.begin() + 7));
+    CHECK_EQ(Net::LastEventContext(), -1);           // as an older build sends it
 }
 
 TEST(packets_restart_round_trip) {

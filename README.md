@@ -139,7 +139,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] After beating a rival, each of you picks your own markers and gets your own rewards (pink slip, cash, parts)
 - [x] Bounty goes to each player's own career
 - [x] Shared milestones and speed traps: when one of you completes one for your current rival, the other gets it too, with the bounty, if they're at the same rival (`[Career] SharedMilestones`)
-- [x] Challenge Series: start from the main menu on both PCs and you both load the event with its car. Someone roaming in career isn't pulled in
+- [x] Starting an event together: when either of you starts a career race, a Blacklist race, a milestone or pursuit event, a quick race or a Challenge Series event, the other player is pulled into the same one, from free roam, the world map, any menu, the results screens or the main menu. Open menus are closed first. For a Challenge Series event or a quick race, a partner who's roaming quits to the main menu first and then loads the same event (Challenge Series: with its car). A partner who's driving another event isn't pulled out. You both get a notice and they finish their own event
 
 
 </details>

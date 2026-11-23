@@ -2,6 +2,7 @@
 // race script gets for our racer, and which of our racers follows a host opponent.
 #include "mwt_test.h"
 #include "../src/raceutil.h"
+#include "../src/joinutil.h"
 #include <cstring>
 
 using namespace CoopRace;
@@ -207,4 +208,69 @@ TEST(race_client_traffic_in_a_pursuit_challenge_is_shared) {
     CHECK(ClientTrafficAsRace(1, kTypeTollbooth));
     CHECK(ClientTrafficAsRace(1, -1));                               // unknown type: as before
     CHECK(!ClientTrafficAsRace(1, kTypePursuitChallenge));           // host's traffic mirrored as in free roam
+}
+
+// Joint event start (src/joinutil.h)
+static JoinUtil::In JoinIn(JoinUtil::Where w) { JoinUtil::In in{}; in.where = w; in.joinable = true; return in; }
+
+TEST(join_career_event_starts_from_roaming_and_menus) {
+    using namespace JoinUtil;
+    CHECK(Decide(JoinIn(Where::Roaming)) == Step::Start);
+    CHECK(Decide(JoinIn(Where::FrontEnd)) == Step::Start);       // main menu / career menus: LoadTrack
+    In in = JoinIn(Where::Roaming); in.menuOpen = true;
+    CHECK(Decide(in) == Step::CloseMenusFirst);                   // world map, pause, SMS: backed out first
+}
+
+TEST(join_challenge_or_quick_race_from_roaming_quits_to_the_front_end) {
+    using namespace JoinUtil;
+    In in = JoinIn(Where::Roaming); in.frontEndOnly = true;
+    CHECK(Decide(in) == Step::QuitToFrontEndFirst);
+    in.menuOpen = true;  CHECK(Decide(in) == Step::CloseMenusFirst);   // menus first, then the quit
+    in = JoinIn(Where::FrontEnd); in.frontEndOnly = true;
+    CHECK(Decide(in) == Step::Start);
+}
+
+TEST(join_never_yanks_a_partner_out_of_another_event) {
+    using namespace JoinUtil;
+    CHECK(Decide(JoinIn(Where::InEvent)) == Step::Busy);
+    In in = JoinIn(Where::InEvent); in.frontEndOnly = true;
+    CHECK(Decide(in) == Step::Busy);
+    CHECK(Decide(JoinIn(Where::Results)) == Step::LeaveResultsFirst);   // their race is over: Continue
+    CHECK(Decide(JoinIn(Where::Loading)) == Step::Wait);
+    in = JoinIn(Where::InEvent); in.sameEvent = true;
+    CHECK(Decide(in) == Step::AlreadyThere);
+    in = JoinIn(Where::Roaming); in.joinable = false;
+    CHECK(Decide(in) == Step::Refuse);
+}
+
+TEST(join_pending_invite_lives_until_joined_timed_out_or_partner_left) {
+    using namespace JoinUtil;
+    Pending p; p.hash = 0xABCD; p.since = 1000;
+    CHECK(KeepPending(p, 2000, 0xABCD, true, false));
+    CHECK(!KeepPending(p, 2000, 0xABCD, true, true));                       // we're in it
+    CHECK(!KeepPending(p, 1000 + PENDING_MS + 1, 0xABCD, true, false));     // too old
+    CHECK(KeepPending(p, 5000, 0, true, false));                            // they may still be loading
+    CHECK(!KeepPending(p, 1000 + PEER_LEFT_GRACE_MS + 1, 0, true, false));  // they quit it
+    CHECK(KeepPending(p, 1000 + PEER_LEFT_GRACE_MS + 1, 0, false, false));  // between screens: keep
+    Pending none; CHECK(!KeepPending(none, 2000, 0, true, false));
+}
+
+TEST(join_sender_sees_a_busy_partner) {
+    using namespace JoinUtil;
+    CHECK(PeerBusyElsewhere(1, 2, true, false));
+    CHECK(!PeerBusyElsewhere(1, 2, true, true));    // on their results: they'll Continue and join
+    CHECK(!PeerBusyElsewhere(1, 1, true, false));   // in ours
+    CHECK(!PeerBusyElsewhere(1, 0, false, false));  // roaming / menus
+    CHECK(!PeerBusyElsewhere(0, 2, true, false));
+}
+
+TEST(join_context_travels_and_old_builds_keep_the_old_rule) {
+    using namespace JoinUtil;
+    for (int c = 0; c <= 3; ++c) CHECK(ContextFromWire(ContextToWire(c)) == c);
+    CHECK(ContextToWire(-1) == 0); CHECK(ContextFromWire(0) == -1);
+    CHECK(LoadContext(0, false) == 0);    // quick race
+    CHECK(LoadContext(2, false) == 2);
+    CHECK(LoadContext(-1, true) == 0);    // older sender: Challenge Series
+    CHECK(LoadContext(-1, false) == 2);
+    CHECK(InviteContext(0) && InviteContext(2) && !InviteContext(1));
 }
