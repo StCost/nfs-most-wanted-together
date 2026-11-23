@@ -22,7 +22,7 @@
 using namespace TogetherUtil;
 
 namespace {
-    enum Row { R_NAME, R_MODE, R_HOSTIP, R_AUTOCONNECT, R_INTROINPUT, R_PADHOTPLUG, R_OVERLAY, R_MENUSPEED, R_SAVE, R_CANCEL, R_COUNT };
+    enum Row { R_NAME, R_MODE, R_HOSTIP, R_AUTOCONNECT, R_PADHOTPLUG, R_OVERLAY, R_SAVE, R_CANCEL, R_COUNT };
 
     std::string g_ini;
     bool     g_open = false;
@@ -66,10 +66,8 @@ namespace {
         s.host = g_cfg.isHost;
         s.hostIp = ReadIni("Network", "HostIP", "");         // as typed (g_cfg has 127.0.0.1 when it's empty)
         s.port = std::to_string(g_cfg.port);
-        s.introInput = g_cfg.uiIntroInput;
         s.gamepadHotplug = g_cfg.gamepadHotplug;
         s.overlay = Overlay::IsVisible();
-        s.menuSpeed = g_cfg.uiMenuSpeed < 1 ? 1 : g_cfg.uiMenuSpeed > 3 ? 3 : g_cfg.uiMenuSpeed;
         s.autoConnect = ReadIni("Network", "AutoConnect", "1") != "0";
         return s;
     }
@@ -155,7 +153,7 @@ namespace {
 
     // Write the settings and use them. connect: start / restart the connection now (a Host / Join choice)
     // even if the network settings didn't change. Returns "" or what to fix.
-    std::string ApplySettings(const Settings& ed, bool connect, bool* restartNeededOut) {
+    std::string ApplySettings(const Settings& ed, bool connect) {
         std::string err = Validate(ed);
         if (!err.empty()) return err;
         Settings cur = Together::Current();
@@ -166,24 +164,21 @@ namespace {
         g_pendingNet = ed;    // name / mode / address / port: applied with the reconnect (TakeNetworkChange)
         g_cfg.gamepadHotplug = ed.gamepadHotplug;
         g_cfg.showOverlay = ed.overlay; Overlay::SetVisible(ed.overlay);
-        bool restartNeeded = cur.introInput != ed.introInput || cur.menuSpeed != ed.menuSpeed;
         if (net) g_netChange = true;
         else ApplyNetwork(ed);
         if (connect) g_chosen = true;
         g_setupDone = true;
-        LOG("Together: saved - name %s, %s%s, port %s%s%s%s", Trim(ed.name).c_str(), ed.host ? "host" : "join ",
+        LOG("Together: saved - name %s, %s%s, port %s%s%s", Trim(ed.name).c_str(), ed.host ? "host" : "join ",
             ed.host ? "" : Trim(ed.hostIp).c_str(), Trim(ed.port).c_str(), ed.autoConnect ? ", reconnect on launch" : "",
-            net ? ", connecting" : "", restartNeeded ? ", some options apply at the next start" : "");
+            net ? ", connecting" : "");
         g_saved = ed; g_haveSaved = true;
-        if (restartNeededOut) *restartNeededOut = restartNeeded;
         return "";
     }
 
     bool Save() {
-        bool restartNeeded = false;
-        std::string err = ApplySettings(g_ed, true, &restartNeeded);
+        std::string err = ApplySettings(g_ed, true);
         if (!err.empty()) { Msg(err, true); return false; }
-        Msg(restartNeeded ? "Saved. Some options apply at the next start." : "Saved.", false);
+        Msg("Saved.", false);
         g_cur = g_ed;
         return true;
     }
@@ -200,10 +195,8 @@ namespace {
         if (g_sel != R_SAVE && g_sel != R_CANCEL) Edited();
         switch (g_sel) {
         case R_MODE: g_ed.host = !g_ed.host; break;
-        case R_INTROINPUT: g_ed.introInput = !g_ed.introInput; break;
         case R_PADHOTPLUG: g_ed.gamepadHotplug = !g_ed.gamepadHotplug; break;
         case R_OVERLAY: g_ed.overlay = !g_ed.overlay; break;
-        case R_MENUSPEED: g_ed.menuSpeed = (g_ed.menuSpeed - 1 + dir + 3) % 3 + 1; break;
         case R_AUTOCONNECT: g_ed.autoConnect = !g_ed.autoConnect; break;
         case R_SAVE: case R_CANCEL: g_sel = g_sel == R_SAVE ? R_CANCEL : R_SAVE; break;
         default:
@@ -410,7 +403,7 @@ Settings Together::Current() {
     if (g_haveSaved) { bool ov = s.overlay; s = g_saved; s.overlay = ov; }   // F8 may have changed the overlay
     return s;
 }
-std::string Together::Apply(const Settings& s, bool connect) { return ApplySettings(s, connect, nullptr); }
+std::string Together::Apply(const Settings& s, bool connect) { return ApplySettings(s, connect); }
 std::string Together::LocalAddresses() { return LocalIps(); }
 bool Together::Connected() { return g_netRunning && Net::Stats().connected; }
 bool Together::SessionActive() { return g_netRunning || g_netChange; }
@@ -468,9 +461,7 @@ namespace {
         switch (r) {
         case R_NAME: return "Nickname"; case R_MODE: return "Connection"; case R_HOSTIP: return "Connect to IP";
         case R_AUTOCONNECT: return "Reconnect on launch";
-        case R_INTROINPUT: return "Fast menus";
         case R_PADHOTPLUG: return "Auto-detect gamepads"; case R_OVERLAY: return "Show status overlay (F8)";
-        case R_MENUSPEED: return "Menu speed";
         }
         return "";
     }
@@ -479,7 +470,7 @@ namespace {
 bool Together::Paint(uint32_t* pixels, int pitch, int maxW, int maxH, int* outW, int* outH) {
     g_dirty = false;
     if (!g_open && !g_hint) return false;
-    const int W = g_open ? 620 : 430, H = g_open ? 496 : 34;
+    const int W = g_open ? 620 : 430, H = g_open ? 436 : 34;
     if (W > maxW || H > maxH) return false;
     HDC dc = CreateCompatibleDC(nullptr);
     BITMAPINFO bi{}; bi.bmiHeader.biSize = sizeof(bi.bmiHeader); bi.bmiHeader.biWidth = W; bi.bmiHeader.biHeight = -H;
@@ -513,7 +504,7 @@ bool Together::Paint(uint32_t* pixels, int pitch, int maxW, int maxH, int* outW,
 
         int y = 74;
         const int rowH = 30, lx = 20, vx = 360, vw = W - vx - 20;
-        for (int r = R_NAME; r <= R_MENUSPEED; ++r) {
+        for (int r = R_NAME; r < R_SAVE; ++r) {
             bool sel = g_sel == r, hid = Hidden(r);
             Fill(dc, 12, y, W - 24, rowH - 3, sel ? kSel : kRow);
             if (sel) Brackets(dc, 12, y, W - 24, rowH - 3);
@@ -529,9 +520,8 @@ bool Together::Paint(uint32_t* pixels, int pitch, int maxW, int maxH, int* outW,
             }
             switch (r) {
             case R_MODE: v = g_ed.host ? "<  Host LAN  >" : "<  Join LAN  >"; vc = kAccent; break;
-            case R_MENUSPEED: v = "<  " + std::to_string(g_ed.menuSpeed) + "x  >"; break;
             default: {
-                bool on = r == R_INTROINPUT ? g_ed.introInput : r == R_PADHOTPLUG ? g_ed.gamepadHotplug
+                bool on = r == R_PADHOTPLUG ? g_ed.gamepadHotplug
                         : r == R_OVERLAY ? g_ed.overlay : g_ed.autoConnect;
                 v = on ? "ON" : "OFF"; vc = on ? kAccent : kDim; break; }
             }

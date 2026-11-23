@@ -163,8 +163,8 @@ One PC is enough. Keep the log open (`scripts\MWTogether.log`).
 
 | Check | How | Pass |
 |---|---|---|
-| Notice length | free roam, `notice hello` in `MWTogether.cmd` (or a join / leave) | the centre line appears once, stays about `NoticeSeconds` (10 s), then fades; a two-part notice (the client's `No answer from the host`, 20 s after free roam without a host) shows each part ~5 s. With `MenuSpeed=1` and `=2` the same length. In a cutscene: the song banner, log `Notice: in the game banner (no HUD here)` and `holding the game banner for 10 s` |
-| Notice fallback | as above | no `banner timer object not found` / `exception while holding` lines. If one shows up, the banner has its old length (about 3 s) and the corner line still stays 10 s |
+| Notice length | free roam, `notice hello` in `MWTogether.cmd` (or a join / leave) | the centre line appears once, stays about `NoticeSeconds` (10 s), then fades; a two-part notice (the client's `No answer from the host`, 20 s after free roam without a host) shows each part ~5 s. In a cutscene: the song banner, log `Notice: in the game banner (no HUD here)` and `holding the game banner for 10 s` |
+| Notice fallback | as above | no `banner timer object not found` / `exception while holding` lines. If one shows up, the banner has its old length (about 6 s) and the corner line still stays 10 s |
 | Song banner | wait for a new song in free roam | the game's own song banner looks and times as before (we only hold our own notices) |
 | Pad plugged in | start the game with no pad, get to free roam, plug a USB pad in | within about 2 s: `Pad: controller connected: <name> -> added to the game`; the pad drives the car. In the controller options the pad's bindings are shown |
 | Bluetooth pad | as above, switch a paired Bluetooth pad on while playing | same as USB |

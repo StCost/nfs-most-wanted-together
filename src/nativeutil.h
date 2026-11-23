@@ -64,7 +64,7 @@ inline std::string ProfileLabel(const std::string& me, const std::string& peer, 
 // nickname, Connection, Connect to IP (Join only), Reconnect on launch, the start /
 // stop action, then the remaining settings. The list fits in the 9 visible row slots.
 enum Row {
-    W_NAME, W_MODE, W_HOSTIP, W_AUTO, W_START, W_INTROINPUT, W_PADHOTPLUG, W_MENUSPEED, W_COUNT
+    W_NAME, W_MODE, W_HOSTIP, W_AUTO, W_START, W_PADHOTPLUG, W_COUNT
 };
 enum class Screen { Settings, Connect };
 
@@ -75,9 +75,7 @@ inline std::vector<int> TogetherRows(Screen /*screen*/, bool host) {
     if (!host) v.push_back(W_HOSTIP);
     v.push_back(W_AUTO);
     v.push_back(W_START);
-    v.push_back(W_INTROINPUT);
     v.push_back(W_PADHOTPLUG);
-    v.push_back(W_MENUSPEED);
     return v;
 }
 

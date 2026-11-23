@@ -99,8 +99,6 @@ void Config::Load(const char* ini) {
     skipLoadComplete = false;   // release ignores [Start] SkipLoadComplete
 #endif
     streamAroundPeer = ReadInt(ini, "Coop", "StreamAroundPeer", 1) != 0;
-    uiIntroInput = ReadInt(ini, "UI", "IntroInput", 1) != 0;
-    uiMenuSpeed  = ReadInt(ini, "UI", "MenuSpeed", 2);
     autoStartTarget = ReadStr(ini, "AutoStart", "Target", "freeroam");
     testEvent    = ReadStr(ini, "Debug", "TestEvent", "15.1.1");
     trafficSync  = ReadInt(ini, "Traffic", "Sync", 1) != 0;

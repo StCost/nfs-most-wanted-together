@@ -6,8 +6,8 @@
 // any doesn't match nothing is changed - the overlay page stays the way in):
 //   - Main menu Together, pause Together, and Options > Together all open the same screen:
 //     nickname, Connection (Host / Join), Connect to IP (Join only), Reconnect on launch,
-//     Start Host / Stop Host or Connect / Disconnect, then Fast menus, Auto-detect gamepads
-//     and Menu speed. The action stays on the screen (no extra info in the value column).
+//     Start Host / Stop Host or Connect / Disconnect, then Auto-detect gamepads. The action
+//     stays on the screen (no extra info in the value column).
 //     Start Host / Connect saves and starts the session; Stop Host / Disconnect ends it.
 //     With Reconnect on launch on, the next start hosts or joins as last time.
 // Nickname and Connect to IP are typed in the visible row (soft edit) on both the main-menu

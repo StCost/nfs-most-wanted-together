@@ -59,8 +59,6 @@ struct Config {
     bool        syncControls = true;     // [Ghost] SyncControls - show the other player's steering / lights / nitrous
     bool        autoPilotNos = true;     // [Debug] AutoPilotNos - the autopilot uses nitrous on straights
     bool        runInBackground = true;  // [Coop] RunInBackground - keep running when the window loses focus
-    bool        uiIntroInput = true;  // [UI] IntroInput - menus accept input while their intro animation plays
-    int         uiMenuSpeed = 2;      // [UI] MenuSpeed - 1 = normal, 2 = 2x, 3 = 3x menu animations
     std::string autoStartTarget = "freeroam"; // [AutoStart] Target - freeroam | safehouse | race
     std::string testEvent = "15.1.1"; // [Debug] TestEvent - event F7 starts
     bool        trafficSync = true;   // [Traffic] Sync

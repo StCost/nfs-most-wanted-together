@@ -106,7 +106,7 @@ namespace {
                       S_TITLE = kStrBase + 0x20, S_VALUE = kStrBase + 0x40 };
     using NativeUtil::W_NAME; using NativeUtil::W_MODE; using NativeUtil::W_HOSTIP;
     using NativeUtil::W_AUTO; using NativeUtil::W_START;
-    using NativeUtil::W_INTROINPUT; using NativeUtil::W_PADHOTPLUG; using NativeUtil::W_MENUSPEED;
+    using NativeUtil::W_PADHOTPLUG;
     using NativeUtil::W_COUNT;
     char g_title[W_COUNT][48], g_value[W_COUNT][96];
     std::vector<StringRec> g_ours;
@@ -207,11 +207,10 @@ namespace {
     }
 
     bool IsText(int r) { return r == W_NAME || r == W_HOSTIP; }
-    bool IsOnOff(int r) { return r == W_AUTO || r == W_INTROINPUT || r == W_PADHOTPLUG; }
+    bool IsOnOff(int r) { return r == W_AUTO || r == W_PADHOTPLUG; }
     bool* Flag(int r) {
         switch (r) {
         case W_AUTO: return &g_ed.autoConnect;
-        case W_INTROINPUT: return &g_ed.introInput;
         case W_PADHOTPLUG: return &g_ed.gamepadHotplug;
         }
         return nullptr;
@@ -227,8 +226,7 @@ namespace {
         case W_NAME: return "Nickname"; case W_MODE: return "Connection";
         case W_HOSTIP: return "Connect to IP";
         case W_AUTO: return "Reconnect on launch";
-        case W_INTROINPUT: return "Fast menus"; case W_PADHOTPLUG: return "Auto-detect gamepads";
-        case W_MENUSPEED: return "Menu speed";
+        case W_PADHOTPLUG: return "Auto-detect gamepads";
         case W_START: return NativeUtil::ConnectionActionTitle(g_ed.host, Together::SessionActive());
         }
         return "";
@@ -239,7 +237,6 @@ namespace {
         case W_NAME: return g_ed.name.empty() ? "(type a nickname)" : g_ed.name;
         case W_MODE: return g_ed.host ? "Host" : "Join";
         case W_HOSTIP: return Trim(g_ed.hostIp).empty() ? "(type the host's IP)" : g_ed.hostIp;
-        case W_MENUSPEED: return std::to_string(g_ed.menuSpeed) + "x";
         case W_START: return "";
         }
         return "";
@@ -294,7 +291,6 @@ namespace {
         ClearError();
         switch (r) {
         case W_MODE: g_ed.host = !g_ed.host; RebuildRows(); return;
-        case W_MENUSPEED: g_ed.menuSpeed = (g_ed.menuSpeed - 1 + dir + 3) % 3 + 1; break;
         default: if (bool* f = Flag(r)) *f = !*f; break;
         }
         Refresh();

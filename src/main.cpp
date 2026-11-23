@@ -645,22 +645,6 @@ BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
             const uint8_t orig[2] = { 0x74, 0x0E }, patch[2] = { 0x90, 0x90 };
             LOG("Coop: keep running in background %s", Mem::PatchBytes(0x6C2245, orig, patch, 2) ? "enabled" : "NOT patched (bytes differ)");
         }
-        if (g_cfg.uiIntroInput) {
-            // ExecuteResponse 0x5BBD51: ignore the "disable input" sent by each screen's INTRO (message
-            // 0x13FD3296); keep the locks after confirm/back so nothing can be activated twice.
-            static const uint8_t orig[23] = { 0x85,0xFF,0x0F,0x84,0x97,0x00,0x00,0x00,0x83,0x7E,0x04,0x01,0x0F,0x94,0xC0,0x88,0x47,0x28,0xE9,0x88,0x00,0x00,0x00 };
-            static const uint8_t patch[23] = { 0x85,0xFF,0x74,0xF7,0x81,0x7D,0x0C,0x96,0x32,0xFD,0x13,0x74,0xEE,0x83,0x7E,0x04,0x01,0x0F,0x94,0x47,0x28,0xEB,0xE4 };
-            LOG("UI: input during menu intros %s", Mem::PatchBytes(0x5BBD51, orig, patch, 23) ? "enabled" : "NOT patched (bytes differ)");
-        }
-        if (g_cfg.uiMenuSpeed == 2 || g_cfg.uiMenuSpeed == 3) {
-            // FE time step = real delta * 1200.0 (fmul [0x8970BC]) at 0x516A01 / 0x56440D: point both at an
-            // existing 2400.0 (0x8ABE70) or 3600.0 (0x8A8AE8) constant.
-            static const uint8_t orig[4] = { 0xBC,0x70,0x89,0x00 };
-            uint32_t target = g_cfg.uiMenuSpeed == 2 ? 0x8ABE70 : 0x8A8AE8;
-            bool a = Mem::PatchBytes(0x516A01, orig, &target, 4);
-            bool b = Mem::PatchBytes(0x56440D, orig, &target, 4);
-            LOG("UI: menu animations %dx %s", g_cfg.uiMenuSpeed, (a && b) ? "enabled" : "NOT fully patched");
-        }
         g_ghostOn = g_cfg.ghostEnabled;
         Overlay::SetVisible(g_cfg.showOverlay);
         LOG("Config: mode=%s hostip=%s port=%d name=%s", g_cfg.isHost ? "host" : "client",

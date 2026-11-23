@@ -561,7 +561,7 @@ std::string Game::FEPad(const char* args) {
 // How long it stays: not a C++ timer. EA_TRAX.fng (GLOBAL\GLOBALB.BUN) has an invisible string object
 // "SEC" (hash 0x545570C6) whose script TIMER (id 0x03C43A20, 6000 FE time units) chains to SEND
 // (0x001C9AC9, 1620 units); SEND's events make the banner slide out and then HIDE it. FE time runs at
-// 1200 units/s (x2 / x3 with [UI] MenuSpeed), so the banner is gone after ~6.4 s, ~3.2 s at MenuSpeed 2.
+// 1200 units/s, so the banner is gone after ~6.4 s.
 // FEScript (from the FNG loader 0x5C3610 and the script update 0x5C19D0): +0x0C length, +0x10 current
 // time (int; finished at length + 1), +0x18 chain-to id, +0x30 id. FEObject +0x54 = current script.
 // To keep our notice up for [UI] NoticeSeconds, the TIMER's time is held short of its end until then;
@@ -572,9 +572,8 @@ namespace {
     bool  g_chyronHeld = false;      // the hold engaged at least once for this notice
 
     void ChyronHoldStart() {
-        int speed = (g_cfg.uiMenuSpeed == 2 || g_cfg.uiMenuSpeed == 3) ? g_cfg.uiMenuSpeed : 1;
-        // after the release, the rest of TIMER (600 units) runs before the slide-out starts
-        DWORD tail = 600u * 1000u / (1200u * (DWORD)speed);
+        // after the release, the rest of TIMER (600 units at 1200 units/s) runs before the slide-out starts
+        DWORD tail = 600u * 1000u / 1200u;
         DWORD total = (DWORD)g_cfg.noticeSeconds * 1000u;
         g_chyronHoldUntil = (GetTickCount() + (total > tail ? total - tail : 0)) | 1;
         g_chyronHeld = false;
@@ -628,7 +627,7 @@ void Game::ChyronTick() {
 // ---------------------------------------------------------------------------
 //  The "colour" is really the show animation (FEScript id) run on the message's text object (gm+8);
 //  the HUD's update (0x567F80) clears the message (priority back to 0) once that script has ended. It
-//  lasts ~1.3 s at [UI] MenuSpeed 2, so - like the song banner - we hold the script at its middle (fully
+//  lasts ~2.6 s, so - like the song banner - we hold the script at its middle (fully
 //  visible) for the notice's time, then let it run out.
 namespace {
     constexpr uint32_t HudGreen = 0xA19BB14C, HudOrange = 0x5230FAF6;

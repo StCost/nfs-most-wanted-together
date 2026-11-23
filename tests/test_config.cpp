@@ -46,8 +46,6 @@ TEST(config_defaults_when_file_is_missing) {
     CHECK(!c.autoStart);
     CHECK(!c.skipLoadComplete);
     CHECK_STR(c.autoStartTarget, "freeroam");
-    CHECK(c.uiIntroInput);
-    CHECK_EQ(c.uiMenuSpeed, 2);
     CHECK(c.gameNotices);
     CHECK_EQ(c.noticeSeconds, 10);
     CHECK(c.gamepadHotplug); CHECK(c.keepPadBindings);
@@ -72,7 +70,7 @@ TEST(config_parses_values) {
         "[Coop]\r\nNoSpeedbreaker=0\r\nNoPause=0\r\nRunInBackground=0\r\nStreamAroundPeer=0\r\nSyncStoryScenes=2\r\nSharedPursuits=0\r\nNoPursuitCams=0\r\nBossHelper=0\r\n"
         "[Start]\r\nSkipIntro=0\r\nDirectFreeRoam=0\r\nSkipLeaveSafeHouseDialog=0\r\nSkipLoadComplete=1\r\n"
         "[AutoStart]\r\nEnabled=0\r\nTarget=race\r\nDelayMs=10\r\nIntervalMs=20\r\nSequence=ENTER,ENTER\r\n"
-        "[UI]\r\nIntroInput=0\r\nMenuSpeed=3\r\nSkipPursuitResults=1\r\nNoticeSeconds=15\r\n"
+        "[UI]\r\nSkipPursuitResults=1\r\nNoticeSeconds=15\r\n"
         "[Input]\r\nGamepadHotplug=0\r\nKeepPadBindings=0\r\n"
         "[Window]\r\nHideCursor=0\r\nStartInBackground=1\r\n"
         "[Debug]\r\nOverlay=1\r\nToggleKey=0x7A\r\nTestKeys=1\r\nAutoPilot=1\r\nPerf=1\r\nTestEvent=1.2.3\r\nBossHelperSolo=1\r\n");
@@ -97,8 +95,6 @@ TEST(config_parses_values) {
     CHECK_EQ(c.autoStartDelayMs, 10);
     CHECK_EQ(c.autoStartIntervalMs, 20);
     CHECK_STR(c.autoStartSequence, "ENTER,ENTER");
-    CHECK(!c.uiIntroInput);
-    CHECK_EQ(c.uiMenuSpeed, 3);
     CHECK_EQ(c.noticeSeconds, 15);
     CHECK(!c.gamepadHotplug); CHECK(!c.keepPadBindings);
     CHECK_EQ(c.syncStoryScenes, 2);
@@ -249,8 +245,6 @@ TEST(config_shipped_ini_matches_built_in_defaults) {
     CHECK(!shipped.skipLoadComplete);
     CHECK_STR(shipped.autoStartTarget, def.autoStartTarget);
     CHECK_STR(shipped.autoStartSequence, def.autoStartSequence);
-    CHECK_EQ(shipped.uiIntroInput, def.uiIntroInput);
-    CHECK_EQ(shipped.uiMenuSpeed, def.uiMenuSpeed);
     CHECK_EQ(shipped.syncStoryScenes, def.syncStoryScenes);
     CHECK_EQ(shipped.hideCursor, def.hideCursor);
     CHECK_EQ(shipped.startInBackground, def.startInBackground);

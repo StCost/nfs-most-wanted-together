@@ -75,7 +75,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Quitting (Alt+F4 too) tells the other side right away; a game that just disappears times out
 - [x] Stays connected while paused, minimized or alt-tabbed, and the game keeps running in the background
 - [x] Status overlay on F8 (remembers if you hid it)
-- [x] **Together** in the game's own menus: one screen from Main menu > Together, the pause menu, and Options > Together (nickname, Connection, Connect to IP when joining, Reconnect on launch, Start Host / Connect, Fast menus, Auto-detect gamepads, Menu speed); the main menu's profile box shows both names while connected. If this `speed.exe` differs, the menus stay as they are and the page below is used
+- [x] **Together** in the game's own menus: one screen from Main menu > Together, the pause menu, and Options > Together (nickname, Connection, Connect to IP when joining, Reconnect on launch, Start Host / Connect, Auto-detect gamepads); the main menu's profile box shows both names while connected. If this `speed.exe` differs, the menus stay as they are and the page below is used
 - [x] Main menu logo from `scripts\MWTogether-logo.dds` if it is there (no game files changed); the logo object is made taller so the original lettering stays the same size
 - [x] In-game **Together** overlay page (F2, or hold BACK on a pad): name, host or join, host IP, remaining menu options, your IP address and the connection state. Saving reconnects right away when needed (`[UI] TogetherKey`)
 - [x] Join / leave notices, even with the overlay hidden
@@ -164,8 +164,6 @@ You can play the prologue (the opening BMW races) together too: start a new care
 
 - [x] Several profiles: the quick start loads the one you used last (`[Start] LastProfile`); the first time you pick it yourself
 - [x] **F1** hides the minimap, heat meter and speedometer, keeping the rear-view mirror. F1 again brings them back (`[UI] HideHudKey`)
-
-- [x] Menus react during their opening animation and animate twice as fast (`IntroInput`, `MenuSpeed`)
 
 - [x] Pads and wheels plugged in mid-game (USB or Bluetooth) work right away, reconnects too, and keep your bindings (`[Input] GamepadHotplug`)
 - [x] Your pad keeps its bindings even when the game starts without it (`[Input] KeepPadBindings`)

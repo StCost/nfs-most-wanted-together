@@ -36,7 +36,7 @@ TEST(together_validate) {
 
 TEST(together_ini_lines) {
     Settings s; s.name = " Kostya "; s.host = false; s.hostIp = "10.0.0.2"; s.port = "47556";
-    s.menuSpeed = 3; s.overlay = true;
+    s.overlay = true;
     auto v = ToIni(s);
     CHECK_STR(IniValue(v, "Player", "Name").c_str(), "Kostya");
     CHECK_STR(IniValue(v, "Player", "Color").c_str(), "<missing>");
@@ -48,7 +48,8 @@ TEST(together_ini_lines) {
     CHECK_STR(IniValue(v, "Network", "Mode").c_str(), "client");
     CHECK_STR(IniValue(v, "Network", "HostIP").c_str(), "10.0.0.2");
     CHECK_STR(IniValue(v, "Network", "Port").c_str(), "47556");
-    CHECK_STR(IniValue(v, "UI", "MenuSpeed").c_str(), "3");
+    CHECK_STR(IniValue(v, "UI", "MenuSpeed").c_str(), "<missing>");     // removed in 1.7.4
+    CHECK_STR(IniValue(v, "UI", "IntroInput").c_str(), "<missing>");
     CHECK_STR(IniValue(v, "Debug", "Overlay").c_str(), "1");
     CHECK_STR(IniValue(v, "UI", "TogetherSetupDone").c_str(), "1");
     s.host = true;
@@ -60,7 +61,7 @@ TEST(together_ini_lines) {
 TEST(together_network_changed) {
     Settings a, b;
     CHECK(!NetworkChanged(a, b));
-    b.overlay = true; b.menuSpeed = 3; CHECK(!NetworkChanged(a, b));
+    b.overlay = true; CHECK(!NetworkChanged(a, b));
     b = a; b.name = "X"; CHECK(NetworkChanged(a, b));
     b = a; b.host = false; CHECK(NetworkChanged(a, b));
     b = a; b.hostIp = "1.2.3.4"; CHECK(!NetworkChanged(a, b));            // host: the address isn't used
@@ -152,11 +153,9 @@ TEST(native_together_rows) {
     CHECK(std::find(joinCon.begin(), joinCon.end(), W_START) != joinCon.end());
     CHECK(std::find(hostCon.begin(), hostCon.end(), W_NAME) != hostCon.end());
     CHECK(std::find(hostCon.begin(), hostCon.end(), W_AUTO) != hostCon.end());
-    CHECK(std::find(hostCon.begin(), hostCon.end(), W_INTROINPUT) != hostCon.end());
     CHECK(std::find(hostCon.begin(), hostCon.end(), W_PADHOTPLUG) != hostCon.end());
-    CHECK(std::find(hostCon.begin(), hostCon.end(), W_MENUSPEED) != hostCon.end());
-    CHECK_EQ((int)hostCon.size(), 7);
-    CHECK_EQ((int)joinCon.size(), 8);
+    CHECK_EQ((int)hostCon.size(), 5);
+    CHECK_EQ((int)joinCon.size(), 6);
     CHECK((int)hostCon.size() <= 9);
     CHECK((int)joinCon.size() <= 9);
     // Options > Together is the same list
@@ -191,12 +190,9 @@ TEST(native_scroll_window) {
     CHECK_EQ(NativeUtil::ClampScroll(15, 10, 9), 5);
     CHECK_EQ(NativeUtil::ClampScroll(4, 10, 2), 0);
     auto set = TogetherRows(Screen::Settings, false);
-    CHECK_EQ((int)set.size(), 8);
+    CHECK_EQ((int)set.size(), 6);
     CHECK(NativeUtil::VisibleIndex((int)set.size(), 9, 0, 0) == 0);
-    int speed = -1;
-    for (int i = 0; i < (int)set.size(); ++i) if (set[i] == W_MENUSPEED) speed = i;
-    CHECK(speed >= 0);
-    CHECK(NativeUtil::VisibleIndex((int)set.size(), 9, 0, speed) >= 0);
+    CHECK(NativeUtil::VisibleIndex((int)set.size(), 9, 0, (int)set.size() - 1) >= 0);   // the last row fits
 }
 
 TEST(native_connection_action_title) {
