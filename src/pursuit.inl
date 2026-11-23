@@ -12,7 +12,9 @@
 //  IPursuit vt+0x08 GetTarget -> AITarget;  cops: IVehicle** at +0x18, count at +0x20
 //  AITarget::Aquire(ISimable*) 0x423860 (thiscall). IPerpetrator handle 0x4037E0, vt+4 GetHeat
 //
-//  [Coop] SharedPursuits (free roam only, see the second half of this file): shared heat, the other
+//  [Coop] SharedPursuits (see the second half of this file). Free roam: everything below. Both in the
+//  same event (Challenge Series, a career pursuit event, a race with cops): only the cooldown /
+//  escape rule (frozen until both are in cooldown, escape together). Free roam: shared heat, the other
 //  player's cops on the minimap and the radar detector, ramming one of their cops starts a pursuit
 //  here. Evade bar and busted are personal. A player who evades ENTERS cooldown immediately;
 //  the meter is frozen until both are in cooldown, then both run as usual. Escape completes
@@ -243,6 +245,8 @@ namespace {
         int      radarCops = -1, mapCops = -1;
         bool     sentEvaded = false;     // keep PURSUIT_EVADED on the wire after the pursuit object is gone
         bool     hideSafehouse = false;
+        uint32_t lastEvent = 0;          // our event: a new one clears an old escape signal
+        bool     peerChasedInEvent = false;   // their pursuit was live in this same event
     } g_sp;
 
     // 0x5EBA50 writes [esi+0x2CF] = al at these two sites. When hideSafehouse is set, store 0 instead.
@@ -304,6 +308,12 @@ namespace {
     bool PeerInFreeRoam(const Net::Snapshot& p) {
         return p.valid && p.s.hasCar && p.s.gameFlowState == 6 && p.s.eventHash == 0 && !p.s.inRace;
     }
+    // Free roam on both sides, or both in the same event (see SharedPursuit::SharedPlace)
+    SharedPursuit::Place SharedPlaceNow(const Net::Snapshot& p) {
+        SharedPursuit::Where me{ Game::GameFlowState() == 6, Game::CurrentEventHash(), !FreeRoamHere() && Game::CurrentEventHash() == 0 };
+        SharedPursuit::Where them{ p.valid && p.s.hasCar && p.s.gameFlowState == 6, p.valid ? p.s.eventHash : 0u, p.valid && p.s.inRace != 0 };
+        return SharedPursuit::SharedPlace(me, them);
+    }
     bool VehActive(void* iv) { return VCall<bool(__thiscall*)(void*)>(iv, 34)(iv); }        // 0x688200
     bool VehIsHeli(void* iv) {                                                                // class == *0x92C4F4
         const uint32_t* c = VCall<const uint32_t* (__thiscall*)(void*)>(iv, 17)(iv);         // 0x688080
@@ -360,7 +370,20 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     // player who is in another scripted part of it)
     Game::PrologueState pst = Game::PrologueNow();
     bool on = g_cfg.sharedPursuits && connected && g_coopLinked && Prologue::SameStep(pst.inPrologue, pst.step, PeerPrologue());
-    bool here = on && FreeRoamHere();
+    // Free roam: the whole shared pursuit. Both in the same event (Challenge Series, a career pursuit
+    // event or race): only the cooldown / escape together (sections 5 and the status we send).
+    SharedPursuit::Place place = on ? SharedPlaceNow(peer) : SharedPursuit::Place::None;
+    bool freeRoam = on && FreeRoamHere();
+    bool sameEvent = place == SharedPursuit::Place::SameEvent;
+    bool here = freeRoam || sameEvent;
+    {
+        static SharedPursuit::Place lastPlace = SharedPursuit::Place::None;
+        if (place != lastPlace && on) {
+            if (place == SharedPursuit::Place::SameEvent) LOG("Pursuit: both in event %08X - cooldown and escape are shared", Game::CurrentEventHash());
+            else if (lastPlace == SharedPursuit::Place::SameEvent) LOG("Pursuit: no longer in the same event");
+        }
+        lastPlace = place;
+    }
     // A pursuit in a race must still be able to spawn cops next to the other player: this flag is
     // the local pursuit, not "shared free-roam pursuit is active".
     void* meAll = LocalVehicle();
@@ -388,7 +411,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         }
     }
     // ---- the other player's chasing cops spot us too: one of them close to our car starts a pursuit ----
-    if (me && !pursuit) {
+    if (me && !pursuit && freeRoam) {
         static DWORD nextSpot = 0;
         void* myRb = RigidBodyOf(me);
         if (myRb && (int)(now - nextSpot) >= 0) {
@@ -410,6 +433,10 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
 
     // ---- our own pursuit, as the other game sees it ----
     g_sp.heat100 = 0; g_sp.flags = 0; g_sp.left10 = 0;
+    {   // a new event (or back to free roam): an escape from before is not news there
+        uint32_t ev = Game::CurrentEventHash();
+        if (ev != g_sp.lastEvent) { g_sp.lastEvent = ev; g_sp.sentEvaded = false; g_sp.peerChasedInEvent = false; }
+    }
     bool busted = false, bailed = false;
     int status = -1;
     float left = 0.f;
@@ -458,10 +485,10 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         ApplySafehouseFlag(false);
         return;
     }
-    bool peerHere = PeerInFreeRoam(peer);
+    bool peerHere = freeRoam ? PeerInFreeRoam(peer) : sameEvent;
 
     // ---- 1. heat: the hotter of the two, both ways ----
-    void* perp = (me && !NisActive()) ? Find(me, IPerpetratorHandle) : nullptr;
+    void* perp = (me && freeRoam && !NisActive()) ? Find(me, IPerpetratorHandle) : nullptr;
     if (perp) {
         float mine = VCall<float(__thiscall*)(void*)>(perp, 1)(perp);
         g_sp.heat100 = HeatToWire(mine);
@@ -490,7 +517,13 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     mine.ready = (g_sp.flags & PURSUIT_READY) != 0;
     mine.busted = busted;
     View theirs = peer.valid ? FromWire(peer.s.pursuitFlags, peer.s.coolLeft10) : View{};
-    bool peerForCool = peerHere || (peer.valid && theirs.evaded);
+    // In an event their escape counts only once their pursuit was live in this event (an older
+    // escape signal must not end ours - that would win the event for us).
+    if (sameEvent && theirs.inPursuit) g_sp.peerChasedInEvent = true;
+    if (!sameEvent) g_sp.peerChasedInEvent = false;
+    bool peerEvadedHere = peer.valid && PeerEscapeCounts(place, theirs.evaded, g_sp.peerChasedInEvent);
+    if (!peerEvadedHere) theirs.evaded = false;
+    bool peerForCool = peerHere || peerEvadedHere;
     if ((g_sp.flags & PURSUIT_ACTIVE) && peerForCool) {
         bool was = g_sp.peerWasCooling;
         Decision d = DecideCooldown(mine, theirs, true, was);
@@ -537,7 +570,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     g_sp.lastCool = coolNow;
 
     // ---- 6. safehouse markers / entry: hidden until both are in cooldown (solo if they disconnect) ----
-    ApplySafehouseFlag(HideSafehouse(mine, theirs, peerHere));
+    ApplySafehouseFlag(freeRoam && HideSafehouse(mine, theirs, peerHere));
 
     // status line every 5 s while either of you is chased
     static DWORD nextLog = 0;

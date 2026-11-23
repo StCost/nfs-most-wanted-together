@@ -315,3 +315,53 @@ TEST(pursuit_state_bad_fields_are_dropped) {
     CHECK_EQ(Net::Latest().seq, 5);
     CHECK_EQ(Net::Latest().s.heat100, 200);
 }
+
+// ---- where the cooldown is shared (1.7.4: Challenge Series and career events too) ---------------
+TEST(pursuit_shared_place) {
+    using SharedPursuit::Where; using SharedPursuit::Place; using SharedPursuit::SharedPlace;
+    Where roam{ true, 0, false }, ev{ true, 0x7E8EDB81u, true }, other{ true, 0x12345678u, true };
+    Where menu{ false, 0, false }, racingNoEvent{ true, 0, true };
+    CHECK(SharedPlace(roam, roam) == Place::FreeRoam);
+    CHECK(SharedPlace(ev, ev) == Place::SameEvent);                // the same Challenge Series / career event
+    CHECK(SharedPlace(ev, other) == Place::None);                  // different events: solo
+    CHECK(SharedPlace(ev, roam) == Place::None);                   // one in an event, one roaming
+    CHECK(SharedPlace(roam, ev) == Place::None);
+    CHECK(SharedPlace(ev, menu) == Place::None);                   // the other one is in a menu / loading
+    CHECK(SharedPlace(menu, menu) == Place::None);
+    CHECK(SharedPlace(roam, racingNoEvent) == Place::None);
+    Where evLoading{ false, 0x7E8EDB81u, true };
+    CHECK(SharedPlace(ev, evLoading) == Place::None);              // same event, but not in game yet
+}
+
+TEST(pursuit_event_escape_signal_needs_their_pursuit_in_this_event) {
+    using SharedPursuit::Place; using SharedPursuit::PeerEscapeCounts;
+    CHECK(PeerEscapeCounts(Place::FreeRoam, true, false));         // free roam: as before (safehouse)
+    CHECK(PeerEscapeCounts(Place::None, true, false));
+    CHECK(!PeerEscapeCounts(Place::SameEvent, true, false));       // an escape from before this event
+    CHECK(PeerEscapeCounts(Place::SameEvent, true, true));         // they escaped in this event: ours too
+    CHECK(!PeerEscapeCounts(Place::SameEvent, false, true));
+}
+
+// The reported case: in a Challenge Series pursuit the client lost the cops and its meter ran out
+// while the host was still chased. The rule: cooldown state yes, progress no, until both are in it;
+// then both run, and the one who finishes first waits for the other.
+TEST(pursuit_event_cooldown_waits_for_both_then_escapes_together) {
+    View client = V(true, false, true, 30, true), host = V(true, true, false, 30, false);
+    CHECK(DecideCooldown(client, host, true, false).what == Cool::Freeze);   // no progress alone
+    float acc = 0.f, since = 8.f;
+    FreezeProgress(0.f, 8.f, acc, since);
+    CHECK(acc == 0.f); CHECK(since == 8.f);                                   // held where it started
+    CHECK(DecideCooldown(host, client, true, true).what == Cool::Free);      // host still chased: vanilla
+    host.seen = false; host.cooling = true; host.ready = true; host.left = 30;
+    CHECK(DecideCooldown(client, host, true, false).what == Cool::Free);     // both cooling: both run
+    CHECK(DecideCooldown(host, client, true, true).what == Cool::Free);
+    client.left = 0.1f; host.left = 3.f;
+    Decision d = DecideCooldown(client, host, true, true);
+    CHECK(d.what == Cool::HoldEscape);                                        // client waits at the end
+    CHECK(d.left > 0.f);
+    host.left = 0.1f;
+    CHECK(DecideCooldown(client, host, true, true).what == Cool::Free);      // both done: both escape
+    CHECK(DecideCooldown(host, client, true, true).what == Cool::Free);
+    host.evaded = true;                                                       // host's game ended it first
+    CHECK(DecideCooldown(client, host, true, true).what == Cool::ForceEscape);
+}

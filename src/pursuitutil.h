@@ -176,6 +176,28 @@ namespace SharedPursuit {
         if (excess > 0.f && room > 0.f) sinceSeen -= excess < room ? excess : room;
     }
 
+    // ---- where the cooldown is shared --------------------------------------------------------------
+    // Both in free roam (the full shared pursuit), or both in the same event (Challenge Series, a
+    // career pursuit / milestone event, a race with cops): each game runs its own copy of that
+    // event's pursuit, and only the cooldown / escape is shared there (heat, joining a chase, being
+    // spotted by their cops and the safehouse stay free roam only). A player in another event, in a
+    // menu or loading: solo.
+    enum class Place { None, FreeRoam, SameEvent };
+    struct Where { bool inGame; uint32_t eventHash; bool racing; };
+    inline Place SharedPlace(const Where& me, const Where& peer) {
+        if (!me.inGame || !peer.inGame) return Place::None;
+        if (!me.eventHash && !peer.eventHash && !me.racing && !peer.racing) return Place::FreeRoam;
+        if (me.eventHash && me.eventHash == peer.eventHash) return Place::SameEvent;
+        return Place::None;
+    }
+    // Their escape ends ours (ForceEscape) in free roam as before; in an event only once their
+    // pursuit was live in this same event, so an old escape signal can't win the event for us.
+    inline bool PeerEscapeCounts(Place place, bool peerEvaded, bool peerChasedInEvent) {
+        if (!peerEvaded) return false;
+        if (place == Place::SameEvent) return peerChasedInEvent;
+        return true;
+    }
+
     // ---- busted ------------------------------------------------------------------------------------
     // CarState::bustSeq counts the sender's own busts. True once for every change after the first value
     // we saw (the first one only tells us where they are).
