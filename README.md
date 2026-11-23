@@ -10,7 +10,7 @@ each in their own car. Works over LAN or a VPN (Hamachi, Radmin VPN, ZeroTier).
 
 **Get it:** [GitHub releases](https://github.com/StCost/nfs-most-wanted-together/releases/latest) · [Nexus Mods](https://www.nexusmods.com/needforspeedmostwanted2005/mods/366) · [NFSMods](https://nfsmods.xyz/mod/8207)
 
-**Tested by the developers:** the co-op career up to the 13th Blacklist rival. More playtesting soon.
+**Tested by the developers:** the co-op career up to Blacklist #11 Big Lou. More playtesting soon.
 
 | | |
 |---|---|
