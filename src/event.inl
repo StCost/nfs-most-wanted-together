@@ -544,7 +544,7 @@ namespace {
 // or already in this event but not on its grid yet (each prologue start runs a story movie of ~50 s first)
 static bool PrologueHoldOn(uint32_t hash, const Net::Snapshot& pr) {
     Game::PrologueState st = Game::PrologueNow();
-    return st.inPrologue && PeerPrologue().inPrologue && (pr.s.eventHash != hash || pr.s.pad[0] < 2);
+    return st.inPrologue && PeerPrologue().inPrologue && (pr.s.eventHash != hash || !CoopRace::OnGridStage(pr.s.pad[0]));
 }
 // Our car on the ground at a race start. The race puts the cars on the grid a little above the road, and
 // they drop onto it. Our car's ride height (body position above the road) is learned while it rests or
@@ -618,19 +618,22 @@ static void StartSyncTickImpl(bool connected) {
         Game::PrologueState pst = Game::PrologueNow();
         bool prologueWait = Prologue::WaitForPeer(pst.inPrologue, pst.step, PeerPrologue(), pr.valid && pr.s.eventHash == hash);
         if (prologueWait) peerComing = true;           // the prologue: they come to this start by their own chain
-        bool peerReady = pr.valid && pr.s.eventHash == hash && pr.s.pad[0] >= 2;
+        bool peerReady = pr.valid && pr.s.eventHash == hash && CoopRace::OnGridStage(pr.s.pad[0]);
         if (connected && g_cfg.startTogether && peerComing && !peerReady && !g_holding) {
             int req = 0;
             if (Mem::Read(0x91CAE4, req)) { ++req; Mem::Write(0x91CAE4, req); g_holding = true; g_holdSince = now; g_prologueHeld = PrologueHoldOn(hash, pr); }
             const std::string& pn = Net::Stats().peerName;
-            sprintf_s(g_startStatus, prologueWait && pr.s.eventHash != hash ? "waiting for %s to catch up" : "waiting for %s to load...",
-                      pn.empty() ? "the other player" : pn.c_str());
-            LOG("Start: on the grid first - %s", g_startStatus);
+            const char* who = pn.empty() ? "the other player" : pn.c_str();
+            // only the prologue's wait (minutes, by their own chain) says so; the short wait for a slower load
+            // is silent - the loading screens are held for each other already, this only evens out the rest
+            if (prologueWait && pr.s.eventHash != hash) sprintf_s(g_startStatus, "waiting for %s to catch up", who);
+            else g_startStatus[0] = 0;
+            LOG("Start: on the grid first - waiting for %s", who);
         }
     }
     if (g_holding) {
         if (!connected || !pr.valid) ReleaseHold("the other player is gone");
-        else if (pr.s.eventHash == hash && pr.s.pad[0] >= 2) ReleaseHold("both ready");
+        else if (pr.s.eventHash == hash && CoopRace::OnGridStage(pr.s.pad[0])) ReleaseHold("both ready");
         else if (PrologueHoldOn(hash, pr)) {
             g_prologueHeld = true;
             if (now - g_holdSince > 15 * 60 * 1000) ReleaseHold("waited 15 minutes in the prologue");
@@ -654,6 +657,65 @@ static void StartSyncTickImpl(bool connected) {
     }
 }
 
+// Start together at the loading screen (CoopRace::HoldLoadingScreen). The game's "finished loading" step
+// (FinishedGameLoading 0x6627E0: game flow 6, the loading screen popped, the world and the intro cutscene
+// go) is the game flow manager's callback (+0 fn, +4 param, +8 name at 0x925E70), which 0x662930 sets.
+// Its service 0x6596A0 clears the slot and calls the callback; a callback that puts itself back in the
+// slot is called again on the next frame. Ours (put there by patching the pointer 0x662930 stores) does
+// that while the other player still loads, so the loading screen stays up - on the game's own loop.
+namespace {
+    bool  g_loadHeld = false;
+    DWORD g_loadHeldSince = 0;
+    constexpr uintptr_t FinishedLoadingFn = 0x6627E0, FinishedLoadingStore = 0x662936, FlowCallback = 0x925E70;
+    constexpr uintptr_t FinishedLoadingName = 0x8A8F0C;   // "FinishedGameLoading"
+}
+static bool LoadHoldWantedImpl() {
+    DWORD now = GetTickCount();
+    int mode = 0;
+    void* parms = CurrentParms(&mode);
+    const char* id = parms ? EventIdOf(parms) : nullptr;
+    uint32_t hash = (parms && id) ? EventHashOf(parms) : 0;
+    const Net::Snapshot& pr = Net::Latest();
+    CoopRace::LoadHoldInputs in{};
+    in.enabled = Net::Stats().connected && g_coopLinked && g_cfg.startTogether;
+    in.event = hash;
+    in.prologue = Game::PrologueNow().inPrologue;
+    in.peerValid = pr.valid;
+    in.peerComing = pr.valid && hash && (pr.s.eventHash == hash || g_inviteHash == hash || (pr.s.eventHash == 0 && g_handledHash == hash));
+    in.peerEvent = pr.valid ? pr.s.eventHash : 0;
+    in.peerFlow = pr.valid ? pr.s.gameFlowState : 0;
+    in.peerStage = pr.valid ? pr.s.pad[0] : 0;
+    in.peerElsewhere = pr.valid && pr.s.gameFlowState == 6 && pr.s.hasCar && pr.s.eventHash != hash;
+    in.heldMs = g_loadHeld ? (int)(now - g_loadHeldSince) : 0;
+    bool hold = CoopRace::HoldLoadingScreen(in);
+    if (hold && !g_loadHeld) {
+        g_loadHeld = true; g_loadHeldSince = now;
+        const std::string& pn = Net::Stats().peerName;
+        LOG("Start: loaded first - the loading screen waits for %s", pn.empty() ? "the other player" : pn.c_str());
+    } else if (!hold && g_loadHeld) {
+        LOG("Start: both loaded - the event starts (held the loading screen %.1f s)", (now - g_loadHeldSince) / 1000.f);
+    }
+    return hold;
+}
+static bool LoadHoldWantedSafe() {
+    __try { return LoadHoldWantedImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+static void __cdecl hk_FinishedGameLoading(int param) {
+    if (LoadHoldWantedSafe()) {                    // again on the next frame (the service sees the same callback)
+        Mem::Write<uintptr_t>(FlowCallback, (uintptr_t)&hk_FinishedGameLoading);
+        Mem::Write<int>(FlowCallback + 4, param);
+        Mem::Write<uintptr_t>(FlowCallback + 8, FinishedLoadingName);
+        return;
+    }
+    g_loadHeld = false;
+    ((void(__cdecl*)(int))FinishedLoadingFn)(param);
+}
+static void InstallLoadHold() {
+    uintptr_t expect = FinishedLoadingFn, ours = (uintptr_t)&hk_FinishedGameLoading;
+    bool ok = Mem::PatchBytes(FinishedLoadingStore, &expect, &ours, 4);
+    LOG("Start: loading screens held for each other %s", ok ? "hooked" : "NOT hooked (unexpected code)");
+}
+
 // our racer is out of this race: finished, or knocked out / busted / wrecked (GRacerInfo +0x21 finished,
 // +0x1C..+0x1F the "out" flags AllHumanPlayersDone 0x60E0A0 checks)
 static bool LocalRacerOut() {
@@ -665,6 +727,7 @@ static bool LocalRacerOut() {
 // sent as CarState::pad[0]: 3 = on the grid stage, but out of the race already (older builds read >= 2 as
 // "on the grid" - still right for them)
 uint8_t Game::RaceStage() {
+    if (g_loadHeld) return CoopRace::kStageLoadHeld;
     if (g_stage == 2) { __try { if (LocalRacerOut()) return 3; } __except (EXCEPTION_EXECUTE_HANDLER) {} }
     return g_stage;
 }
@@ -725,6 +788,7 @@ static bool PressRestartOnResults() {
 std::string Game::DebugResultsRestart() { return PressRestartOnResults() ? "Restart pressed on the results screen" : "no results screen up"; }
 
 bool Game::InstallRestartSync() {
+    InstallLoadHold();
     Net::OnRestart = [](uint32_t hash, uint32_t seq) {
         if (!g_coopLinked) return;
         __try {

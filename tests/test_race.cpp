@@ -315,3 +315,35 @@ TEST(spectate_lose_screen_gives_way_to_the_winners_screen) {
     CHECK(!LoseScreenToWinner(false, false, true, true, true, true, false));    // we won ourselves
     CHECK(!LoseScreenToWinner(false, false, true, true, true, false, true));    // once per run
 }
+
+// ---- start together at the loading screen (1.7.5) ------------------------------------------------
+static LoadHoldInputs Loading() {
+    LoadHoldInputs in{};
+    in.enabled = true; in.event = 0x1234; in.peerValid = true; in.peerComing = true;
+    in.peerEvent = 0x1234; in.peerFlow = 5; in.peerStage = 1;
+    return in;
+}
+TEST(race_load_hold_waits_for_a_partner_still_loading) {
+    CHECK(HoldLoadingScreen(Loading()));
+    LoadHoldInputs in = Loading(); in.peerEvent = 0; CHECK(HoldLoadingScreen(in));   // invited, not there yet
+}
+TEST(race_load_hold_goes_once_they_are_loaded) {
+    LoadHoldInputs in = Loading(); in.peerStage = kStageLoadHeld; CHECK(!HoldLoadingScreen(in));   // both held: go
+    in = Loading(); in.peerFlow = 6; CHECK(!HoldLoadingScreen(in));                  // already in the intro
+    in = Loading(); in.peerFlow = 6; in.peerStage = 2; CHECK(!HoldLoadingScreen(in));  // on the grid
+    in = Loading(); in.peerStage = kStageLoadHeld; in.peerEvent = 0x999; in.peerComing = true;
+    CHECK(HoldLoadingScreen(in));                                                     // held in another event: not ours
+}
+TEST(race_load_hold_never_without_reason) {
+    LoadHoldInputs in = Loading(); in.enabled = false; CHECK(!HoldLoadingScreen(in));
+    in = Loading(); in.event = 0;        CHECK(!HoldLoadingScreen(in));   // free roam loading
+    in = Loading(); in.prologue = true;  CHECK(!HoldLoadingScreen(in));
+    in = Loading(); in.peerValid = false; CHECK(!HoldLoadingScreen(in));
+    in = Loading(); in.peerComing = false; CHECK(!HoldLoadingScreen(in));
+    in = Loading(); in.heldMs = kLoadHoldMaxMs; CHECK(!HoldLoadingScreen(in));
+    in = Loading(); in.peerElsewhere = true; in.heldMs = 1000; CHECK(HoldLoadingScreen(in));
+    in.heldMs = kLoadHoldElsewhereMs; CHECK(!HoldLoadingScreen(in));
+}
+TEST(race_grid_stage_is_2_or_3_only) {
+    CHECK(!OnGridStage(0) && !OnGridStage(1) && OnGridStage(2) && OnGridStage(3) && !OnGridStage(kStageLoadHeld));
+}

@@ -152,4 +152,32 @@ namespace CoopRace {
     inline bool LatchedPeerWin(uint32_t localEvent, uint32_t latchedEvent, bool scriptedLoss) {
         return !scriptedLoss && localEvent && latchedEvent && localEvent == latchedEvent;
     }
+
+    // Start together, at the loading screen. Each game finishes loading an event at its own speed; the one
+    // that is done first keeps its loading screen up (the game's "finished loading" step waits) until the
+    // other one is done too, so both intro cutscenes start together. CarState::pad[0] says so meanwhile.
+    constexpr uint8_t kStageLoadHeld = 4;           // loaded, holding the loading screen for the other player
+    constexpr int kLoadHoldMaxMs = 30000;           // never longer
+    constexpr int kLoadHoldElsewhereMs = 3000;      // they drive in another event / free roam: not coming
+    inline bool OnGridStage(uint8_t stage) { return stage == 2 || stage == 3; }
+    struct LoadHoldInputs {
+        bool     enabled;      // linked and [Coop] StartTogether
+        uint32_t event;        // event being loaded (0: free roam - never held)
+        bool     prologue;     // the prologue's starts have their own wait on the grid
+        bool     peerValid;
+        bool     peerComing;   // in this event, or invited to it / inviting us
+        uint32_t peerEvent;
+        int      peerFlow;     // their game flow state (6 = in game)
+        uint8_t  peerStage;    // their CarState::pad[0]
+        bool     peerElsewhere;// driving (flow 6, a car) in another event or in free roam
+        int      heldMs;       // how long we hold already
+    };
+    inline bool HoldLoadingScreen(const LoadHoldInputs& in) {
+        if (!in.enabled || !in.event || in.prologue || !in.peerValid || !in.peerComing) return false;
+        if (in.heldMs >= kLoadHoldMaxMs) return false;
+        if (in.peerEvent == in.event && (in.peerStage == kStageLoadHeld || (in.peerFlow == 6 && in.peerStage >= 1)))
+            return false;                           // they're loaded too (holding, or already past it)
+        if (in.peerElsewhere && in.heldMs >= kLoadHoldElsewhereMs) return false;
+        return true;
+    }
 }
