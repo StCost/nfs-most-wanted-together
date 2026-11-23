@@ -22,7 +22,7 @@
 using namespace TogetherUtil;
 
 namespace {
-    enum Row { R_NAME, R_MODE, R_HOSTIP, R_AUTOCONNECT, R_PADHOTPLUG, R_OVERLAY, R_SAVE, R_CANCEL, R_COUNT };
+    enum Row { R_NAME, R_MODE, R_HOSTIP, R_AUTOCONNECT, R_OVERLAY, R_SAVE, R_CANCEL, R_COUNT };
 
     std::string g_ini;
     bool     g_open = false;
@@ -66,7 +66,6 @@ namespace {
         s.host = g_cfg.isHost;
         s.hostIp = ReadIni("Network", "HostIP", "");         // as typed (g_cfg has 127.0.0.1 when it's empty)
         s.port = std::to_string(g_cfg.port);
-        s.gamepadHotplug = g_cfg.gamepadHotplug;
         s.overlay = Overlay::IsVisible();
         s.autoConnect = ReadIni("Network", "AutoConnect", "1") != "0";
         return s;
@@ -162,7 +161,6 @@ namespace {
         bool net = NetworkChanged(cur, ed) || (connect && !g_netRunning);
         if (!g_netRunning && !connect) net = false;     // not connected yet (waiting for Host / Join): just remember
         g_pendingNet = ed;    // name / mode / address / port: applied with the reconnect (TakeNetworkChange)
-        g_cfg.gamepadHotplug = ed.gamepadHotplug;
         g_cfg.showOverlay = ed.overlay; Overlay::SetVisible(ed.overlay);
         if (net) g_netChange = true;
         else ApplyNetwork(ed);
@@ -195,7 +193,6 @@ namespace {
         if (g_sel != R_SAVE && g_sel != R_CANCEL) Edited();
         switch (g_sel) {
         case R_MODE: g_ed.host = !g_ed.host; break;
-        case R_PADHOTPLUG: g_ed.gamepadHotplug = !g_ed.gamepadHotplug; break;
         case R_OVERLAY: g_ed.overlay = !g_ed.overlay; break;
         case R_AUTOCONNECT: g_ed.autoConnect = !g_ed.autoConnect; break;
         case R_SAVE: case R_CANCEL: g_sel = g_sel == R_SAVE ? R_CANCEL : R_SAVE; break;
@@ -461,7 +458,7 @@ namespace {
         switch (r) {
         case R_NAME: return "Nickname"; case R_MODE: return "Connection"; case R_HOSTIP: return "Connect to IP";
         case R_AUTOCONNECT: return "Reconnect on launch";
-        case R_PADHOTPLUG: return "Auto-detect gamepads"; case R_OVERLAY: return "Show status overlay (F8)";
+        case R_OVERLAY: return "Show status overlay (F8)";
         }
         return "";
     }
@@ -470,7 +467,7 @@ namespace {
 bool Together::Paint(uint32_t* pixels, int pitch, int maxW, int maxH, int* outW, int* outH) {
     g_dirty = false;
     if (!g_open && !g_hint) return false;
-    const int W = g_open ? 620 : 430, H = g_open ? 436 : 34;
+    const int W = g_open ? 620 : 430, H = g_open ? 406 : 34;
     if (W > maxW || H > maxH) return false;
     HDC dc = CreateCompatibleDC(nullptr);
     BITMAPINFO bi{}; bi.bmiHeader.biSize = sizeof(bi.bmiHeader); bi.bmiHeader.biWidth = W; bi.bmiHeader.biHeight = -H;
@@ -521,8 +518,7 @@ bool Together::Paint(uint32_t* pixels, int pitch, int maxW, int maxH, int* outW,
             switch (r) {
             case R_MODE: v = g_ed.host ? "<  Host LAN  >" : "<  Join LAN  >"; vc = kAccent; break;
             default: {
-                bool on = r == R_PADHOTPLUG ? g_ed.gamepadHotplug
-                        : r == R_OVERLAY ? g_ed.overlay : g_ed.autoConnect;
+                bool on = r == R_OVERLAY ? g_ed.overlay : g_ed.autoConnect;
                 v = on ? "ON" : "OFF"; vc = on ? kAccent : kDim; break; }
             }
             Text(dc, fLabel, vx, y, vw - 26, rowH - 3, v, vc, DT_LEFT);

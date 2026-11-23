@@ -106,7 +106,6 @@ namespace {
                       S_TITLE = kStrBase + 0x20, S_VALUE = kStrBase + 0x40 };
     using NativeUtil::W_NAME; using NativeUtil::W_MODE; using NativeUtil::W_HOSTIP;
     using NativeUtil::W_AUTO; using NativeUtil::W_START;
-    using NativeUtil::W_PADHOTPLUG;
     using NativeUtil::W_COUNT;
     char g_title[W_COUNT][48], g_value[W_COUNT][96];
     std::vector<StringRec> g_ours;
@@ -207,11 +206,10 @@ namespace {
     }
 
     bool IsText(int r) { return r == W_NAME || r == W_HOSTIP; }
-    bool IsOnOff(int r) { return r == W_AUTO || r == W_PADHOTPLUG; }
+    bool IsOnOff(int r) { return r == W_AUTO; }
     bool* Flag(int r) {
         switch (r) {
         case W_AUTO: return &g_ed.autoConnect;
-        case W_PADHOTPLUG: return &g_ed.gamepadHotplug;
         }
         return nullptr;
     }
@@ -226,7 +224,6 @@ namespace {
         case W_NAME: return "Nickname"; case W_MODE: return "Connection";
         case W_HOSTIP: return "Connect to IP";
         case W_AUTO: return "Reconnect on launch";
-        case W_PADHOTPLUG: return "Auto-detect gamepads";
         case W_START: return NativeUtil::ConnectionActionTitle(g_ed.host, Together::SessionActive());
         }
         return "";

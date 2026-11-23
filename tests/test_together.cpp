@@ -50,6 +50,7 @@ TEST(together_ini_lines) {
     CHECK_STR(IniValue(v, "Network", "Port").c_str(), "47556");
     CHECK_STR(IniValue(v, "UI", "MenuSpeed").c_str(), "<missing>");     // removed in 1.7.4
     CHECK_STR(IniValue(v, "UI", "IntroInput").c_str(), "<missing>");
+    CHECK_STR(IniValue(v, "Input", "GamepadHotplug").c_str(), "<missing>");   // ini only: a menu save leaves it
     CHECK_STR(IniValue(v, "Debug", "Overlay").c_str(), "1");
     CHECK_STR(IniValue(v, "UI", "TogetherSetupDone").c_str(), "1");
     s.host = true;
@@ -153,9 +154,8 @@ TEST(native_together_rows) {
     CHECK(std::find(joinCon.begin(), joinCon.end(), W_START) != joinCon.end());
     CHECK(std::find(hostCon.begin(), hostCon.end(), W_NAME) != hostCon.end());
     CHECK(std::find(hostCon.begin(), hostCon.end(), W_AUTO) != hostCon.end());
-    CHECK(std::find(hostCon.begin(), hostCon.end(), W_PADHOTPLUG) != hostCon.end());
-    CHECK_EQ((int)hostCon.size(), 5);
-    CHECK_EQ((int)joinCon.size(), 6);
+    CHECK_EQ((int)hostCon.size(), 4);     // no gamepad row: hot-plug is always on (ini only)
+    CHECK_EQ((int)joinCon.size(), 5);
     CHECK((int)hostCon.size() <= 9);
     CHECK((int)joinCon.size() <= 9);
     // Options > Together is the same list
@@ -190,7 +190,7 @@ TEST(native_scroll_window) {
     CHECK_EQ(NativeUtil::ClampScroll(15, 10, 9), 5);
     CHECK_EQ(NativeUtil::ClampScroll(4, 10, 2), 0);
     auto set = TogetherRows(Screen::Settings, false);
-    CHECK_EQ((int)set.size(), 6);
+    CHECK_EQ((int)set.size(), 5);
     CHECK(NativeUtil::VisibleIndex((int)set.size(), 9, 0, 0) == 0);
     CHECK(NativeUtil::VisibleIndex((int)set.size(), 9, 0, (int)set.size() - 1) >= 0);   // the last row fits
 }
