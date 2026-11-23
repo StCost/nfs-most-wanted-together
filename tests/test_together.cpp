@@ -270,6 +270,14 @@ TEST(native_pad_edge) {
     CHECK(!PadEdge(B, 0, A));
 }
 
+TEST(native_entry_falls_back_when_it_never_goes_live) {
+    CHECK(!NativeEntryStalled(false, 0));
+    CHECK(!NativeEntryStalled(false, 1499));
+    CHECK(NativeEntryStalled(false, 1500));          // never took keys: type in the row
+    CHECK(!NativeEntryStalled(true, 1500));          // it went live: never switch while typing
+    CHECK(!NativeEntryStalled(true, 60000));
+}
+
 TEST(native_soft_edit_shows_cursor) {
     CHECK_STR(SoftEditShown("").c_str(), "_");
     CHECK_STR(SoftEditShown("StCost").c_str(), "StCost_");

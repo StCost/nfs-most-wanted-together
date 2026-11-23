@@ -80,6 +80,7 @@ namespace {
     const auto IsPackagePushed = (IsPushed_t)0x516B50;
     const auto WidgetMenuNotify = (Notify_t)0x5A96C0;      // UIWidgetMenu::NotificationMessage
     const auto BeginTextInput = (BeginText_t)0x5865E0;     // MenuScreen::FEngBeginTextInput(object, mode, text, title, max)
+    BeginText_t o_BeginTextInput = nullptr;                // the same, past our hook (hk_BeginTextInput)
     const auto EditedText = (EditedText_t)0x586550;        // MenuScreen::FEngGetEditedString
     const auto GetCurrentFEString = (GetString_t)0x573CC0, GetCurrentFEImage = (GetString_t)0x573D10,
                GetCurrentFEObject = (GetString_t)0x573D80;
@@ -195,6 +196,11 @@ namespace {
     WORD     g_softPadPrev = 0;           // pad buttons at the last look while typing
     bool     g_padSwallow = false;        // the pad's buttons stay hidden from the game until let go
     std::string g_softOrig;               // the value before typing (Esc / pad B puts it back)
+    bool     g_nativeEdit = false;        // the game's own text entry (as LAN Create Game > name) is open
+    bool     g_nativeSeen = false;        // ... and it went live (it takes keys after two FE ticks)
+    DWORD    g_nativeSince = 0;
+    bool     g_noNative = false;          // the game's entry didn't start on this screen: type in the row
+    bool     g_endHold = false;           // an edit just ended: keys still down stay ours until let go
 
     // The first connected pad's buttons (XInput), only while the game window is focused.
     WORD PadButtons() {
@@ -203,6 +209,21 @@ namespace {
         XINPUT_STATE st{};
         for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i) if (XInputGetState(i, &st) == ERROR_SUCCESS) return st.Gamepad.wButtons;
         return 0;
+    }
+
+    // The game's text entry (MenuScreen::FEngBeginTextInput): the screen keeps an edit object at +0x24
+    // ({FEString*, screen, blink}); gKeyboardManager +0x410 is set once it takes keys, +0x414 = that object.
+    // Each FE tick MenuScreen's message handler (0x59B2C0) redraws the string with a blinking cursor;
+    // PAD_ACCEPT / WM_CHAR Enter keep (0x599100), PAD_BACK / Esc cancel (0x5991B0); both tell the screen
+    // with ACCEPT_EDITED / DECLINE_EDITED and then close the entry.
+    using EditEnd_t = void(__thiscall*)(void*);
+    const auto EditAccept = (EditEnd_t)0x599100;
+    const auto EditDecline = (EditEnd_t)0x5991B0;
+    void* EditObj() { return g_screen ? *(void**)(g_screen + 0x24) : nullptr; }
+    bool NativeLive() {
+        uint8_t on = 0; void* obj = nullptr;
+        Mem::Read(kKeyboard + 0x410, on); Mem::Read(kKeyboard + 0x414, obj);
+        return on && obj && obj == EditObj();
     }
 
     bool IsText(int r) { return r == W_NAME || r == W_HOSTIP; }
@@ -254,13 +275,11 @@ namespace {
             if (title) SetLangStr(title, S_TITLE + r);
             if (!data) return;
             if (r == g_editRow) {
-                // Main-menu text entry: copy the live string when it is non-empty.
-                // Pause soft-edit already keeps g_value; do not ask the game (BeginTextInput is not used).
-                if (!g_softEdit && g_screen) {
-                    const char* t = EditedText(g_screen);
-                    if (t && t[0]) strncpy_s(g_value[r], t, _TRUNCATE);
-                }
-                SetLangStr(data, S_VALUE + r);
+                // The game's text entry draws this string itself (typed text + cursor, as a direct
+                // string). Setting our language string here switched it back to the old value every
+                // frame - that is why the game's entry looked blank in 1.7.0. Only the in-row entry
+                // (our own typing) puts its text here.
+                if (g_softEdit) SetLangStr(data, S_VALUE + r);
                 return;
             }
             if (IsOnOff(r) && !(r == g_errRow && !g_err.empty())) { SetLangStr(data, *Flag(r) ? LANG_ON : LANG_OFF); return; }
@@ -304,37 +323,45 @@ namespace {
         SetLangStr(data, S_VALUE + r);
         *(g_screen + 0x120) = 0;     // bAllowScroll: no row changes while typing
         g_editRow = r;
-        if (SoftEditPkg()) {
-            // Type into the row ourselves: the game's text entry hides the value on pause
-            // and a mouse click can open a blank page on the main-menu Options screen.
+        g_softPadPrev = PadButtons();                      // the A that opened it has to go up first
+        if (!g_noNative) {
+            // The game's own text entry on this row, opened the way the LAN screens do it (edit modes:
+            // 0 = any key, 4 = letters, digits, '.', '@', '_'). The game finds the string by its hash;
+            // point the edit at this row's string in case another row shares the hash.
+            auto begin = o_BeginTextInput ? o_BeginTextInput : BeginTextInput;
+            begin(g_screen, objHash, r == W_NAME ? 0u : 4u, start.c_str(), TitleOf(r), (uint32_t)MaxLen(FieldOf(r)));
+            if (void** eo = (void**)EditObj()) {
+                eo[0] = data;
+                g_softEdit = false; g_nativeEdit = true; g_nativeSeen = false; g_nativeSince = GetTickCount();
+                LOG("Native: typing %s (the game's text entry)", TitleOf(r));
+                return;
+            }
+            LOG("Native: the game's text entry did not open - typing %s in the row", TitleOf(r));
+        }
+        {
             g_softEdit = true;
             g_softWaitRelease = true;
             g_softWaitSince = GetTickCount();
             memset(g_softPrev, 0x80, sizeof(g_softPrev));  // every key currently down is already down
-            g_softPadPrev = PadButtons();                  // the A that opened it has to go up first
             g_softOrig = start;
             strncpy_s(g_value[r], NativeUtil::SoftEditShown(start).c_str(), _TRUNCATE);
             SetLangStr(data, S_VALUE + r);
             Refresh();
-            LOG("Native: typing %s (soft)", TitleOf(r));
-            return;
+            LOG("Native: typing %s (in the row)", TitleOf(r));
         }
-        g_softEdit = false;
-        // edit modes of the game's text entry: 0 = any key, 4 = letters, digits, '.', '@', '_'
-        BeginTextInput(g_screen, objHash, r == W_NAME ? 0u : 4u, start.c_str(), TitleOf(r), (uint32_t)MaxLen(FieldOf(r)));
-        LOG("Native: typing %s", TitleOf(r));
     }
 
     void EndEdit(bool keep) {
         int r = g_editRow; bool soft = g_softEdit;
-        if (soft && PadButtons()) g_padSwallow = true;   // the A / B that ended it is not for the game
-        g_editRow = -1; g_softEdit = false; g_softWaitRelease = false; g_editEnd = GetTickCount();
+        if (r >= 0 && PadButtons()) g_padSwallow = true;  // the A / B that ended it is not for the game
+        if (r >= 0) g_endHold = true;                     // ... nor the Enter / Esc
+        g_editRow = -1; g_softEdit = false; g_nativeEdit = false; g_softWaitRelease = false; g_editEnd = GetTickCount();
         if (g_screen) *(g_screen + 0x120) = 1;
         if (r < 0) return;
         if (keep) {
             std::string raw;
             if (soft) raw = Text(r);                                 // typed straight into the setting
-            else if (g_screen) { const char* t = EditedText(g_screen); if (t) raw = t; }
+            else { const char* t = g_screen && EditObj() ? EditedText(g_screen) : nullptr; raw = t ? t : Text(r); }
             std::string v = NativeUtil::CleanText(FieldOf(r), raw);
             if (r == W_HOSTIP && !v.empty()) g_ed.host = false;      // typing an address means joining it
             if (!(r == W_HOSTIP && v.empty() && g_ed.host)) Text(r) = v;
@@ -403,14 +430,47 @@ namespace {
 
     // Pad while typing: A (or Start) keeps, B cancels. The game gets no pad buttons meanwhile
     // (input.cpp asks CapturesPad), so they can't also act on the screen behind the row.
-    void SoftPadTick() {
+    // End the edit. The game's entry is closed through its own keep / cancel, which tells the screen
+    // (ACCEPT_EDITED / DECLINE_EDITED -> EndEdit) and then frees the entry.
+    void FinishEdit(bool keep) {
+        if (g_editRow < 0) return;
+        if (g_nativeEdit) {
+            if (void* eo = EditObj()) (keep ? EditAccept : EditDecline)(eo);
+            if (g_editRow >= 0) EndEdit(keep);     // the screen didn't hear it: end ours anyway
+            return;
+        }
+        EndEdit(keep);
+    }
+    // Keys / buttons only count once the game's entry is live (two FE ticks after it opens).
+    bool EditTakesKeys() { return g_softEdit || (g_nativeEdit && NativeLive()); }
+
+    // Pad while typing: A (or Start) keeps, B cancels. The game gets no pad buttons meanwhile
+    // (input.cpp asks CapturesPad), so they can't also act on the screen behind the row.
+    void EditPadTick() {
         WORD b = PadButtons();
         if (g_padSwallow && !b) g_padSwallow = false;
-        if (!g_softEdit || g_editRow < 0) { g_softPadPrev = b; return; }
+        if (g_editRow < 0) { g_softPadPrev = b; return; }
         WORD prev = g_softPadPrev;
         g_softPadPrev = b;
-        if (NativeUtil::PadEdge(b, prev, XINPUT_GAMEPAD_B)) { EndEdit(false); LOG("Native: typing cancelled (pad B)"); }
-        else if (NativeUtil::PadEdge(b, prev, XINPUT_GAMEPAD_A) || NativeUtil::PadEdge(b, prev, XINPUT_GAMEPAD_START)) EndEdit(true);
+        if (!EditTakesKeys()) return;
+        if (NativeUtil::PadEdge(b, prev, XINPUT_GAMEPAD_B)) { LOG("Native: typing cancelled (pad B)"); FinishEdit(false); }
+        else if (NativeUtil::PadEdge(b, prev, XINPUT_GAMEPAD_A) || NativeUtil::PadEdge(b, prev, XINPUT_GAMEPAD_START)) FinishEdit(true);
+    }
+
+    void BeginEdit(uint8_t* w, int r);
+    // The game's entry must go live within a moment; if it doesn't (or closes without telling us),
+    // type in the row instead for the rest of this run.
+    void NativeEditTick() {
+        if (!g_nativeEdit || g_editRow < 0 || !g_screen) return;
+        if (NativeLive()) { g_nativeSeen = true; return; }
+        if (!EditObj()) { LOG("Native: the game's text entry closed without a result"); EndEdit(false); return; }
+        if (!NativeUtil::NativeEntryStalled(g_nativeSeen, GetTickCount() - g_nativeSince)) return;
+        int r = g_editRow;
+        LOG("Native: the game's text entry did not take keys - typing in the row from now on");
+        g_noNative = true;
+        FinishEdit(false);
+        uint8_t* w = *(uint8_t**)(g_screen + 0x34);
+        if (w && *(void**)w == g_widgetVt && RowOf(w) == r) BeginEdit(w, r);
     }
 
     void Start() {
@@ -487,7 +547,7 @@ namespace {
         g_screen = s; g_cat = cat; g_builtAt = GetTickCount();
         if (g_leftScreen == s) g_leftScreen = nullptr;      // a new screen where the old one was
         if (!g_reopening) { g_ed = Together::Current(); g_scroll = 0; }
-        g_editRow = -1; g_softEdit = false; g_softWaitRelease = false; g_backWarned = false; g_allowLeave = false;
+        g_editRow = -1; g_softEdit = false; g_nativeEdit = false; g_softWaitRelease = false; g_backWarned = false; g_allowLeave = false;
         if (!g_reopening) { g_err.clear(); g_errRow = -1; }
         const char* pkg = PkgName(s);
         SetLangPkg(pkg, HEADER_TEXT, cat == CAT_CONNECT ? S_HEADER_CONNECT : S_HEADER);
@@ -574,7 +634,7 @@ namespace {
     // Enter on a Together row: do the row's action here, before FEng treats it as back.
     bool HandleEnterInPlace() {
         if (!OurScreenUp()) return false;
-        if (g_softEdit) { EndEdit(true); return true; }
+        if (g_editRow >= 0) { if (EditTakesKeys()) FinishEdit(true); return true; }
         if (Capturing()) return false;
         // A press right after an edit ended: no new action, and not for the game either (FEng
         // takes Enter on this package as "keep and go back" and plays the exit: a blank screen).
@@ -611,6 +671,20 @@ namespace {
             memset(state, 0, 256);
             return;
         }
+        if (g_nativeEdit) {
+            // The game's entry types from WM_CHAR. Enter / Esc are taken here, once per press, so they
+            // never reach FEng as PAD_ACCEPT / PAD_BACK (Enter on Options.fng also plays its leave).
+            bool live = EditTakesKeys();
+            if (NativeUtil::StepKey(g_enterLatch, enterDown) == NativeUtil::KeyStep::Act) { g_enterLatch.eating = true; if (live) FinishEdit(true); }
+            if (NativeUtil::StepKey(g_escLatch, escDown) == NativeUtil::KeyStep::Act) { g_escLatch.eating = true; if (live) FinishEdit(false); }
+            state[0x1C] = 0; state[0x9C] = 0; state[0x01] = 0;
+            return;
+        }
+        if (g_endHold) {               // the edit ended on a key that may still be down (WM_CHAR, pad)
+            g_endHold = false;
+            NativeUtil::HoldKey(g_enterLatch, enterDown);
+            NativeUtil::HoldKey(g_escLatch, escDown);
+        }
         // Enter acts once per press (on the down edge), never again while it is held
         switch (NativeUtil::StepKey(g_enterLatch, enterDown)) {
         case NativeUtil::KeyStep::Act:
@@ -630,7 +704,7 @@ namespace {
     void FilterKbData(void* rg, unsigned* inOut, unsigned cbObj) {
         if (!rg || !inOut || !*inOut || cbObj < 8) return;
         if (!OurScreenUp()) return;
-        if (g_softEdit) { *inOut = 0; return; }   // we already handle keys in FilterKbState
+        if (g_editRow >= 0) { *inOut = 0; return; }   // we already handle keys in FilterKbState
         unsigned n = *inOut, w = 0;
         auto* ev = (unsigned char*)rg;
         for (unsigned i = 0; i < n; ++i) {
@@ -753,7 +827,7 @@ namespace {
             case DECLINE_EDITED: EndEdit(false); return;
             case PAD_BUTTON5: case PC_DISPLAY: return;       // no "restore defaults" / display toggles here
             case PAD_BACK:
-                if (g_softEdit) { EndEdit(false); return; }
+                if (g_editRow >= 0) { FinishEdit(false); return; }
                 if (Capturing() || GetTickCount() - g_editEnd < 300) return;
                 g_stayOnAccept = false;
                 WidgetMenuNotify(s, msg, obj, p1, p2);
@@ -789,7 +863,7 @@ namespace {
                     int keep = -1, typing = g_editRow;
                     uint8_t* cw = *(uint8_t**)(s + 0x34);
                     if (cw && *(void**)cw == g_widgetVt) keep = RowOf(cw);
-                    if (typing >= 0) { keep = typing; EndEdit(true); }
+                    if (typing >= 0) { keep = typing; FinishEdit(true); }
                     if (keep < 0 || keep >= W_COUNT) keep = W_NAME;
                     LOG("Native: the Together screen played its exit without leaving - opening it again (row %d%s)",
                         keep, typing >= 0 ? ", still typing" : "");
@@ -896,19 +970,18 @@ namespace {
         g_profileShown = label == me ? std::string() : label;
     }
 
-    // The game's FEngBeginTextInput (0x5865E0) opens a separate keyboard page. A mouse
-    // click on a Together row can call it with an empty buffer (blank screen, no typing,
-    // Esc eaten by soft-edit underneath). Block it on our screen and keep soft-edit.
+    // The game's own widgets can call FEngBeginTextInput (0x5865E0) on our screen (a mouse click
+    // on a Together row) with their own empty buffer and the wrong string. Block those calls and
+    // open our edit on the row instead (BeginEdit calls the game's function past this hook).
     constexpr uintptr_t kBeginTextAddr = 0x5865E0;
     const uint8_t kBeginTextHead[7] = { 0x6A, 0xFF, 0x68, 0x24, 0x23, 0x87, 0x00 };
-    BeginText_t o_BeginTextInput = nullptr;
 
     void __fastcall hk_BeginTextInput(void* self, void*, uint32_t object, uint32_t mode,
                                       const char* text, const char* title, uint32_t maxLen) {
         if (self && g_screen && self == g_screen && (g_softEdit || SoftEditPkg() || OurScreenUp())) {
-            LOG("Native: blocked the game's text entry (%s) - typing stays on the row",
+            LOG("Native: a game widget asked for a text entry (%s) - opening the row's own",
                 title && title[0] ? title : "?");
-            if (!g_softEdit) {
+            if (g_editRow < 0) {
                 uint8_t* w = *(uint8_t**)(g_screen + 0x34);
                 if (w && *(void**)w == g_widgetVt) {
                     int r = RowOf(w);
@@ -994,7 +1067,7 @@ namespace {
 }
 
 void NativeUI::FilterKeyboardState(uint8_t* state256) { FilterKbState(state256); }
-bool NativeUI::CapturesPad() { return g_active && (g_softEdit || g_padSwallow); }
+bool NativeUI::CapturesPad() { return g_active && (g_editRow >= 0 || g_padSwallow); }
 void NativeUI::FilterKeyboardData(void* events, unsigned* count, unsigned eventSize) {
     FilterKbData(events, count, eventSize);
 }
@@ -1052,7 +1125,8 @@ void NativeUI::Tick() {
         ProfileTick();
         LeftTick();
         EditOnOpenTick();
-        SoftPadTick();
+        NativeEditTick();
+        EditPadTick();
         // pause text entry may not redraw the row itself: push the live string onto the value object
         if (g_editRow >= 0 && g_screen) {
             if (g_softEdit && Capturing()) {
@@ -1064,12 +1138,9 @@ void NativeUI::Tick() {
                     LOG("Native: closed the game's text entry so typing stays on the row");
                 }
             }
-            if (!g_softEdit) {
-                const char* t = EditedText(g_screen);
-                if (t && t[0]) strncpy_s(g_value[g_editRow], t, _TRUNCATE);
-            }
+            // (the game's entry draws its row itself: leave that string alone)
             uint8_t* w = *(uint8_t**)(g_screen + 0x34);
-            if (w && *(void**)w == g_widgetVt && RowOf(w) == g_editRow) {
+            if (g_softEdit && w && *(void**)w == g_widgetVt && RowOf(w) == g_editRow) {
                 if (void* data = *(void**)(w + 0x30)) SetLangStr(data, S_VALUE + g_editRow);
             }
 #ifdef MWT_DEVTOOLS

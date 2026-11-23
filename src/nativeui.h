@@ -10,10 +10,10 @@
 //     info in the value column). Gamepad hot-plug is always on ([Input] GamepadHotplug in the ini).
 //     Start Host / Connect saves and starts the session; Stop Host / Disconnect ends it.
 //     With Reconnect on launch on, the next start hosts or joins as last time.
-// Nickname and Connect to IP are typed in the visible row (soft edit) on both the main-menu
-// and pause Together screens, with a cursor (_) after the text. Enter or pad A keeps, Esc or
-// pad B cancels the edit; Back then leaves. Leaving
-// the screen saves. The game's own text-entry page is not used (it can open blank on a click).
+// Nickname and Connect to IP use the game's own text entry (the one LAN Create Game uses for the
+// name): typed text and a blinking cursor right on the row. Enter or pad A keeps, Esc or pad B
+// cancels; Back then leaves, and leaving the screen saves. If the game's entry doesn't open or
+// doesn't take keys, the row is typed in our own way (text + "_") with the same keys.
 // Labels come from a copy of the game's string table with our strings added (the game's own pointer to
 // its table is pointed at the copy; the copy is rebuilt when the game loads another language).
 namespace NativeUI {

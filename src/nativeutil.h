@@ -136,6 +136,13 @@ inline void HoldKey(KeyLatch& k, bool down) { k.prev = down; k.eating = down; }
 // edit started (the A that opened it) has to go up before it counts.
 inline bool PadEdge(uint16_t now, uint16_t prev, uint16_t bit) { return (now & bit) && !(prev & bit); }
 
+// The game's own text entry takes keys two FE ticks after it opens. If it never does (no FE ticks
+// reach the screen) the row is typed in our own way instead.
+constexpr unsigned NativeEntryWaitMs = 1500;
+inline bool NativeEntryStalled(bool wentLive, unsigned waitedMs, unsigned limitMs = NativeEntryWaitMs) {
+    return !wentLive && waitedMs >= limitMs;
+}
+
 // The row while it is being typed: the text and a cursor, so it is plain that typing goes there.
 inline std::string SoftEditShown(const std::string& text) { return text + "_"; }
 
