@@ -4,6 +4,9 @@
 #include <vector>
 #include <algorithm>
 #include "netutil.h"
+#ifdef MWT_DEVTOOLS
+#include "netsimutil.h"
+#endif
 #include "config.h"
 #include "log.h"
 #include "logutil.h"
@@ -49,6 +52,103 @@ namespace {
     // QueryPerformanceCounter milliseconds, wrapped to 32 bits. (A plain double -> uint32_t cast is
     // undefined once the PC has been up for more than 49.7 days.)
     uint32_t NowMs32() { return (uint32_t)(uint64_t)Net::NowMs(); }
+
+#ifdef MWT_DEVTOOLS
+    // Outgoing / incoming UDP delay, jitter, loss, duplicate and reorder (dev builds only).
+    struct SimPkt { std::vector<char> data; sockaddr_in addr{}; uint32_t deliverAt = 0; bool outgoing = false; };
+    CRITICAL_SECTION g_simCs;
+    bool g_simCsInit = false, g_simOn = false, g_simLogged = false;
+    NetSimUtil::Settings g_sim{};
+    std::vector<SimPkt> g_simQ;
+    uint32_t g_simRng = 0xA51C4E7Du;
+
+    uint32_t SimRand() {
+        uint32_t x = g_simRng;
+        x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+        return g_simRng = x ? x : 1u;
+    }
+
+    void NetSimOnInit() {
+        if (!g_simCsInit) { InitializeCriticalSection(&g_simCs); g_simCsInit = true; }
+        g_sim = NetSimUtil::ClampSettings({
+            g_cfg.netDelayMs, g_cfg.netJitterMs, g_cfg.netLossPercent,
+            g_cfg.netDuplicatePercent, g_cfg.netReorderPercent
+        });
+        g_simOn = NetSimUtil::Enabled(g_sim);
+        g_simQ.clear();
+        if (g_simOn && !g_simLogged) {
+            g_simLogged = true;
+            LOG("NetSim: delay %d ms, jitter %d ms, loss %d%%, duplicate %d%%, reorder %d%% (dev only)",
+                g_sim.delayMs, g_sim.jitterMs, g_sim.lossPercent, g_sim.duplicatePercent, g_sim.reorderPercent);
+        }
+    }
+
+    void NetSimEnqueue(const void* data, int len, const sockaddr_in& addr, bool outgoing) {
+        auto d = NetSimUtil::Decide(g_sim, SimRand(), SimRand(), SimRand(), SimRand(), SimRand());
+        if (d.drop) return;
+        uint32_t now = Tick32();
+        for (int i = 0; i < d.copies; ++i) {
+            SimPkt q;
+            q.data.assign((const char*)data, (const char*)data + len);
+            q.addr = addr;
+            q.deliverAt = now + (uint32_t)d.delayMs[i];
+            q.outgoing = outgoing;
+            g_simQ.push_back(std::move(q));
+        }
+    }
+
+    void NetSimFlushOutgoing() {
+        if (!g_simOn || g_sock == INVALID_SOCKET) return;
+        uint32_t now = Tick32();
+        EnterCriticalSection(&g_simCs);
+        for (size_t i = 0; i < g_simQ.size(); ) {
+            if (!g_simQ[i].outgoing || (int32_t)(now - g_simQ[i].deliverAt) < 0) { ++i; continue; }
+            SimPkt q = std::move(g_simQ[i]);
+            g_simQ.erase(g_simQ.begin() + (ptrdiff_t)i);
+            LeaveCriticalSection(&g_simCs);
+            int r = sendto(g_sock, q.data.data(), (int)q.data.size(), 0, (sockaddr*)&q.addr, sizeof(q.addr));
+            if (r == (int)q.data.size()) g_stats.packetsOut++;
+            EnterCriticalSection(&g_simCs);
+            now = Tick32();
+        }
+        LeaveCriticalSection(&g_simCs);
+    }
+
+    bool NetSimSend(const void* data, int len) {
+        if (!g_simOn) return false;
+        EnterCriticalSection(&g_simCs);
+        NetSimEnqueue(data, len, g_peer, true);
+        LeaveCriticalSection(&g_simCs);
+        NetSimFlushOutgoing();
+        return true;
+    }
+
+    bool NetSimTakeIncoming(const void* data, int len, const sockaddr_in& from) {
+        if (!g_simOn) return false;
+        EnterCriticalSection(&g_simCs);
+        NetSimEnqueue(data, len, from, false);
+        LeaveCriticalSection(&g_simCs);
+        return true;
+    }
+
+    void Handle(const char* data, int len, const sockaddr_in& from); // existing, defined below
+
+    void NetSimDeliverIncoming() {
+        if (!g_simOn) return;
+        uint32_t now = Tick32();
+        EnterCriticalSection(&g_simCs);
+        for (size_t i = 0; i < g_simQ.size(); ) {
+            if (g_simQ[i].outgoing || (int32_t)(now - g_simQ[i].deliverAt) < 0) { ++i; continue; }
+            SimPkt q = std::move(g_simQ[i]);
+            g_simQ.erase(g_simQ.begin() + (ptrdiff_t)i);
+            LeaveCriticalSection(&g_simCs);
+            Handle(q.data.data(), (int)q.data.size(), q.addr);
+            EnterCriticalSection(&g_simCs);
+            now = Tick32();
+        }
+        LeaveCriticalSection(&g_simCs);
+    }
+#endif
 
     void FillHeader(PacketHeader& h, PacketType t);
     void SendRaw(const void* data, int len);
@@ -99,6 +199,9 @@ namespace {
         if (!SockReady() || !g_havePeer || g_leaving) return;
 #ifdef MWT_TESTS
         if (g_testCapture) { g_testCapture(data, len); g_stats.packetsOut++; return; }
+#endif
+#ifdef MWT_DEVTOOLS
+        if (NetSimSend(data, len)) return;
 #endif
         int r = sendto(g_sock, (const char*)data, len, 0, (sockaddr*)&g_peer, sizeof(g_peer));
         if (r == len) g_stats.packetsOut++;
@@ -514,6 +617,9 @@ bool Net::Init() {
         }
     }
     LONG gen = InterlockedIncrement(&g_netGen);
+#ifdef MWT_DEVTOOLS
+    NetSimOnInit();
+#endif
     if (HANDLE th = CreateThread(nullptr, 0, KeepAliveThread, (void*)(intptr_t)gen, 0, nullptr)) CloseHandle(th);
     return true;
 }
@@ -546,8 +652,15 @@ void Net::Poll() {
         sockaddr_in from{}; int fromLen = sizeof(from);
         int r = recvfrom(g_sock, buf, sizeof(buf), 0, (sockaddr*)&from, &fromLen);
         if (r <= 0) break;
+#ifdef MWT_DEVTOOLS
+        if (NetSimTakeIncoming(buf, r, from)) continue;
+#endif
         Handle(buf, r, from);
     }
+#ifdef MWT_DEVTOOLS
+    NetSimFlushOutgoing();
+    NetSimDeliverIncoming();
+#endif
 }
 
 // While the game is paused (alt-tab, world map, loading) its frame loop stops and so does Net::Tick.
@@ -565,13 +678,23 @@ static DWORD WINAPI KeepAliveThread(void* arg) {
         PingPacket p{};
         p.h.magic = COOP_MAGIC; p.h.version = COOP_VERSION; p.h.type = (uint16_t)PKT_PING;
         p.h.seq = 0; p.h.timeMs = NowMs32();
+#ifdef MWT_DEVTOOLS
+        (void)s;
+        SendRaw(&p, sizeof(p));
+        NetSimFlushOutgoing();
+#else
         sendto(s, (const char*)&p, sizeof(p), 0, (sockaddr*)&g_peer, sizeof(g_peer));
+#endif
     }
 }
 
 void Net::Tick() {
     FileTick();
     if (!SockReady()) return;
+#ifdef MWT_DEVTOOLS
+    NetSimFlushOutgoing();
+    NetSimDeliverIncoming();
+#endif
     uint32_t now = Tick32();
     // we were stalled ourselves: the peer's packets are still queued, don't count that as silence
     if (g_lastTickCall && now - g_lastTickCall > 2000) g_stats.lastRecvTick = now;

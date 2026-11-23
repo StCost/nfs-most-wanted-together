@@ -70,6 +70,13 @@ struct Config {
                                           // player's cars) appear right in front of a player, within ~60 m
     int         trafficMirrorClass = 4; // [Traffic] MirrorClass - driver class for mirror cars (4 = none, 6 = remote)     // [Debug] TestKeys - F10/F11 spawn/remove a test car
     int         toggleKey = 0x77;     // [Debug] ToggleKey (VK code, default F8)
+    // [Debug] Net* - dev-only UDP simulator (delay / jitter / loss / duplicate / reorder).
+    // Release builds leave these at 0 and ignore the ini keys.
+    int         netDelayMs = 0;
+    int         netJitterMs = 0;
+    int         netLossPercent = 0;
+    int         netDuplicatePercent = 0;
+    int         netReorderPercent = 0;
     bool        ghostEnabled = true;  // [Ghost] Enabled
     int         interpDelayMs = 100;  // [Ghost] InterpDelayMs - show the remote car this far in the past
     bool        ghostCollisions = false; // [Ghost] Collisions

@@ -88,6 +88,25 @@ void Config::Load(const char* ini) {
     trafficSmoothHandover = ReadInt(ini, "Traffic", "SmoothHandover", 1) != 0;
     trafficNoSpawnNearPlayers = ReadInt(ini, "Traffic", "NoSpawnNearPlayers", 1) != 0;
     toggleKey    = ReadInt(ini, "Debug", "ToggleKey", 0x77);
+#ifdef MWT_DEVTOOLS
+    netDelayMs = ReadInt(ini, "Debug", "NetDelayMs", 0);
+    netJitterMs = ReadInt(ini, "Debug", "NetJitterMs", 0);
+    netLossPercent = ReadInt(ini, "Debug", "NetLossPercent", 0);
+    netDuplicatePercent = ReadInt(ini, "Debug", "NetDuplicatePercent", 0);
+    netReorderPercent = ReadInt(ini, "Debug", "NetReorderPercent", 0);
+    if (netDelayMs < 0) netDelayMs = 0;
+    if (netDelayMs > 2000) netDelayMs = 2000;
+    if (netJitterMs < 0) netJitterMs = 0;
+    if (netJitterMs > 1000) netJitterMs = 1000;
+    if (netLossPercent < 0) netLossPercent = 0;
+    if (netLossPercent > 100) netLossPercent = 100;
+    if (netDuplicatePercent < 0) netDuplicatePercent = 0;
+    if (netDuplicatePercent > 100) netDuplicatePercent = 100;
+    if (netReorderPercent < 0) netReorderPercent = 0;
+    if (netReorderPercent > 100) netReorderPercent = 100;
+#else
+    netDelayMs = netJitterMs = netLossPercent = netDuplicatePercent = netReorderPercent = 0;
+#endif
     ghostEnabled = ReadInt(ini, "Ghost", "Enabled", 1) != 0;
     interpDelayMs= ReadInt(ini, "Ghost", "InterpDelayMs", 100);
     ghostCollisions = ReadInt(ini, "Ghost", "Collisions", 1) != 0;
