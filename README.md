@@ -16,10 +16,10 @@ each in their own car. Works over LAN or a VPN (Hamachi, Radmin VPN, ZeroTier).
 
 **Tested by the developers:** the co-op career up to Blacklist #11 Big Lou. More playtesting soon.
 
-| | |
-|---|---|
-| ![Race start together](docs/screenshots/01_race_start_side_by_side.jpg) | ![On the grid together](docs/screenshots/02_start_grid_together.jpg) |
-| ![Chased together](docs/screenshots/04_chase_partner_and_cop.jpg) | ![Both names in the standings](docs/screenshots/08_race_both_names.jpg) |
+<table>
+<tr><td><img src="docs/screenshots/01_race_start_side_by_side.jpg" alt="Race start together"></td><td><img src="docs/screenshots/02_start_grid_together.jpg" alt="On the grid together"></td></tr>
+<tr><td><img src="docs/screenshots/04_chase_partner_and_cop.jpg" alt="Chased together"></td><td><img src="docs/screenshots/08_race_both_names.jpg" alt="Both names in the standings"></td></tr>
+</table>
 
 *A.K.A.: NFS MW co-op, NFSMW multiplayer career, Most Wanted 2005 coop campaign, NFS Most
 Wanted online free roam with a friend, Need for Speed Most Wanted two player mod.*
