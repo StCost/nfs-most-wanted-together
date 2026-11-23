@@ -271,6 +271,10 @@ namespace {
         if (!Mem::Read((uintptr_t)gm + AllowSafehouseOff, cur)) return;
         if (hide && cur) Mem::Write((uintptr_t)gm + AllowSafehouseOff, (uint8_t)0);
     }
+    template <typename T> T PRead(void* p, uint32_t off) { T v{}; Mem::Read((uintptr_t)p + off, v); return v; }
+    template <typename T> void PWrite(void* p, uint32_t off, T v) { Mem::Write((uintptr_t)p + off, v); }
+    using namespace SharedPursuit;
+
     void ForceLocalEscape(void* pursuit) {
         if (!pursuit) return;
         PWrite<float>(pursuit, P_EvadeLevel, 1.f);
@@ -291,9 +295,6 @@ namespace {
                 ((bool(__thiscall*)(void*))fn)(pursuit);
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
-
-    template <typename T> T PRead(void* p, uint32_t off) { T v{}; Mem::Read((uintptr_t)p + off, v); return v; }
-    template <typename T> void PWrite(void* p, uint32_t off, T v) { Mem::Write((uintptr_t)p + off, v); }
 
     bool FreeRoamHere() {
         if (Game::GameFlowState() != 6 || Game::CurrentEventHash() != 0) return false;
