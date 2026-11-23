@@ -3,6 +3,7 @@
 #include "mwt_test.h"
 #include "../src/raceutil.h"
 #include "../src/joinutil.h"
+#include "../src/spectateutil.h"
 #include <cstring>
 
 using namespace CoopRace;
@@ -273,4 +274,32 @@ TEST(join_context_travels_and_old_builds_keep_the_old_rule) {
     CHECK(LoadContext(-1, true) == 0);    // older sender: Challenge Series
     CHECK(LoadContext(-1, false) == 2);
     CHECK(InviteContext(0) && InviteContext(2) && !InviteContext(1));
+}
+
+// Spectate (src/spectateutil.h)
+static Spectate::Peer Racing() { Spectate::Peer p{}; p.connected = p.sameEvent = p.inRace = p.racedHere = true; return p; }
+
+TEST(spectate_offered_only_while_partner_races_and_we_are_out) {
+    using namespace Spectate;
+    CHECK(Offer(true, true, Racing()));
+    CHECK(!Offer(true, false, Racing()));         // we still race
+    CHECK(!Offer(false, true, Racing()));         // co-op off (prologue)
+    Peer p = Racing(); p.finished = 1;  CHECK(!Offer(true, true, p));   // they already won: the winner's flow instead
+    p = Racing(); p.out = true;         CHECK(!Offer(true, true, p));   // they're out too
+    p = Racing(); p.sameEvent = false;  CHECK(!Offer(true, true, p));
+    p = Racing(); p.racedHere = false;  CHECK(!Offer(true, true, p));   // a leftover from their previous run
+    p = Racing(); p.connected = false;  CHECK(!Offer(true, true, p));
+}
+
+TEST(spectate_ends_with_their_result) {
+    using namespace Spectate;
+    CHECK(Tick(Racing(), false, false, false) == Next::Keep);
+    Peer p = Racing(); p.finished = 1;
+    CHECK(Tick(p, false, false, false) == Next::EndWon);           // their win counts for both
+    CHECK(Tick(Racing(), false, false, true) == Next::EndWon);     // latched win (they left the race since)
+    p = Racing(); p.finished = 2;  CHECK(Tick(p, false, false, false) == Next::EndLost);   // they lost: our Restart / Quit
+    p = Racing(); p.out = true;    CHECK(Tick(p, false, false, false) == Next::EndLost);   // busted / totaled too
+    p = Racing(); p.connected = false; CHECK(Tick(p, false, false, false) == Next::EndLost);
+    CHECK(Tick(Racing(), true, false, false) == Next::EndQuiet);   // restarted
+    CHECK(Tick(Racing(), false, true, false) == Next::EndQuiet);   // left the event
 }

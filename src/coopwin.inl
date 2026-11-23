@@ -398,6 +398,7 @@ void Game::CoopWinTick(bool connected, const Net::Snapshot& peer) {
     __try { if (connected) CoopFinishTickImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Race: exception finishing our racer"); }
     __try { CoopWinTickImpl(connected, peer); } __except (EXCEPTION_EXECUTE_HANDLER) {}
     __try { KnockoutReleaseTickImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) { g_koHeld = false; }
+    Game::SpectateTick();
 }
 
 bool Game::InstallCoopWin() {

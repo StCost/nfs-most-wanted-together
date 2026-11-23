@@ -102,6 +102,12 @@ namespace Game {
     bool InstallCatchUp();              // AI catch-up measured against the leading human
     bool InstallCoopWin();              // shared wins
     void CoopWinTick(bool connected, const Net::Snapshot& peer);
+    // Spectate (spectate.inl): out of the event while the other player races - the Restart / Quit
+    // screen offers it (nativeui.cpp), the camera follows their car until they're done
+    bool SpectateOffered();
+    void SpectatePicked();
+    void SpectateTick();     // every frame (from CoopWinTick)
+    bool Spectating();
     uint8_t LocalFinishRank(void* localRacerInfo);
     void InstallSaveSync();             // career save kept by the host
     void SaveTick(bool connected);

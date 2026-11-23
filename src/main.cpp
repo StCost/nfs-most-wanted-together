@@ -103,6 +103,8 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
             g_gameOk = Game::Init();
             // Host / Join and the Together settings in the game's own menus (all patches checked first;
             // if they can't be made, the overlay page is the way in)
+            NativeUI::SpectateOffered = &Game::SpectateOffered;
+            NativeUI::SpectatePicked = &Game::SpectatePicked;
             Together::SetNativeMenus(g_gameOk && NativeUI::Install());
             if (Together::NetAtStart()) g_netOk = Net::Init();
             else LOG("Net: waiting for Host / Join in the main menu");
