@@ -156,7 +156,8 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] One of you gets busted, you both get busted
 - [x] Escaping: whoever loses the cops first goes into cooldown, but the meter doesn't fill until you're both in cooldown. Then both meters run, a spot restarts the other one's, and you both escape at the same moment. This works in free roam and when you're both in the same event (Challenge Series, career pursuit events, races with cops)
 - [x] Cost to State and bounty count for both of you: cops either of you immobilizes or damages, roadblocks and spike strips dodged and property smashed while you're both in the pursuit are added to both players' totals, so the HUD, milestones, Challenge Series goals and the rap sheet match. Infractions stay personal
-- [x] Challenge Series pursuits: the client sees the host's traffic as in free roam, heat and the chase are shared (one of you chased pulls the other in, their cops can spot you), and a win by either of you counts for both. The partner's goal normally completes from the shared stats or escape; if it hasn't 8 s later, their game finishes the event as won
+- [x] Challenge Series pursuits: the client sees the host's traffic as in free roam, heat and the chase are shared (one of you chased pulls the other in, their cops can spot you), and a win by either of you counts for both. The partner's goal normally completes from the shared stats or escape; if it hasn't 8 s later, their game finishes the event as won. The other player's cops can spot you and start a pursuit on you there, as in free roam
+- [x] On the results / win / Continue screens the pursuit is frozen for you: no bust meter, no new chase
 - [x] The pursuit-start camera follows the game's own cinematic camera option in Settings
 - [x] `SharedPursuits=0`: busted and escape only affect the player being chased
 

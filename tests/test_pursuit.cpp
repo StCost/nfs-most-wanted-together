@@ -450,3 +450,21 @@ TEST(pursuit_tally_cost_formula) {
     t = Tal{}; t.v[T_STAT188] = 1; t.v[T_STAT180] = 1; CHECK_EQ(TallyCost(t.v), 675);
     t = Tal{}; t.v[T_BOUNTY28] = 999; CHECK_EQ(TallyCost(t.v), 0);   // bounty is not a cost
 }
+
+// ---- remote cops in a Challenge Series pursuit / the results screen (1.7.4) ---------------------
+TEST(pursuit_remote_cops_chase_us_in_free_roam_and_pursuit_challenges) {
+    using SharedPursuit::Place; using SharedPursuit::OpenWorldShared;
+    CHECK(OpenWorldShared(true, Place::FreeRoam, false));
+    CHECK(OpenWorldShared(true, Place::None, false));                 // free roam here (as before)
+    CHECK(OpenWorldShared(false, Place::SameEvent, true));            // both in the same pursuit challenge
+    CHECK(!OpenWorldShared(false, Place::SameEvent, false));          // a race with cops: only cooldown / stats
+    CHECK(!OpenWorldShared(false, Place::None, true));                // the other one isn't in it
+}
+TEST(pursuit_frozen_on_the_results_screen) {
+    using SharedPursuit::PursuitFrozenForResults;
+    CHECK(PursuitFrozenForResults(true, true, false));                // won / finished: our car is the AI's
+    CHECK(PursuitFrozenForResults(true, false, true));                // a PostRace screen is up
+    CHECK(PursuitFrozenForResults(false, false, true));
+    CHECK(!PursuitFrozenForResults(true, false, false));              // still racing / chased
+    CHECK(!PursuitFrozenForResults(false, true, false));              // free roam: a stale flag means nothing
+}

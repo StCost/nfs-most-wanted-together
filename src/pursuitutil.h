@@ -190,6 +190,18 @@ namespace SharedPursuit {
         if (me.eventHash && me.eventHash == peer.eventHash) return Place::SameEvent;
         return Place::None;
     }
+    // Where the whole pursuit is shared as in free roam (heat, being pulled into their chase, their
+    // cops spotting and chasing us): free roam, and a Challenge Series pursuit both of us are in
+    // (open-world driving with cops and no opponents). Not a race with cops, not another event.
+    inline bool OpenWorldShared(bool localFreeRoam, Place place, bool pursuitChallenge) {
+        return localFreeRoam || (place == Place::SameEvent && pursuitChallenge);
+    }
+    // On the results / win / Continue screens of an event (our racer finished or is out, or a
+    // PostRace screen is up) nobody drives: the pursuit must not move on - no bust meter, no new
+    // pursuit pulled in, no spotting. (1.7.4: a player was busted on the win screen.)
+    inline bool PursuitFrozenForResults(bool inEvent, bool localDone, bool resultsScreen) {
+        return resultsScreen || (inEvent && localDone);
+    }
     // Their escape ends ours (ForceEscape) in free roam as before; in an event only once their
     // pursuit was live in this same event, so an old escape signal can't win the event for us.
     inline bool PeerEscapeCounts(Place place, bool peerEvaded, bool peerChasedInEvent) {

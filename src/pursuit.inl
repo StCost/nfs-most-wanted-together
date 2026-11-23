@@ -494,7 +494,26 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         if (Mem::Read(0x91E000, rs) && rs && Mem::Read((uintptr_t)rs + 0x1968, parms) && parms)
             pcShared = ((int(__thiscall*)(void*))0x5FAA20)(parms) == CoopRace::kTypePursuitChallenge;
     }
-    bool openWorld = freeRoam || pcShared;
+    bool openWorld = OpenWorldShared(freeRoam, place, pcShared);
+    // results / win / Continue screens: no bust meter, nothing new starts (see PursuitFrozenForResults)
+    bool resultsFreeze = false;
+    {
+        bool done = false; uint32_t ev = Game::CurrentEventHash();
+        if (ev) if (void* ri = RacerInfoOfLocal()) {
+            uint8_t fin = 0; uint32_t outs = 0;
+            Mem::Read((uintptr_t)ri + 0x21, fin); Mem::Read((uintptr_t)ri + 0x1C, outs);
+            done = fin || outs;
+        }
+        bool screen = FEScreens::IsPushed("PostRace_Results.fng") || FEScreens::IsPushed("PostRace_Pursuit.fng") ||
+                      FEScreens::IsPushed("PostRace_MilestoneRewards.fng") || FEScreens::IsPushed("InGamePhotoMaster.fng");
+        resultsFreeze = Game::GameFlowState() == 6 && PursuitFrozenForResults(ev != 0, done, screen);
+        static bool lastFreeze = false;
+        if (resultsFreeze != lastFreeze) {
+            lastFreeze = resultsFreeze;
+            LOG("Pursuit: %s", resultsFreeze ? "results screen - pursuit and bust meter frozen for us" : "results closed - pursuit runs again");
+        }
+        if (resultsFreeze) openWorld = false;
+    }
     {
         static SharedPursuit::Place lastPlace = SharedPursuit::Place::None;
         if (place != lastPlace && on) {
@@ -510,6 +529,8 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     void* meAll = LocalVehicle();
     void* pursuitAll = meAll ? PursuitOf(meAll) : nullptr;
     g_localChased = pursuitAll != nullptr;
+    if (resultsFreeze && pursuitAll && PRead<float>(pursuitAll, P_BustTimer) > 0.f)
+        PWrite<float>(pursuitAll, P_BustTimer, 0.f);       // results screen: no bust meter (slot 79's own reset)
     if (pursuitAll && (PRead<uint8_t>(pursuitAll, P_PerpBusted) || PRead<int>(pursuitAll, P_Status) == PS_BUSTED))
         if (uint32_t ev = Game::CurrentEventHash()) g_bustedEvent = ev;   // a pursuit challenge run is lost
     void* me = here ? meAll : nullptr;
