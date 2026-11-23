@@ -6,6 +6,7 @@
 #include "netutil.h"
 #include "config.h"
 #include "log.h"
+#include "logutil.h"
 #include <cstring>
 #include <cstddef>
 #include <cstdio>
@@ -300,7 +301,13 @@ namespace {
             if (len < (int)sizeof(EventPacket)) return;
             const EventPacket* p = (const EventPacket*)buf;
             char id[41]; memcpy(id, p->eventId, 40); id[40] = 0;
-            LOG("Peer started event %s (%08X)", id, p->eventHash);
+            // the sender repeats the invitation every 1.5 s: log the first copy only
+            static uint32_t lastEv = 0; static DWORD lastEvAt = 0;
+            DWORD nowEv = GetTickCount();
+            if (LogUtil::ShouldLogPeerEvent(p->eventHash, lastEv, lastEvAt ? nowEv - lastEvAt : 0xFFFFFFFFu)) {
+                LOG("Peer started event %s (%08X)", id, p->eventHash);
+                lastEv = p->eventHash; lastEvAt = nowEv;
+            }
             if (Net::OnEvent) Net::OnEvent(p->eventHash, id);
             break;
         }
