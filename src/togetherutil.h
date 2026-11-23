@@ -155,4 +155,24 @@ inline bool WidescreenFixLine(std::string& line) {
     return true;
 }
 
+// Apply WidescreenFixLine to every line of an ini (CRLF kept). Returns true if anything changed.
+inline bool PatchWidescreenFixIniText(std::string& all) {
+    bool changed = false;
+    std::string out;
+    size_t pos = 0;
+    while (pos < all.size()) {
+        size_t e = all.find('\n', pos);
+        std::string line = all.substr(pos, e == std::string::npos ? std::string::npos : e - pos);
+        bool cr = !line.empty() && line.back() == '\r';
+        if (cr) line.pop_back();
+        if (WidescreenFixLine(line)) changed = true;
+        out += line;
+        if (cr) out += '\r';
+        if (e != std::string::npos) out += '\n';
+        pos = e == std::string::npos ? all.size() : e + 1;
+    }
+    if (changed) all = std::move(out);
+    return changed;
+}
+
 }  // namespace TogetherUtil

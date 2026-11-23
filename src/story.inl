@@ -159,8 +159,19 @@ namespace {
     // ---- skip vote on movies ----
     using MovieNotifyFn = void(__thiscall*)(void*, uint32_t, void*, uint32_t, uint32_t);
     MovieNotifyFn g_movieNotify[3] = {};
-    bool     g_wsfSkipsMovies = false;     // the Widescreen Fix's SkipIntro = 1 (see InstallStoryHooks)
+    bool     g_wsfSkipsMovies = false;     // leftover Widescreen Fix SkipIntro; cleared so story movies play
     uint32_t g_movieForceSkip = 0;        // let this skip through (the other player has skipped / voted)
+    uint32_t g_movieRetryHash = 0; DWORD g_movieRetryAt = 0;
+    bool     g_movieRetried = false;      // one retry if a career movie ended immediately
+
+    void ClearSkipMoviesIfNeeded(const char* why) {
+        uint32_t skip = 0;
+        Mem::Read(SkipMoviesOption, skip);
+        if (!StorySync::ShouldClearSkipMovies(g_wsfSkipsMovies, skip != 0)) return;
+        if (skip) { uint32_t z = 0; Mem::Write(SkipMoviesOption, z); }
+        g_wsfSkipsMovies = false;
+        LOG("Story: cleared SKIPMOVIES (%s) so career movies can play", why);
+    }
 
     // what the movie player (*0x91CB10) was doing when a movie screen got a close / skip message
     void LogMovieClose(uintptr_t vt, uint32_t msg) {
@@ -183,16 +194,31 @@ namespace {
             uintptr_t vt = 0; Mem::Read((uintptr_t)self, vt);
             g_lastMovieVt = vt;
             if (msg == MovieDone || msg == PadAccept || msg == PadStart) LogMovieClose(vt, msg);
+            if (msg == MovieDone) {
+                unsigned elapsed = g_playingSince ? (GetTickCount() - g_playingSince) : 0;
+                ClearSkipMoviesIfNeeded("movie ended immediately");
+                uint32_t skip = 0; Mem::Read(SkipMoviesOption, skip);
+                uint32_t h = g_movieHash;
+                if (h && StorySync::ShouldRetryCareerMovie(elapsed, StorySync::MovieClose::MovieDone,
+                        skip != 0, g_movieRetried, g_myVote == h)) {
+                    g_streamQuiet = true;
+                    g_movieRetryHash = h; g_movieRetryAt = GetTickCount() + 400; g_movieRetried = true;
+                    LOG("Story: %s ended after %u ms - will try once more after the streamer is quiet", g_movieName, elapsed);
+                }
+                return true;   // let the screen close; a retry starts it again
+            }
             if (msg != PadAccept && msg != PadStart) return true;
             if (g_cfg.syncStoryScenes <= 0 || !g_nisConnected) return true;
             PollMovie(true);
             uint32_t h = g_movieHash;
             const Net::Snapshot& p = Net::Latest();
-            if (!h || !p.valid || p.s.nisHash != h) return true;               // watching alone: like the game
-            if (p.s.nisVote == h || g_movieForceSkip == h) {
-                LOG("Story: %s - skipping %s", g_movieForceSkip == h ? "the other player is past it" : "both voted", g_movieName);
-                g_movieForceSkip = 0; Skipped(h);
-                return true;
+            uint32_t peerMovie = p.valid ? p.s.nisHash : 0, peerVote = p.valid ? p.s.nisVote : 0;
+            if (StorySync::AllowSkipButton(true, p.valid, h, peerMovie, peerVote, g_movieForceSkip)) {
+                if (h && (peerVote == h || g_movieForceSkip == h)) {
+                    LOG("Story: %s - skipping %s", g_movieForceSkip == h ? "the other player is past it" : "both voted", g_movieName);
+                    g_movieForceSkip = 0; Skipped(h);
+                }
+                return true;               // watching alone, or both agreed: like the game
             }
             if (g_myVote != h) { g_myVote = h; LOG("Story: voted to skip %s - waiting for the other player", g_movieName); }
             return false;
@@ -316,7 +342,17 @@ namespace {
 
     void StoryTickImpl(bool connected) {
         DWORD now = GetTickCount();
+        uint8_t playingNow = 0;
+        Mem::Read(MoviePlayingFlag, playingNow);
+        if (StorySync::QuietStreamerForMovie(playingNow != 0 || g_startPending || g_cmdPending || g_startedAt || g_movieRetryHash != 0))
+            g_streamQuiet = true;
+        ClearSkipMoviesIfNeeded("still set while the career is running");
         PollMovie(false);
+        if (g_movieHash && g_playingSince && now - g_playingSince > 1500) g_movieRetried = false;
+        if (g_movieRetryHash && (int)(now - g_movieRetryAt) >= 0) {
+            uint32_t h = g_movieRetryHash; g_movieRetryHash = 0;
+            if (const char* name = KnownMovie(h)) FireOwnMovie(name, "career movie ended immediately, trying once more");
+        }
         {   // a forced skip belongs to one movie: drop it when another one (or none) plays
             static uint32_t lastMovie = 0;
             if (g_movieHash != lastMovie) { if (g_movieForceSkip != g_movieHash) g_movieForceSkip = 0; lastMovie = g_movieHash; }
@@ -341,7 +377,8 @@ namespace {
 
         // watch along (SyncStoryScenes=2): the same movie, when this career has reached it
         const char* movie = peer ? KnownMovie(peer) : nullptr;
-        if (movie && strncmp(movie, "blacklist_", 10) && !justWatched && g_cfg.syncStoryScenes >= 2 && roaming && !Game::LocalPursuitHeat() && g_startedFor != peer && !g_startPending &&
+        if (movie && StorySync::MayWatchAlong(g_cfg.syncStoryScenes, StorySync::IsBlacklistRivalMovie(movie), justWatched,
+                roaming, Game::LocalPursuitHeat() != 0, g_startedFor == peer || g_startPending != 0) &&
             now - g_peerStorySince > 300 && CareerHasMovie(movie, p.s.pad[2]) && MovieFileExists(movie)) {
             g_startPending = peer; g_startAt = now + 400;     // our streamer drops the other player's area first
             g_streamQuiet = true;
@@ -373,7 +410,8 @@ namespace {
             }
         }
         // stream only our own area while a story movie starts / plays over the world here
-        g_streamQuiet = g_startPending || g_cmdPending || g_startedAt || (g_movieHash && g_movieInGame);
+        g_streamQuiet = StorySync::QuietStreamerForMovie(g_startPending || g_cmdPending || g_startedAt || g_movieRetryHash ||
+                                                        (g_movieHash && g_movieInGame) || playingNow);
 
         // otherwise wait: hold the world while they watch (free roam only)
         // (the 0.7 s settle only before a hold starts: a scene running straight into the next keeps it)
@@ -381,9 +419,9 @@ namespace {
         //  markers and the next rival's movie on their own - the other one had often already skipped it and
         //  stood frozen in free roam until it ended here)
         const char* peerName = g_peerStory ? KnownMovie(g_peerStory) : nullptr;
-        bool rivalIntro = peerName && !strncmp(peerName, "blacklist_", 10);
-        bool want = peer && !mine && roaming && !rivalIntro && !g_startPending && !justWatched && !g_gaveUpFor &&
-                    (g_storyHold || now - g_peerStorySince > 700);
+        bool rivalIntro = StorySync::IsBlacklistRivalMovie(peerName);
+        bool want = StorySync::MayHoldWorldForPeer(peer != 0, mine != 0, roaming, rivalIntro, justWatched, g_startPending != 0) &&
+                    !g_gaveUpFor && (g_storyHold || now - g_peerStorySince > 700);
         if (want && !g_storyHold) StoryHoldOn();
         if (g_storyHold) {
             if (!want) StoryHoldOff(peer ? "left free roam" : "scene over");
@@ -462,15 +500,27 @@ bool Game::StoryPauseWanted() { return g_storyHold || (g_cfg.syncStoryScenes > 0
 const char* Game::StoryStatus() { return g_storyStatus; }
 
 bool Game::InstallStoryHooks() {
-    // The Widescreen Fix (scripts\NFSMostWanted.WidescreenFix.ini, [MISC] SkipIntro = 1) skips every movie,
-    // story movies too (seen on the laptop: each ends 0 ms after the start). MW Together skips the intro
-    // by itself, so only say so - the player can set the fix's SkipIntro = 0.
+    // The Widescreen Fix (scripts\NFSMostWanted.WidescreenFix.ini, [MISC] SkipIntro = 1) used to skip
+    // every movie, story movies too (each ended 0 ms after the start). MW Together skips the boot intro
+    // itself, so we set SkipIntro to 0 and clear SKIPMOVIES - otherwise the client (or anyone with the
+    // old ini) jumps from a beaten rival's profile straight to SMS and misses the boss video.
     {
         std::string wsf = std::string(g_dataDir) + "NFSMostWanted.WidescreenFix.ini";
-        if (GetFileAttributesA(wsf.c_str()) != INVALID_FILE_ATTRIBUTES &&
-            GetPrivateProfileIntA("MISC", "SkipIntro", 0, wsf.c_str()) != 0) {
-            g_wsfSkipsMovies = true;
-            LOG("Story: the Widescreen Fix has SkipIntro = 1 - the game plays no movies, story movies included (set it to 0 in NFSMostWanted.WidescreenFix.ini to keep them; MW Together skips the intro itself)");
+        if (GetFileAttributesA(wsf.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            bool flagged = GetPrivateProfileIntA("MISC", "SkipIntro", 0, wsf.c_str()) != 0;
+            FILE* in = nullptr;
+            if (!fopen_s(&in, wsf.c_str(), "rb") && in) {
+                std::string all; char buf[4096]; size_t nread;
+                while ((nread = fread(buf, 1, sizeof(buf), in)) > 0) all.append(buf, nread);
+                fclose(in);
+                if (TogetherUtil::PatchWidescreenFixIniText(all)) {
+                    FILE* o = nullptr;
+                    if (!fopen_s(&o, wsf.c_str(), "wb") && o) { fwrite(all.data(), 1, all.size(), o); fclose(o); }
+                    LOG("Story: set the Widescreen Fix SkipIntro to 0 so story movies play (Together skips the intro itself)");
+                }
+            }
+            g_wsfSkipsMovies = flagged;
+            ClearSkipMoviesIfNeeded("startup");
         }
     }
     struct Slot { uintptr_t slot, expect; void* hook; };

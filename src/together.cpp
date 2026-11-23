@@ -323,6 +323,7 @@ void Together::Init(const char* iniPath) {
     if (g_cfg.testKeys) g_setupDone = true;     // scripted test runs never wait for the first-start setup
 #endif
     memset(g_prev, 0, sizeof(g_prev));
+    KeepWidescreenFixMovies();   // before / besides the game's Widescreen Fix: SkipIntro=1 would skip boss movies
     LOG("Together: settings page on %s%s%s", vk ? "the key / holding BACK on a pad" : "holding BACK on a pad (no key)",
         g_setupDone ? "" : " - first start", g_autoConnect ? "" : " - asks Host / Join at start");
 }
