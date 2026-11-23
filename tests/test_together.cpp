@@ -318,3 +318,15 @@ TEST(logo_dds_parse) {
     CHECK(!DdsUtil::Parse(d.data(), d.size(), i, err));
     CHECK(!DdsUtil::Parse(nullptr, 0, i, err));
 }
+
+TEST(native_profile_box_uses_together_nicknames) {
+    // connected: our Together nickname ([Player] Name), not the career profile name, & theirs
+    CHECK_STR(ProfileBoxText("CareerGuy", "StCost", "StGrikus", true).c_str(), "StCost & StGrikus");
+    // not connected / no partner name yet: the game's own profile name
+    CHECK_STR(ProfileBoxText("CareerGuy", "StCost", "StGrikus", false).c_str(), "CareerGuy");
+    CHECK_STR(ProfileBoxText("CareerGuy", "StCost", "", true).c_str(), "CareerGuy");
+    CHECK_STR(ProfileBoxText("CareerGuy", "StCost", "  ", true).c_str(), "CareerGuy");
+    // no nickname of our own: the profile name stands in
+    CHECK_STR(ProfileBoxText("CareerGuy", "", "StGrikus", true).c_str(), "CareerGuy & StGrikus");
+    CHECK_STR(ProfileBoxText("CareerGuy", " \xC3\xA9 ", "StGrikus", true).c_str(), "CareerGuy & StGrikus");
+}

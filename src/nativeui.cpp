@@ -942,7 +942,7 @@ namespace {
     }
 
     // ---- install ----
-    // ---- the main menu's profile box: "Me & Friend" while connected ----
+    // ---- the main menu's profile box: "<my Together nickname> & <theirs>" while connected ----
     constexpr uintptr_t kFEPrintf = 0x5252D0;
     typedef int(__cdecl* FEPrintf_t)(const char* pkg, uint32_t hash, const char* fmt, ...);
     std::string g_profileShown;           // what we last put there ("" = the game's own text)
@@ -961,7 +961,7 @@ namespace {
         bool connected = Together::Connected();
         std::string peer = connected ? Net::Stats().peerName : std::string();
         if (!g_fakePeer.empty()) { connected = true; peer = g_fakePeer; }
-        std::string label = NativeUtil::ProfileLabel(me, peer, connected);
+        std::string label = NativeUtil::ProfileBoxText(me, g_cfg.playerName, peer, connected);
         static DWORD written = 0;
         if (label == me && g_profileShown.empty()) return;            // the game's text is right
         if (label == g_profileShown && now - written < 2000) return;  // (now and then again: the menu may redo it)
