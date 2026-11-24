@@ -155,7 +155,11 @@ uint8_t Game::LocalFinishRank(void* localRi) {
 //  A win we only have because the other player won (shared wins: finished as the winner for them, or
 //  given place 1 by the race script, spectating, knocked out, the Restart / Quit screen) skips the photo:
 //  the results list instead - the win, cash and progress are counted as before (NotifyRaceFinished).
-namespace { uint32_t g_teamWinEvent = 0; }   // event whose win came from the other player
+namespace {
+    uint32_t g_teamWinEvent = 0;       // event whose win came from the other player
+    uint32_t g_teamOutroEvent = 0;     // ... whose results list stands in for the photo in the "postrace" state
+    bool     g_inPostRaceFlow = false; // ShowPostRaceCoop called by EnterPostRaceFlow (the "postrace" state)
+}
 static void MarkTeamWin() { g_teamWinEvent = Game::CurrentEventHash(); }
 static bool ShowTeamResultsImpl() {
     void* rs = nullptr; void* parms = nullptr; int mode = 0;
@@ -175,10 +179,69 @@ static void __cdecl ShowPostRaceCoop(bool won) {
         uint32_t ev = Game::CurrentEventHash();
         if (CoopRace::TeamWinResults(won, ev, g_teamWinEvent) && ShowTeamResultsImpl()) {
             done = true;
+            if (g_inPostRaceFlow) g_teamOutroEvent = ev;           // its Continue must end the race like the photo's
             LOG("Race: the other player won - the results list here, the winner's photo is theirs");
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) { done = false; }
     if (!done) ((void(__cdecl*)(bool))0x60AC20)(won);                  // ShowPostRace
+}
+// EnterPostRaceFlow 0x611F20 (only from stategraph_basicrace_postrace_handler_stateenter) -> ShowPostRace(true)
+static void __cdecl ShowPostRaceFromFlow(bool won) {
+    g_inPostRaceFlow = true;
+    ShowPostRaceCoop(won);
+    g_inPostRaceFlow = false;
+}
+
+// ---- leaving that results list ----
+//  The race script waits in different states for the two screens' Continue:
+//   - "postrace" (placing 1 -> EnterPostRaceFlow) handles only MEnterFreeRoam, MFlowReadyForOutro (-> outronis
+//     -> outro_message -> done) and RestartRace. The winner's photo (InGamePhotoMaster, PhotoFinish screen,
+//     vtable 0x8A0F30, NotificationMessage 0x5A7EA0) answers Continue (0x406415E3) by its mode (+0x34; 0 = a
+//     race): career race -> EUnPause + MFlowReadyForOutro; a Blacklist event -> by the bin's events left, the
+//     race sheet (ERaceSheetOn) / MFlowReadyForOutro / SafeHouseRivalChallenge.fng; quick race -> EQuitToFE.
+//   - "raceover" (lost, busted, knocked out) handles MNotifyRaceAbandoned (-> abandoned: AbandonRace -> done).
+//     PostRace_Results.fng (vtable 0x8A1708, NotificationMessage 0x5A7120) answers its exit (EXITCOMPLETE
+//     0xE1FDE1D1, after Continue's animation) with MNotifyRaceAbandoned (0x5107C0, channel 0x20D60DBF) +
+//     EUnPause. Its Continue (0x406415E3) first asks InGameDialog.fng in a Blacklist event if our racer is not
+//     1st (0x5A727F) - we can be 2nd here with the win counted.
+//  So the list shown instead of the photo in "postrace" closed and the script waited for ever: the car stayed
+//  with the AI (NotifyRaceFinished), no control, no pause menu. There its exit now does what the photo's
+//  Continue does - the photo's own handler with mode 0 (it reads only +0x10, the package, null = no button
+//  check, and +0x34 of its screen) - and Continue skips the dialog (as the dialog's OK, 0x30ED2368). The
+//  list shown in "raceover" (knocked out, Restart / Quit screen, spectating) is left as the game does it.
+namespace {
+    using FeNotifyFn = void(__thiscall*)(void*, uint32_t, void*, uint32_t, uint32_t);
+    constexpr uintptr_t kResultsNotifySlot = 0x8A170C, kResultsNotifyFn = 0x5A7120, kPhotoNotifyFn = 0x5A7EA0;
+    FeNotifyFn g_origResultsNotify = nullptr;
+    void PhotoContinue() {
+        alignas(4) static uint8_t photo[0x174];                     // PhotoFinish: +0x10 package, +0x34 mode
+        memset(photo, 0, sizeof(photo));
+        ((FeNotifyFn)kPhotoNotifyFn)(photo, CoopRace::kFeAccept, nullptr, 0, 0);
+    }
+    int TeamResultsStepFor(uint32_t msg) {
+        return CoopRace::TeamResultsAction(msg, Game::CurrentEventHash(), g_teamOutroEvent,
+                                           FEScreens::IsPushed("PostRace_Results.fng"), FEScreens::IsPushed("InGamePhotoMaster.fng"));
+    }
+    void __fastcall hk_ResultsNotify(void* scr, void*, uint32_t msg, void* obj, uint32_t a, uint32_t b) {
+        int step = CoopRace::kResultsAsIs;
+        if (msg == CoopRace::kFeAccept || msg == CoopRace::kFeExitComplete) {
+            __try { step = TeamResultsStepFor(msg); } __except (EXCEPTION_EXECUTE_HANDLER) { step = CoopRace::kResultsAsIs; }
+        }
+        if (step == CoopRace::kResultsOutro) {
+            bool ok = false;
+            __try { PhotoContinue(); ok = true; } __except (EXCEPTION_EXECUTE_HANDLER) {}
+            if (ok) { g_teamOutroEvent = 0; LOG("Race: results list closed - the race ends as after the winner's photo"); return; }
+            LOG("Race: exception ending the race after the results list - the game's own exit");
+        } else if (step == CoopRace::kResultsNoDialog) {
+            void* pkg = nullptr; bool busy = true;
+            __try {
+                Mem::Read((uintptr_t)scr + 0x10, pkg);
+                busy = ((bool(__cdecl*)(void*, uint32_t, uint32_t))0x524A10)(pkg, 0x57EFB2FB, 0x7DE71E0F);   // as 0x5A7213
+            } __except (EXCEPTION_EXECUTE_HANDLER) { busy = true; }
+            if (!busy) msg = 0x30ED2368;                            // the dialog's OK: the list animates out
+        }
+        g_origResultsNotify(scr, msg, obj, a, b);
+    }
 }
 
 // Forget the other player's win when the event changes, the race is restarted (here or there: their
@@ -190,7 +253,7 @@ static void CoopWinLatchTick(bool connected, const Net::Snapshot& peer) {
     bool sameEvent = peer.valid && peer.s.eventHash && peer.s.eventHash == ev;
     uint8_t pfin = sameEvent ? peer.s.finished : 0;
     if (ev != lastEvent || (restart && !lastRestart) || (lastPeerFin && !pfin && sameEvent && peer.s.inRace)) {
-        g_coopWinLogged = false; g_peerWonEvent = 0; g_peerRacedHere = false; g_teamWinEvent = 0;
+        g_coopWinLogged = false; g_peerWonEvent = 0; g_peerRacedHere = false; g_teamWinEvent = 0; g_teamOutroEvent = 0;
         g_bustedEvent = 0;   // a new run: not busted in it (yet)
     }
     lastEvent = ev; lastRestart = restart; lastPeerFin = pfin;
@@ -494,8 +557,12 @@ bool Game::InstallCoopWin() {
     const uint8_t koStart[7] = { 0x8B, 0x44, 0x24, 0x04, 0x83, 0xEC, 0x14 };   // mov eax, [esp+4]; sub esp, 0x14
     bool e2 = PatchJmp(0x611440, koStart, 7, (void*)&hk_KnockoutRacer);
     bool e = e1 && e2;
-    bool f = PatchCallChecked(0x611F9C, 0x60AC20, (void*)&ShowPostRaceCoop) &&     // EnterPostRaceFlow
-             PatchCallChecked(0x60E242, 0x60AC20, (void*)&ShowPostRaceCoop);      // ShowWinningPostRaceScreen
+    // the list's way out of "postrace" first: without it the photo stays as the game shows it
+    uintptr_t cur = 0;
+    bool g = Mem::Read(kResultsNotifySlot, cur) && cur == kResultsNotifyFn &&
+             (g_origResultsNotify = (FeNotifyFn)Mem::PatchPointer((void*)kResultsNotifySlot, (void*)&hk_ResultsNotify)) != nullptr;
+    bool f = g && PatchCallChecked(0x611F9C, 0x60AC20, (void*)&ShowPostRaceFromFlow) &&  // EnterPostRaceFlow
+                  PatchCallChecked(0x60E242, 0x60AC20, (void*)&ShowPostRaceCoop);       // ShowWinningPostRaceScreen
     LOG("Career: the winner's photo only for whoever really won %s", f ? "ok" : "FAIL (code differs)");
     LOG("Career: shared wins %s/%s/%s, winner's place for the race script %s, knockout waits for the other player %s", a ? "ok" : "FAIL", b ? "ok" : "FAIL", c ? "ok" : "FAIL", d ? "ok" : "FAIL (code differs)", e ? "ok" : "FAIL (code differs)");
     return a && b && c;

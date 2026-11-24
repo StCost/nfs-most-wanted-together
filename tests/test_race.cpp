@@ -394,3 +394,13 @@ TEST(race_team_win_shows_the_results_list) {
     CHECK(!TeamWinResults(false, 0x1234, 0x1234));    // lost: the game's losing screen as always
     CHECK(!TeamWinResults(true, 0, 0));
 }
+TEST(race_team_results_leave_like_the_photo) {
+    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x1234, true, false) == kResultsOutro);
+    CHECK(TeamResultsAction(kFeAccept, 0x1234, 0x1234, true, false) == kResultsNoDialog);
+    CHECK(TeamResultsAction(0xE1A57D51u, 0x1234, 0x1234, true, false) == kResultsAsIs);   // Restart: as the game does
+    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0, true, false) == kResultsAsIs);    // a lost race / "raceover"
+    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x999, true, false) == kResultsAsIs);
+    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x1234, false, false) == kResultsAsIs);
+    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x1234, true, true) == kResultsAsIs);  // opened from the photo
+    CHECK(TeamResultsAction(kFeExitComplete, 0, 0, true, false) == kResultsAsIs);
+}

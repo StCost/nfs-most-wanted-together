@@ -230,4 +230,17 @@ namespace CoopRace {
     inline bool TeamWinResults(bool won, uint32_t event, uint32_t teamWinEvent) {
         return won && event && event == teamWinEvent;
     }
+
+    // What the results list does with a message while it stands in for the winner's photo in the race
+    // script's "postrace" state (outroEvent: the event it was shown for there; coopwin.inl hk_ResultsNotify).
+    // That state only moves on with the photo's Continue (MFlowReadyForOutro); the list's own Continue posts
+    // MNotifyRaceAbandoned, which only "raceover" answers - the race never ended and nothing responded.
+    enum TeamResultsStep { kResultsAsIs = 0, kResultsNoDialog = 1, kResultsOutro = 2 };
+    constexpr uint32_t kFeAccept = 0x406415E3u, kFeExitComplete = 0xE1FDE1D1u;
+    inline int TeamResultsAction(uint32_t msg, uint32_t event, uint32_t outroEvent, bool resultsUp, bool photoUp) {
+        if (!event || event != outroEvent || !resultsUp || photoUp) return kResultsAsIs;
+        if (msg == kFeExitComplete) return kResultsOutro;     // the list has gone after Continue: the photo's Continue
+        if (msg == kFeAccept) return kResultsNoDialog;        // Continue: no "you did not win" dialog for a counted win
+        return kResultsAsIs;
+    }
 }
