@@ -15,10 +15,7 @@ TEST(together_defaults_are_valid) {
 
 TEST(together_validate) {
     Settings s;
-    s.name = "  "; CHECK(!Validate(s).empty());
-    s.name = "1234567890123456"; CHECK(!Validate(s).empty());     // 16: too long
-    s.name = "123456789012345"; CHECK_STR(Validate(s).c_str(), "");
-    s.name = "Bob"; s.port = "0"; CHECK(!Validate(s).empty());
+    s.port = "0"; CHECK(!Validate(s).empty());
     s.port = "65536"; CHECK(!Validate(s).empty());
     s.port = "47a"; CHECK(!Validate(s).empty());
     s.port = " 47555 "; CHECK_STR(Validate(s).c_str(), "");
@@ -35,10 +32,10 @@ TEST(together_validate) {
 }
 
 TEST(together_ini_lines) {
-    Settings s; s.name = " Kostya "; s.host = false; s.hostIp = "10.0.0.2"; s.port = "47556";
+    Settings s; s.host = false; s.hostIp = "10.0.0.2"; s.port = "47556";
     s.overlay = true;
     auto v = ToIni(s);
-    CHECK_STR(IniValue(v, "Player", "Name").c_str(), "Kostya");
+    CHECK_STR(IniValue(v, "Player", "Name").c_str(), "<missing>");   // 1.7.6: the profile alias is the name
     CHECK_STR(IniValue(v, "Player", "Color").c_str(), "<missing>");
     CHECK_STR(IniValue(v, "Start", "SkipIntro").c_str(), "<missing>");
     CHECK_STR(IniValue(v, "Start", "DirectFreeRoam").c_str(), "<missing>");
@@ -63,7 +60,6 @@ TEST(together_network_changed) {
     Settings a, b;
     CHECK(!NetworkChanged(a, b));
     b.overlay = true; CHECK(!NetworkChanged(a, b));
-    b = a; b.name = "X"; CHECK(NetworkChanged(a, b));
     b = a; b.host = false; CHECK(NetworkChanged(a, b));
     b = a; b.hostIp = "1.2.3.4"; CHECK(!NetworkChanged(a, b));            // host: the address isn't used
     a.host = b.host = false; b.hostIp = "1.2.3.4"; CHECK(NetworkChanged(a, b));
@@ -79,7 +75,6 @@ TEST(together_keys) {
     CHECK_EQ(DikToChar(0x1C, false), 0);                               // Enter isn't a character
     CHECK(Accepts(Field::Port, '5')); CHECK(!Accepts(Field::Port, '.'));
     CHECK(Accepts(Field::Host, '.')); CHECK(!Accepts(Field::Host, ' '));
-    CHECK(Accepts(Field::Name, ' '));
     CHECK_EQ(StepChar(Field::Port, '9', 1), '0');
     CHECK_EQ(StepChar(Field::Port, '0', -1), '9');
     CHECK_EQ(StepChar(Field::Host, 0, 1), '0');
@@ -113,8 +108,7 @@ TEST(native_merge_strings) {
 TEST(native_clean_text) {
     CHECK_STR(CleanText(Field::Host, "192.168.0.10 ").c_str(), "192.168.0.10");
     CHECK_STR(CleanText(Field::Port, "47a555").c_str(), "47555");
-    CHECK_STR(CleanText(Field::Name, "  Kostya\xC3\xA9  ").c_str(), "Kostya");
-    CHECK_STR(CleanText(Field::Name, "1234567890123456789").c_str(), "123456789012345");
+    CHECK_STR(CleanText(Field::Host, std::string(80, '1')).c_str(), std::string(63, '1').c_str());
 }
 
 TEST(native_profile_label) {
@@ -152,10 +146,10 @@ TEST(native_together_rows) {
     CHECK(std::find(joinCon.begin(), joinCon.end(), W_HOSTIP) != joinCon.end());
     CHECK(std::find(hostCon.begin(), hostCon.end(), W_START) != hostCon.end());
     CHECK(std::find(joinCon.begin(), joinCon.end(), W_START) != joinCon.end());
-    CHECK(std::find(hostCon.begin(), hostCon.end(), W_NAME) != hostCon.end());
+    CHECK(std::find(hostCon.begin(), hostCon.end(), W_MODE) != hostCon.end());
     CHECK(std::find(hostCon.begin(), hostCon.end(), W_AUTO) != hostCon.end());
-    CHECK_EQ((int)hostCon.size(), 4);     // no gamepad row: hot-plug is always on (ini only)
-    CHECK_EQ((int)joinCon.size(), 5);
+    CHECK_EQ((int)hostCon.size(), 3);     // no nickname row (1.7.6: the profile alias), no gamepad row (ini only)
+    CHECK_EQ((int)joinCon.size(), 4);
     CHECK((int)hostCon.size() <= 9);
     CHECK((int)joinCon.size() <= 9);
     // Options > Together is the same list
@@ -190,7 +184,7 @@ TEST(native_scroll_window) {
     CHECK_EQ(NativeUtil::ClampScroll(15, 10, 9), 5);
     CHECK_EQ(NativeUtil::ClampScroll(4, 10, 2), 0);
     auto set = TogetherRows(Screen::Settings, false);
-    CHECK_EQ((int)set.size(), 5);
+    CHECK_EQ((int)set.size(), 4);        // Connection, Connect to IP, Reconnect on launch, Connect
     CHECK(NativeUtil::VisibleIndex((int)set.size(), 9, 0, 0) == 0);
     CHECK(NativeUtil::VisibleIndex((int)set.size(), 9, 0, (int)set.size() - 1) >= 0);   // the last row fits
 }
@@ -319,14 +313,23 @@ TEST(logo_dds_parse) {
     CHECK(!DdsUtil::Parse(nullptr, 0, i, err));
 }
 
-TEST(native_profile_box_uses_together_nicknames) {
-    // connected: our Together nickname ([Player] Name), not the career profile name, & theirs
-    CHECK_STR(ProfileBoxText("CareerGuy", "StCost", "StGrikus", true).c_str(), "StCost & StGrikus");
+TEST(native_profile_box_uses_the_profile_names) {
+    // connected: our career profile & theirs (each player goes by their profile's alias)
+    CHECK_STR(ProfileBoxText("StCost", "StGrikus", true).c_str(), "StCost & StGrikus");
     // not connected / no partner name yet: the game's own profile name
-    CHECK_STR(ProfileBoxText("CareerGuy", "StCost", "StGrikus", false).c_str(), "CareerGuy");
-    CHECK_STR(ProfileBoxText("CareerGuy", "StCost", "", true).c_str(), "CareerGuy");
-    CHECK_STR(ProfileBoxText("CareerGuy", "StCost", "  ", true).c_str(), "CareerGuy");
-    // no nickname of our own: the profile name stands in
-    CHECK_STR(ProfileBoxText("CareerGuy", "", "StGrikus", true).c_str(), "CareerGuy & StGrikus");
-    CHECK_STR(ProfileBoxText("CareerGuy", " \xC3\xA9 ", "StGrikus", true).c_str(), "CareerGuy & StGrikus");
+    CHECK_STR(ProfileBoxText("StCost", "StGrikus", false).c_str(), "StCost");
+    CHECK_STR(ProfileBoxText("StCost", "", true).c_str(), "StCost");
+    CHECK_STR(ProfileBoxText("StCost", "  ", true).c_str(), "StCost");
+}
+
+// ---- the name we go by (1.7.6): our career profile's alias ----
+TEST(together_player_name_is_the_profile_alias) {
+    CHECK_STR(PlayerName("StCost", "MWT", "OldNick").c_str(), "StCost");      // the loaded profile
+    CHECK_STR(PlayerName("", "MWT", "OldNick").c_str(), "MWT");               // before it loads: the one loaded last
+    CHECK_STR(PlayerName("", "", "OldNick").c_str(), "OldNick");              // an old ini's [Player] Name
+    CHECK_STR(PlayerName("", "", "").c_str(), "Player");
+    CHECK_STR(PlayerName("  ", " \xC3\xA9 ", "").c_str(), "Player");          // nothing usable
+    CHECK_STR(PlayerName(" Kostya\xC3\xA9 ", "", "").c_str(), "Kostya");
+    CHECK_STR(PlayerName("1234567890123456789", "", "").c_str(), "123456789012345");   // the hello's 15
+    CHECK_STR(CleanPlayerName("12345678901234 6").c_str(), "12345678901234");           // no space left at the cut
 }

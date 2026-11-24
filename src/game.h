@@ -111,6 +111,7 @@ namespace Game {
     void InstallSaveSync();             // career save kept by the host
     void SaveTick(bool connected);
     const char* SaveStatus();
+    void PlayerNameTick();              // our name = our career profile's alias (see save.inl)
     void SetDataDir(const char* dir);   // scripts\ folder
     const char* NisStatus();
     std::string DebugStartEvent(const char* eventId);   // F7 test

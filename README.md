@@ -11,6 +11,7 @@ Play the Most Wanted career with a friend. 2 players, LAN or VPN.
 A **co-op mod for Need for Speed: Most Wanted 2005** (PC, v1.3). Two players go through the
 **career together**: free roam with traffic, races against the AI, the Blacklist, police chases,
 each in their own car. Works over LAN or a VPN (Hamachi, Radmin VPN, ZeroTier).
+The mod aims for the best vanilla experience in co-op: the game's own menus, screens and career, played together.
 
 **Get it:** [GitHub releases](https://github.com/StCost/nfs-most-wanted-together/releases/latest) · [Nexus Mods](https://www.nexusmods.com/needforspeedmostwanted2005/mods/366) · [NFSMods](https://nfsmods.xyz/mod/8207)
 
@@ -29,13 +30,15 @@ Wanted online free roam with a friend, Need for Speed Most Wanted two player mod
 
 1. Download [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases) — the x86/Win32 `dinput8.dll` build (e.g. [v10.0.4](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/tag/v10.0.4), which we tested) — and put `dinput8.dll` next to `speed.exe`. Skip this if you are updating from 1.7.2 or earlier: you already have it.
 2. Download **[MWTogether.zip](https://github.com/StCost/nfs-most-wanted-together/releases/latest/download/MWTogether.zip)** (the latest release) and unpack it into your game folder, next to `speed.exe`.
-3. Run `speed.exe` as usual. The game stops at the main menu: pick the **Together** icon there, type a
-   nickname, set **Connection** to **Host** or **Join**, and (if joining) enter the host's IP under
+3. Run `speed.exe` as usual. The game stops at the main menu: pick the **Together** icon there,
+   set **Connection** to **Host** or **Join**, and (if joining) enter the host's IP under
    **Connect to IP**. Press **Start Host** or **Connect**. **Stop Host** / **Disconnect** end the session.
    With **Reconnect on launch** on, the next start hosts or joins by itself. Main menu Together, pause Together, and **Options > Together** all open the same screen. Remaining options are also on the overlay page (**F2** or hold **BACK** on a
    pad).
 4. Do the same on the other PC. The game loads your career into free roam and connects you on its own.
-5. To update, unpack the new zip over the old one. Your nickname and settings (`scripts\MWTogether.ini`) stay. Leave the existing `dinput8.dll` as is.
+5. To update, unpack the new zip over the old one. Your settings (`scripts\MWTogether.ini`) stay. Leave the existing `dinput8.dll` as is.
+
+Your name in co-op is the name of the career profile you play (shown to your partner in the standings, the menus and the notices); there is no separate nickname.
 
 You can play the prologue (the opening BMW races) together too: start a new career on both PCs. Whoever is ahead waits on the next race's grid (`[Coop] Prologue`). After the car lot you both drive to Mia, and co-op picks up again once you've both met her. You both need to be in the same part of the career: both in the prologue, or both past it.
 
@@ -75,9 +78,9 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Quitting (Alt+F4 too) tells the other side right away; a game that just disappears times out
 - [x] Stays connected while paused, minimized or alt-tabbed, and the game keeps running in the background
 - [x] Status overlay on F8 (remembers if you hid it)
-- [x] **Together** in the game's own menus: one screen from Main menu > Together, the pause menu, and Options > Together (nickname, Connection, Connect to IP when joining, Reconnect on launch, Start Host / Connect); the main menu's profile box shows both Together nicknames (yours and your partner's) while connected. If this `speed.exe` differs, the menus stay as they are and the page below is used
+- [x] **Together** in the game's own menus: one screen from Main menu > Together, the pause menu, and Options > Together (Connection, Connect to IP when joining, Reconnect on launch, Start Host / Connect); the main menu's profile box shows both profile names (yours and your partner's) while connected. If this `speed.exe` differs, the menus stay as they are and the page below is used
 - [x] Main menu logo from `scripts\MWTogether-logo.dds` if it is there (no game files changed); the logo object is made taller so the original lettering stays the same size
-- [x] In-game **Together** overlay page (F2, or hold BACK on a pad): name, host or join, host IP, remaining menu options, your IP address and the connection state. Saving reconnects right away when needed (`[UI] TogetherKey`)
+- [x] In-game **Together** overlay page (F2, or hold BACK on a pad): host or join, host IP, remaining menu options, your IP address and the connection state. Saving reconnects right away when needed (`[UI] TogetherKey`)
 - [x] Join / leave notices, even with the overlay hidden
 - [x] Notices use the game's own message line in the middle of the screen: joins and leaves in green, problems (connection, firewall, prologue) in orange. Long ones come in parts. In cutscenes and menus the EA Trax song banner shows them
 - [x] Notices stay up for 10 seconds (`[UI] NoticeSeconds`)
@@ -148,7 +151,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 <details><summary><b>Career</b></summary>
 
 - [x] Each of you keeps your own career; wins are shared, so both move forward together
-- [x] The host keeps a copy of the partner's save, updated on every autosave, and restores it if theirs is missing. It never replaces a save that exists (`[Career] RestoreOnlyMissing`)
+- [x] The host keeps a copy of the partner's save, updated on every autosave, and restores it if theirs is missing. It never replaces a save that exists (`[Career] RestoreOnlyMissing`). The host keeps it in a folder named after the partner's profile; a folder from 1.7.5 or older (named after the old nickname) that keeps that profile's save is still used
 - [x] A cutscene you both watch is skipped only when both of you press skip
 - [x] Story movies and cutscenes outside events: the other player gets a notice and waits in free roam until it's done (`SyncStoryScenes`). The next Blacklist rival's intro and the marker picks after beating a rival are each player's own: nobody waits for them. With `SyncStoryScenes=2` the movie plays on their PC too if their career is that far
 - [x] Shared pursuits (`[Coop] SharedPursuits`): you get the same heat, the higher one counts
@@ -194,7 +197,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 <details><summary><h2>Configuration</h2></summary>
 
 All options are in `scripts\MWTogether.ini`, with a comment on each. Sections:
-`[Network]`, `[Player]`, `[Ghost]`, `[Traffic]`, `[Coop]`, `[Start]`, `[UI]`, `[Window]`, `[Debug]`.
+`[Network]`, `[Ghost]`, `[Traffic]`, `[Coop]`, `[Start]`, `[UI]`, `[Window]`, `[Debug]`.
 
 
 </details>

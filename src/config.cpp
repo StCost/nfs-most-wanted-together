@@ -1,4 +1,5 @@
 #include "config.h"
+#include "togetherutil.h"
 #include <windows.h>
 #include <cstdlib>
 
@@ -23,7 +24,7 @@ void Config::Load(const char* ini) {
     clientIp     = ReadStr(ini, "Network", "ClientIP", "");
     port         = ReadInt(ini, "Network", "Port", 47555);
     sendRateHz   = ReadInt(ini, "Network", "SendRate", 60);
-    playerName   = ReadStr(ini, "Player", "Name", "Player");
+    legacyName   = ReadStr(ini, "Player", "Name", "");      // (no longer written: the profile alias is the name)
     autoStartDelayMs    = ReadInt(ini, "AutoStart", "DelayMs", 2500);
     autoStartIntervalMs = ReadInt(ini, "AutoStart", "IntervalMs", 1500);
     autoStartSequence   = ReadStr(ini, "AutoStart", "Sequence", "@WS_MW_LS_Splash.fng,ENTER,@MC_Main.fng,ENTER,@MainMenu.fng,ENTER,@MainMenu_Sub.fng,ENTER,WAIT,WAIT,WAIT,WAIT,ENTER,@Dialog.fng,LEFT,ENTER");
@@ -92,6 +93,7 @@ void Config::Load(const char* ini) {
     gamepadHotplug = ReadInt(ini, "Input", "GamepadHotplug", 1) != 0;
     keepPadBindings = ReadInt(ini, "Input", "KeepPadBindings", 1) != 0;
     lastProfile = ReadStr(ini, "Start", "LastProfile", "");
+    playerName = TogetherUtil::PlayerName("", lastProfile, legacyName);
     iniFile = ini ? ini : "";
 #ifdef MWT_DEVTOOLS
     skipLoadComplete = ReadInt(ini, "Start", "SkipLoadComplete", 0) != 0;

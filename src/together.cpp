@@ -22,7 +22,7 @@
 using namespace TogetherUtil;
 
 namespace {
-    enum Row { R_NAME, R_MODE, R_HOSTIP, R_AUTOCONNECT, R_OVERLAY, R_SAVE, R_CANCEL, R_COUNT };
+    enum Row { R_MODE, R_HOSTIP, R_AUTOCONNECT, R_OVERLAY, R_SAVE, R_CANCEL, R_COUNT };
 
     std::string g_ini;
     bool     g_open = false;
@@ -37,7 +37,7 @@ namespace {
     bool     g_netChange = false;
     bool     g_netStop = false;
     bool     g_dirty = true;
-    int      g_sel = R_NAME;
+    int      g_sel = R_MODE;
     bool     g_padEdit = false;        // pad: up / down change the last character of the selected field
     Settings g_ed, g_cur;              // being edited / as saved
     Settings g_saved; bool g_haveSaved = false;   // last save (start-only options differ from g_cfg until a restart)
@@ -51,9 +51,9 @@ namespace {
     // must not see it (Esc would open the pause menu), so input stays blocked until it is released.
     bool     g_swallowKb = false, g_swallowPad = false;
 
-    bool IsText(int r) { return r == R_NAME || r == R_HOSTIP; }
-    Field FieldOf(int r) { return r == R_NAME ? Field::Name : Field::Host; }
-    std::string& TextOf(int r) { return r == R_NAME ? g_ed.name : g_ed.hostIp; }
+    bool IsText(int r) { return r == R_HOSTIP; }
+    Field FieldOf(int) { return Field::Host; }
+    std::string& TextOf(int) { return g_ed.hostIp; }
     bool Hidden(int r) { return r == R_HOSTIP && g_ed.host; }
 
     std::string ReadIni(const char* sec, const char* key, const char* def) {
@@ -62,7 +62,6 @@ namespace {
 
     Settings FromConfig() {
         Settings s;
-        s.name = g_cfg.playerName;
         s.host = g_cfg.isHost;
         s.hostIp = ReadIni("Network", "HostIP", "");         // as typed (g_cfg has 127.0.0.1 when it's empty)
         s.port = std::to_string(g_cfg.port);
@@ -101,7 +100,6 @@ namespace {
 
     Settings g_pendingNet;
     void ApplyNetwork(const Settings& s) {
-        g_cfg.playerName = Trim(s.name);
         g_cfg.isHost = s.host;
         if (!s.host) g_cfg.peerIp = Trim(s.hostIp);
         g_cfg.port = (int)strtol(Trim(s.port).c_str(), nullptr, 10);
@@ -112,8 +110,8 @@ namespace {
         g_cur = Together::Current();
         g_ed = g_cur;
         g_ips = LocalIps();
-        g_sel = R_NAME; g_padEdit = false;
-        g_msg = g_setupDone ? "" : "Welcome! Pick a nickname, then Host or Join and Save & Play.";
+        g_sel = R_MODE; g_padEdit = false;
+        g_msg = g_setupDone ? "" : "Welcome! Pick Host or Join, then Save & Play.";
         g_msgWarn = false;
         g_open = true; g_dirty = true;
         LOG("Together: settings page opened%s", g_setupDone ? "" : " (first start)");
@@ -160,13 +158,13 @@ namespace {
         KeepWidescreenFixMovies();
         bool net = NetworkChanged(cur, ed) || (connect && !g_netRunning);
         if (!g_netRunning && !connect) net = false;     // not connected yet (waiting for Host / Join): just remember
-        g_pendingNet = ed;    // name / mode / address / port: applied with the reconnect (TakeNetworkChange)
+        g_pendingNet = ed;    // mode / address / port: applied with the reconnect (TakeNetworkChange)
         g_cfg.showOverlay = ed.overlay; Overlay::SetVisible(ed.overlay);
         if (net) g_netChange = true;
         else ApplyNetwork(ed);
         if (connect) g_chosen = true;
         g_setupDone = true;
-        LOG("Together: saved - name %s, %s%s, port %s%s%s", Trim(ed.name).c_str(), ed.host ? "host" : "join ",
+        LOG("Together: saved - %s%s, port %s%s%s", ed.host ? "host" : "join ",
             ed.host ? "" : Trim(ed.hostIp).c_str(), Trim(ed.port).c_str(), ed.autoConnect ? ", reconnect on launch" : "",
             net ? ", connecting" : "");
         g_saved = ed; g_haveSaved = true;
@@ -456,7 +454,7 @@ namespace {
 
     const char* RowLabel(int r) {
         switch (r) {
-        case R_NAME: return "Nickname"; case R_MODE: return "Connection"; case R_HOSTIP: return "Connect to IP";
+        case R_MODE: return "Connection"; case R_HOSTIP: return "Connect to IP";
         case R_AUTOCONNECT: return "Reconnect on launch";
         case R_OVERLAY: return "Show status overlay (F8)";
         }
@@ -501,7 +499,7 @@ bool Together::Paint(uint32_t* pixels, int pitch, int maxW, int maxH, int* outW,
 
         int y = 74;
         const int rowH = 30, lx = 20, vx = 360, vw = W - vx - 20;
-        for (int r = R_NAME; r < R_SAVE; ++r) {
+        for (int r = R_MODE; r < R_SAVE; ++r) {
             bool sel = g_sel == r, hid = Hidden(r);
             Fill(dc, 12, y, W - 24, rowH - 3, sel ? kSel : kRow);
             if (sel) Brackets(dc, 12, y, W - 24, rowH - 3);
@@ -536,6 +534,7 @@ bool Together::Paint(uint32_t* pixels, int pitch, int maxW, int maxH, int* outW,
         }
         y += 44;
         Text(dc, fSmall, 20, y, W - 40, 18, "Your IP address: " + g_ips + "   (the other player types this to join you)", kText, DT_LEFT); y += 19;
+        Text(dc, fSmall, 20, y, W - 40, 18, "Your name: " + g_cfg.playerName + "   (the name of the career profile you play)", kText, DT_LEFT); y += 19;
         Text(dc, fSmall, 20, y, W - 40, 18, ConnText(), kDim, DT_LEFT); y += 19;
         Text(dc, fSmall, 20, y, W - 40, 18, g_msg, g_msgWarn ? kWarn : kAccent, DT_LEFT); y += 22;
         Fill(dc, 12, y, W - 24, 1, RGB(60, 60, 60)); y += 4;

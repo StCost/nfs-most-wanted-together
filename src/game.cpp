@@ -1207,7 +1207,7 @@ void Game::ReleaseGhost() {
     g_separated = false;
 }
 
-// Race standings: the other player's nickname (GRacerInfo::mName, +0x08) and progress on their racer.
+// Race standings: the other player's name (GRacerInfo::mName, +0x08) and progress on their racer.
 // Every frame from the moment their racer is ours - also during the intro cutscene and while spawn
 // protection holds their car - so the standings show them right from the countdown (the progress that
 // decides the order is put in before the game sorts, see hk_RacerUpdate in coopwin.inl).

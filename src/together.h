@@ -3,7 +3,7 @@
 #include <string>
 #include "togetherutil.h"
 
-// The "Together" settings: nickname, host / join, host address, start and menu options.
+// The "Together" settings: host / join, host address, start and menu options.
 //   - normally in the game's own menus (nativeui.cpp): Options > Together, and Main menu > Together to
 //     host or join. Until Host / Join is picked ([UI] TogetherSetupDone=0, or [Network] AutoConnect=0)
 //     AutoStart stops at the main menu; with AutoConnect=1 it connects as last time.

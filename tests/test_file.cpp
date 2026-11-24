@@ -729,3 +729,19 @@ TEST(save_failed_write_keeps_the_old_file) {
     CHECK_EQ(GetFileAttributesA((sub + ".mwt-tmp").c_str()), INVALID_FILE_ATTRIBUTES);
     RemoveDirectoryA(sub.c_str());
 }
+
+// ---- the host's folders named after a pre-1.7.6 nickname (SaveUtil::LegacyFolderFor) ----
+TEST(save_legacy_folder_found_by_its_profile) {
+    using SaveUtil::HostFolder;
+    std::vector<HostFolder> f = { { "Kostya", "StCost" }, { "Friend", "Grikus" } };
+    CHECK_EQ(SaveUtil::LegacyFolderFor(f, "StCost"), 0);        // the old nickname folder keeps that profile
+    CHECK_EQ(SaveUtil::LegacyFolderFor(f, "stcost"), 0);        // names are case-blind on Windows
+    CHECK_EQ(SaveUtil::LegacyFolderFor(f, "Nobody"), -1);
+    f.push_back({ "StCost", "StCost" });
+    CHECK_EQ(SaveUtil::LegacyFolderFor(f, "StCost"), 0);        // (the caller uses a folder of the new name first)
+    std::vector<HostFolder> two = { { "A", "MWT" }, { "B", "MWT" } };
+    CHECK_EQ(SaveUtil::LegacyFolderFor(two, "MWT"), -1);        // two old folders with that profile: don't guess
+    std::vector<HostFolder> odd = { { "A", "" }, { "B", "../x" } };
+    CHECK_EQ(SaveUtil::LegacyFolderFor(odd, "x"), -1);          // no profile / not a plain one
+    CHECK_EQ(SaveUtil::LegacyFolderFor(f, ""), -1);
+}

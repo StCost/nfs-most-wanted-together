@@ -3,7 +3,8 @@
 // Career save kept by the host
 //  Every player plays their own career profile. The client's save file (Documents\NFS Most Wanted\
 //  <profile>\<profile>, ~64 KB, written by the game's autosave) is uploaded to the host whenever it
-//  changes; the host keeps it in scripts\MWTogether-saves\<player>\<profile>.
+//  changes; the host keeps it in scripts\MWTogether-saves\<player>\<profile> (<player>: the name the
+//  player goes by, their career profile; up to 1.7.5 their Together nickname, whose folder is still used - see OwnerDir).
 //  When the client starts the game and connects before its profile is loaded, it asks the host for
 //  that copy. If the client's own file is missing or older, the host's copy is written in its place
 //  (the old file is kept as <profile>.mwt-backup) and the game then loads it as usual. The file is
@@ -27,6 +28,30 @@ namespace {
         return std::string(docs) + "\\NFS Most Wanted\\" + profile + "\\" + profile;
     }
     std::string HostDir(const char* owner) { return std::string(g_dataDir) + "MWTogether-saves\\" + owner; }
+    // the player's folder on the host: the one of their name, or, while there is none, the one old folder
+    // (named after a pre-1.7.6 Together nickname) that keeps a save of their profile - used as it is,
+    // nothing is moved or renamed (SaveUtil::LegacyFolderFor)
+    std::string OwnerDir(const char* owner) {
+        std::string dir = HostDir(owner);
+        if (GetFileAttributesA(dir.c_str()) != INVALID_FILE_ATTRIBUTES) return dir;
+        std::string root = std::string(g_dataDir) + "MWTogether-saves\\";
+        std::vector<SaveUtil::HostFolder> folders;
+        WIN32_FIND_DATAA fd;
+        HANDLE h = FindFirstFileA((root + "*").c_str(), &fd);
+        if (h == INVALID_HANDLE_VALUE) return dir;
+        do {
+            if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || fd.cFileName[0] == '.') continue;
+            char prof[40] = "";
+            GetPrivateProfileStringA("Save", "Profile", "", prof, sizeof(prof), (root + fd.cFileName + "\\save.ini").c_str());
+            folders.push_back({ fd.cFileName, prof });
+        } while (FindNextFileA(h, &fd) && folders.size() < 64);
+        FindClose(h);
+        int i = SaveUtil::LegacyFolderFor(folders, owner);
+        if (i < 0) return dir;
+        static std::string told;
+        if (told != owner) { told = owner; LOG("Career: %s's saves are kept in the folder '%s' (named after their old nickname)", owner, folders[i].folder.c_str()); }
+        return root + folders[i].folder;
+    }
 
     bool ProfileLoaded() { uint8_t* fedb = nullptr; return Mem::Read(0x91CF90, fedb) && fedb && fedb[3]; }
     bool CurrentProfile(char* out, size_t n) {
@@ -34,6 +59,15 @@ namespace {
         if (!Mem::Read(0x91CF90, fedb) || !fedb || !fedb[3] || !Mem::Read((uintptr_t)fedb + 0x10, up) || !up) return false;
         if (!Mem::SafeRead(up, raw, 32)) return false;
         return SafeName(raw, out, n) && !strcmp(raw, out);    // only plain names (no path tricks)
+    }
+
+    // the loaded career profile's alias as the game has it (the name comes first in the UserProfile)
+    std::string LoadedProfileAlias() {
+        uint8_t* fedb = nullptr; uint8_t* up = nullptr; char raw[33] = {};
+        if (!Mem::Read(0x91CF90, fedb) || !fedb || !fedb[3] || !Mem::Read((uintptr_t)fedb + 0x10, up) || !up) return "";
+        if (!Mem::SafeRead(up, raw, 32)) return "";
+        raw[32] = 0;
+        return raw;
     }
 
     // host: a client's save arrived
@@ -45,15 +79,15 @@ namespace {
             return;
         }
         strcpy_s(profile, profileRaw);
-        CreateDirectoryA((std::string(g_dataDir) + "MWTogether-saves").c_str(), nullptr);
-        std::string dir = HostDir(owner);
-        CreateDirectoryA(dir.c_str(), nullptr);
         // only the connected player's own save, and never an older one over a newer one
         char peer[40] = "";
         if (!SafeName(Net::Stats().peerName.c_str(), peer, sizeof(peer)) || _stricmp(peer, owner)) {
             LOG("Career: a save for '%s' arrived from player '%s' - not stored", owner, peer);
             return;
         }
+        CreateDirectoryA((std::string(g_dataDir) + "MWTogether-saves").c_str(), nullptr);
+        std::string dir = OwnerDir(owner);
+        CreateDirectoryA(dir.c_str(), nullptr);
         std::string target = dir + "\\" + profile;
         uint64_t have = FileTime64(target);
         if (have > mtime) { LOG("Career: %s's save is older than the copy we keep - kept ours", owner); return; }
@@ -70,7 +104,7 @@ namespace {
         char owner[40], profile[40] = "";
         if (Net::SendingFile()) return;                  // the request comes twice: already answering
         if (!SafeName(ownerRaw, owner, sizeof(owner))) { Net::SendNoFile(); return; }
-        std::string dir = HostDir(owner);
+        std::string dir = OwnerDir(owner);
         char raw[40] = "";
         GetPrivateProfileStringA("Save", "Profile", "", raw, sizeof(raw), (dir + "\\save.ini").c_str());
         std::vector<uint8_t> data;
@@ -166,6 +200,21 @@ void Game::SaveTick(bool connected) {
     SaveTickImpl(connected);
 }
 const char* Game::SaveStatus() { return g_saveStatus; }
+
+// The name we go by is our career profile's alias (TogetherUtil::PlayerName): checked twice a second, so
+// a profile loaded or switched in the menus is what the other player sees next (the hello repeats it).
+void Game::PlayerNameTick() {
+    static DWORD last = 0;
+    DWORD now = GetTickCount();
+    if (now - last < 500) return;
+    last = now;
+    std::string loaded = g_ok ? LoadedProfileAlias() : std::string();
+    std::string n = TogetherUtil::PlayerName(loaded, g_cfg.lastProfile, g_cfg.legacyName);
+    if (n == g_cfg.playerName) return;
+    LOG("Player: we go by %s (%s)", n.c_str(), !TogetherUtil::CleanPlayerName(loaded).empty() ? "our career profile"
+        : !TogetherUtil::CleanPlayerName(g_cfg.lastProfile).empty() ? "the profile loaded last" : "the old [Player] Name, until a profile is loaded");
+    g_cfg.playerName = n;
+}
 
 void Game::InstallSaveSync() {
     char safe[40];

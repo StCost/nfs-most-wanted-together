@@ -79,7 +79,8 @@ TEST(config_parses_values) {
     CHECK_STR(c.clientIp, "192.168.1.21");
     CHECK_EQ(c.port, 50000);
     CHECK_EQ(c.sendRateHz, 30);
-    CHECK_STR(c.playerName, "Kostya");
+    CHECK_STR(c.legacyName, "Kostya");
+    CHECK_STR(c.playerName, "Kostya");               // an old [Player] Name stands in until a profile is known
     CHECK(!c.ghostEnabled);
     CHECK_EQ(c.interpDelayMs, 150);
     CHECK(!c.ghostCollisions);
@@ -188,14 +189,15 @@ TEST(config_ghost_values_are_clamped) {
 TEST(config_long_and_odd_strings) {
     std::string longName(300, 'n');
     Config c = LoadText(("[Player]\nName=" + longName + "\n[Network]\nHostIP=  my-host.example  \n").c_str());
-    CHECK_EQ(c.playerName.size(), 300);              // kept whole here; cut where it is used (hello: 23, HUD: 15)
+    CHECK_EQ(c.legacyName.size(), 300);              // read whole; the name we go by is cut to the hello's 15
+    CHECK_EQ(c.playerName.size(), 15);
     CHECK_STR(c.peerIp, "my-host.example");          // surrounding blanks are dropped by the ini reader
     char hud[NetUtil::HUD_NAME_SIZE];
     NetUtil::CopyHudName(hud, c.playerName.c_str());
     CHECK_EQ(strlen(hud), 15);
 
     c = LoadText("; a comment\n[Player]\n; Name=Commented\nName=\n");
-    CHECK_STR(c.playerName, "");                     // present but empty stays empty
+    CHECK_STR(c.playerName, "Player");               // present but empty: nothing to go by
     c = LoadText("garbage without sections\n\x01\x02\x03\n[[[\n");
     CHECK_STR(c.playerName, "Player");
     CHECK_EQ(c.port, 47555);
@@ -283,4 +285,14 @@ TEST(perf_off_by_default_and_frame_buffer_is_bounded) {
     CHECK_NEAR(s.modMs, 0, 1e-9);
     for (int i = 0; i < Perf::Count; ++i) CHECK(Perf::Name(i) != nullptr && Perf::Name(i)[0]);
     s = Perf::State{};
+}
+
+TEST(config_player_name_follows_the_last_profile) {
+    // 1.7.6: no nickname setting - the profile loaded last ([Start] LastProfile) is the name until the
+    // game loads one; an old [Player] Name only stands in when there is no profile yet
+    Config c = LoadText("[Player]\nName=OldNick\n[Start]\nLastProfile=StCost\n");
+    CHECK_STR(c.playerName, "StCost");
+    CHECK_STR(c.legacyName, "OldNick");
+    c = LoadText("[Start]\nLastProfile=MWT\n");
+    CHECK_STR(c.playerName, "MWT");
 }

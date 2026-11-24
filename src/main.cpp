@@ -307,6 +307,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         bool haveLocal = false;
         { Perf::Scope perfNet(Perf::Net);
         if (g_netOk) {
+            Game::PlayerNameTick();
             Net::Poll();
             Net::Tick();
 

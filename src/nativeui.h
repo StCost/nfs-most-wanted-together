@@ -5,13 +5,13 @@
 // MW Together in the game's own menus (speed.exe 1.3; every patch checks the game's bytes first, and if
 // any doesn't match nothing is changed - the overlay page stays the way in):
 //   - Main menu Together, pause Together, and Options > Together all open the same screen:
-//     nickname, Connection (Host / Join), Connect to IP (Join only), Reconnect on launch,
+//     Connection (Host / Join), Connect to IP (Join only), Reconnect on launch,
 //     Start Host / Stop Host or Connect / Disconnect. The action stays on the screen (no extra
 //     info in the value column). Gamepad hot-plug is always on ([Input] GamepadHotplug in the ini).
 //     Start Host / Connect saves and starts the session; Stop Host / Disconnect ends it.
 //     With Reconnect on launch on, the next start hosts or joins as last time.
-// Nickname and Connect to IP use the game's own text entry (the one LAN Create Game uses for the
-// name): typed text and a blinking cursor right on the row. Enter or pad A keeps, Esc or pad B
+// The name each player goes by is the alias of their career profile (no setting of its own).
+// Connect to IP uses the game's own text entry (the one LAN Create Game uses for the name): typed text and a blinking cursor right on the row. Enter or pad A keeps, Esc or pad B
 // cancels; Back then leaves, and leaving the screen saves. If the game's entry doesn't open or
 // doesn't take keys, the row is typed in our own way (text + "_") with the same keys.
 // Labels come from a copy of the game's string table with our strings added (the game's own pointer to

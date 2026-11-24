@@ -89,4 +89,24 @@ namespace SaveUtil {
         if (!ok) DeleteFileA(tmp.c_str());
         return ok;
     }
+
+    // ---- the host's folders from before 1.7.6 ---------------------------------------------------
+    // Up to 1.7.5 a player's folder on the host (MWTogether-saves\<player>) was named after their Together
+    // nickname; now it is named after their career profile, which is also the name their save file has
+    // (save.ini Profile). A player with no folder of the new name keeps using the one old folder that
+    // keeps a save of that profile (nothing is moved). A renamed profile is a new player to the host.
+    struct HostFolder { std::string folder, profile; };
+    inline int LegacyFolderFor(const std::vector<HostFolder>& folders, const char* owner) {
+        char want[64];
+        if (!SafeName(owner, want, sizeof(want))) return -1;
+        int found = -1;
+        for (int i = 0; i < (int)folders.size(); ++i) {
+            // both plain names (what this mod writes there), the folder not already the new name
+            if (!PlainName(folders[i].folder.c_str()) || !_stricmp(folders[i].folder.c_str(), want)) continue;
+            if (!PlainName(folders[i].profile.c_str()) || _stricmp(folders[i].profile.c_str(), want)) continue;
+            if (found >= 0) return -1;           // two old folders keep that profile: don't guess
+            found = i;
+        }
+        return found;
+    }
 }

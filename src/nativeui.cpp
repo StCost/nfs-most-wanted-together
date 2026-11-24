@@ -105,7 +105,7 @@ namespace {
     constexpr uint32_t kStrBase = 0x6D775400;            // our string hashes ("mwT" + n)
     enum : uint32_t { S_OPT_NAME = kStrBase, S_OPT_DESC, S_MAIN_NAME, S_MAIN_DESC, S_HEADER, S_HEADER_CONNECT, S_SPEC_NAME, S_SPEC_DESC,
                       S_TITLE = kStrBase + 0x20, S_VALUE = kStrBase + 0x40 };
-    using NativeUtil::W_NAME; using NativeUtil::W_MODE; using NativeUtil::W_HOSTIP;
+    using NativeUtil::W_MODE; using NativeUtil::W_HOSTIP;
     using NativeUtil::W_AUTO; using NativeUtil::W_START;
     using NativeUtil::W_COUNT;
     char g_title[W_COUNT][48], g_value[W_COUNT][96];
@@ -115,7 +115,7 @@ namespace {
 
     void InitStrings() {
         g_ours = {
-            { S_OPT_NAME, "Together" }, { S_OPT_DESC, "MW Together co-op: nickname, host or join, start options" },
+            { S_OPT_NAME, "Together" }, { S_OPT_DESC, "MW Together co-op: host or join, start options" },
             { S_MAIN_NAME, "Together" }, { S_MAIN_DESC, "Play together: host or join" },
             { S_HEADER, "Together" }, { S_HEADER_CONNECT, "Together" },
             { S_SPEC_NAME, "Spectate" }, { S_SPEC_DESC, "Watch your partner until their race is over" },
@@ -227,7 +227,7 @@ namespace {
         return on && obj && obj == EditObj();
     }
 
-    bool IsText(int r) { return r == W_NAME || r == W_HOSTIP; }
+    bool IsText(int r) { return r == W_HOSTIP; }
     bool IsOnOff(int r) { return r == W_AUTO; }
     bool* Flag(int r) {
         switch (r) {
@@ -235,15 +235,15 @@ namespace {
         }
         return nullptr;
     }
-    std::string& Text(int r) { return r == W_NAME ? g_ed.name : g_ed.hostIp; }
-    Field FieldOf(int r) { return r == W_NAME ? Field::Name : Field::Host; }
+    std::string& Text(int) { return g_ed.hostIp; }
+    Field FieldOf(int) { return Field::Host; }
     bool SoftEditPkg() {
         return g_screen && NativeUtil::SoftEditPackage(PkgName(g_screen));
     }
 
     const char* TitleOf(int r) {
         switch (r) {
-        case W_NAME: return "Nickname"; case W_MODE: return "Connection";
+        case W_MODE: return "Connection";
         case W_HOSTIP: return "Connect to IP";
         case W_AUTO: return "Reconnect on launch";
         case W_START: return NativeUtil::ConnectionActionTitle(g_ed.host, Together::SessionActive());
@@ -253,7 +253,6 @@ namespace {
     std::string ValueOf(int r) {
         if (r == g_errRow && !g_err.empty()) return g_err;
         switch (r) {
-        case W_NAME: return g_ed.name.empty() ? "(type a nickname)" : g_ed.name;
         case W_MODE: return g_ed.host ? "Host" : "Join";
         case W_HOSTIP: return Trim(g_ed.hostIp).empty() ? "(type the host's IP)" : g_ed.hostIp;
         case W_START: return "";
@@ -296,8 +295,7 @@ namespace {
 
     void ShowError(const std::string& e) {
         g_err = e;
-        g_errRow = e.find("nickname") != std::string::npos ? W_NAME
-                 : (e.find("host") != std::string::npos || e.find("IP") != std::string::npos || e.find("port") != std::string::npos) ? W_HOSTIP : W_NAME;
+        g_errRow = (e.find("host") != std::string::npos || e.find("IP") != std::string::npos || e.find("port") != std::string::npos) ? W_HOSTIP : W_MODE;
         Refresh();
     }
 
@@ -330,7 +328,7 @@ namespace {
             // 0 = any key, 4 = letters, digits, '.', '@', '_'). The game finds the string by its hash;
             // point the edit at this row's string in case another row shares the hash.
             auto begin = o_BeginTextInput ? o_BeginTextInput : BeginTextInput;
-            begin(g_screen, objHash, r == W_NAME ? 0u : 4u, start.c_str(), TitleOf(r), (uint32_t)MaxLen(FieldOf(r)));
+            begin(g_screen, objHash, 4u, start.c_str(), TitleOf(r), (uint32_t)MaxLen(FieldOf(r)));
             if (void** eo = (void**)EditObj()) {
                 eo[0] = data;
                 g_softEdit = false; g_nativeEdit = true; g_nativeSeen = false; g_nativeSince = GetTickCount();
@@ -865,7 +863,7 @@ namespace {
                     uint8_t* cw = *(uint8_t**)(s + 0x34);
                     if (cw && *(void**)cw == g_widgetVt) keep = RowOf(cw);
                     if (typing >= 0) { keep = typing; FinishEdit(true); }
-                    if (keep < 0 || keep >= W_COUNT) keep = W_NAME;
+                    if (keep < 0 || keep >= W_COUNT) keep = W_MODE;
                     LOG("Native: the Together screen played its exit without leaving - opening it again (row %d%s)",
                         keep, typing >= 0 ? ", still typing" : "");
                     WidgetMenuNotify(s, msg, obj, p1, p2);
@@ -963,7 +961,7 @@ namespace {
     }
 
     // ---- install ----
-    // ---- the main menu's profile box: "<my Together nickname> & <theirs>" while connected ----
+    // ---- the main menu's profile box: "<our profile> & <theirs>" while connected ----
     constexpr uintptr_t kFEPrintf = 0x5252D0;
     typedef int(__cdecl* FEPrintf_t)(const char* pkg, uint32_t hash, const char* fmt, ...);
     std::string g_profileShown;           // what we last put there ("" = the game's own text)
@@ -982,7 +980,7 @@ namespace {
         bool connected = Together::Connected();
         std::string peer = connected ? Net::Stats().peerName : std::string();
         if (!g_fakePeer.empty()) { connected = true; peer = g_fakePeer; }
-        std::string label = NativeUtil::ProfileBoxText(me, g_cfg.playerName, peer, connected);
+        std::string label = NativeUtil::ProfileBoxText(me, peer, connected);
         static DWORD written = 0;
         if (label == me && g_profileShown.empty()) return;            // the game's text is right
         if (label == g_profileShown && now - written < 2000) return;  // (now and then again: the menu may redo it)
@@ -1235,9 +1233,9 @@ std::string NativeUI::DebugCommand(const std::string& a) {
     if (a.rfind("peer", 0) == 0) { g_fakePeer = a.size() > 5 ? a.substr(5) : std::string(); return g_fakePeer.empty() ? "pretend friend gone" : "pretend friend set"; }
     if (a == "state") {
         char b[200];
-        sprintf_s(b, "category %d, screen %p, editing %d, capturing %d, soft %d, scroll %d/%d of %d, name %s, %s %s, auto %d",
+        sprintf_s(b, "category %d, screen %p, editing %d, capturing %d, soft %d, scroll %d/%d of %d, %s %s, auto %d",
                   Category(), g_screen, g_editRow, (int)Capturing(), (int)g_softEdit, g_scroll, g_slots, (int)g_allRows.size(),
-                  g_ed.name.c_str(), g_ed.host ? "host" : "join", g_ed.hostIp.c_str(), (int)g_ed.autoConnect);
+                  g_ed.host ? "host" : "join", g_ed.hostIp.c_str(), (int)g_ed.autoConnect);
         return b;
     }
     return "usage: native type <text> | enter | esc | options | main | connect | settings | state";

@@ -8,7 +8,8 @@ struct Config {
                                       // so firewalls on both sides see the traffic as a reply
     int         port = 47555;         // [Network] Port (both sides bind it)
     int         sendRateHz = 60;      // [Network] SendRate
-    std::string playerName = "Player";// [Player] Name
+    std::string playerName = "Player";// the name we go by: our career profile's alias (TogetherUtil::PlayerName)
+    std::string legacyName;           // [Player] Name of an older ini: only a stand-in before any profile is known
     bool        autoStart = false;     // [AutoStart] Enabled - dev builds only; release ignores this section
     int         autoStartDelayMs = 2500;   // [AutoStart] DelayMs - wait in the menu before the first press
     int         autoStartIntervalMs = 1500;// [AutoStart] IntervalMs - between presses

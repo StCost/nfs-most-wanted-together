@@ -15,8 +15,29 @@ namespace TogetherUtil {
 constexpr int kMaxName = 15;      // the hello packet carries 15 characters
 constexpr int kMaxHost = 63;
 
+// The name a player goes by (hello packet, the partner's standings and menus, the host's save folder): the
+// alias of the career profile they play. Before a profile is loaded: the one loaded last ([Start]
+// LastProfile), which the game loads again; with none of those yet, the old [Player] Name of an ini from
+// before 1.7.6 (so a new PC can still get its save back from the host's folder of that name), else
+// "Player". Printable ASCII only, at most 15 characters (the hello packet's room).
+inline std::string CleanPlayerName(const std::string& in) {
+    std::string o;
+    for (unsigned char c : in) if (c >= 0x20 && c < 0x7F) o += (char)c;
+    size_t a = o.find_first_not_of(' ');
+    o = a == std::string::npos ? std::string() : o.substr(a);
+    if ((int)o.size() > kMaxName) o.resize(kMaxName);
+    while (!o.empty() && o.back() == ' ') o.pop_back();
+    return o;
+}
+inline std::string PlayerName(const std::string& loadedProfile, const std::string& lastProfile, const std::string& legacyName) {
+    for (const std::string* s : { &loadedProfile, &lastProfile, &legacyName }) {
+        std::string n = CleanPlayerName(*s);
+        if (!n.empty()) return n;
+    }
+    return "Player";
+}
+
 struct Settings {
-    std::string name = "Player";
     bool        host = true;
     std::string hostIp;
     std::string port = "47555";        // kept in the ini only (default 47555); not shown in menus
@@ -43,10 +64,6 @@ inline bool IsIPv4(const std::string& h) {
 
 // "" when the settings can be saved, else what to fix (shown on the page)
 inline std::string Validate(const Settings& s) {
-    std::string n = Trim(s.name);
-    if (n.empty()) return "Enter your nickname.";
-    if ((int)n.size() > kMaxName) return "The nickname is too long (15 characters at most).";
-    for (char c : n) if ((unsigned char)c < 32 || (unsigned char)c > 126) return "The nickname may only use plain letters, digits and - _ .";
     std::string p = Trim(s.port);
     if (p.empty() || p.size() > 5) return "The port must be a number from 1 to 65535.";
     for (char c : p) if (c < '0' || c > '9') return "The port must be a number from 1 to 65535.";
@@ -68,7 +85,6 @@ struct IniLine { const char* section; const char* key; std::string value; };
 // What a save writes. HostIP only when joining: the host keeps whatever address was typed last time.
 inline std::vector<IniLine> ToIni(const Settings& s) {
     std::vector<IniLine> v;
-    v.push_back({ "Player", "Name", Trim(s.name) });
     v.push_back({ "Network", "Mode", s.host ? "host" : "client" });
     if (!s.host) v.push_back({ "Network", "HostIP", Trim(s.hostIp) });
     v.push_back({ "Network", "Port", std::to_string(strtol(Trim(s.port).c_str(), nullptr, 10)) });
@@ -78,14 +94,14 @@ inline std::vector<IniLine> ToIni(const Settings& s) {
     return v;
 }
 
-// Changes that need a new connection (the name travels in the hello packet)
+// Changes that need a new connection
 inline bool NetworkChanged(const Settings& a, const Settings& b) {
-    return Trim(a.name) != Trim(b.name) || a.host != b.host || Trim(a.port) != Trim(b.port)
+    return a.host != b.host || Trim(a.port) != Trim(b.port)
         || (!b.host && Trim(a.hostIp) != Trim(b.hostIp));
 }
 
 // DirectInput key code -> character for the text fields (US layout, whatever the Windows layout is: the
-// nickname goes over the network as plain ASCII). 0 = not a character key.
+// address is plain ASCII). 0 = not a character key.
 inline char DikToChar(uint8_t dik, bool shift) {
     static const char row1[] = "1234567890";                       // DIK_1 0x02 .. DIK_0 0x0B
     if (dik >= 0x02 && dik <= 0x0B) return row1[dik - 0x02];
@@ -110,19 +126,17 @@ inline char DikToChar(uint8_t dik, bool shift) {
     return 0;
 }
 // Which characters a field takes
-enum class Field { Name, Host, Port };
+enum class Field { Host, Port };
 inline bool Accepts(Field f, char c) {
     if (f == Field::Port) return c >= '0' && c <= '9';
-    if (f == Field::Host) return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '.' || c == '-';
-    return c >= 32 && c <= 126;
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '.' || c == '-';
 }
-inline int MaxLen(Field f) { return f == Field::Name ? kMaxName : f == Field::Host ? kMaxHost : 5; }
+inline int MaxLen(Field f) { return f == Field::Host ? kMaxHost : 5; }
 // Gamepad text entry: up / down step the last character through this list
 inline char StepChar(Field f, char c, int dir) {
-    static const char name[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_. ";
     static const char host[] = "0123456789.abcdefghijklmnopqrstuvwxyz-";
     static const char port[] = "0123456789";
-    const char* set = f == Field::Name ? name : f == Field::Host ? host : port;
+    const char* set = f == Field::Host ? host : port;
     int n = (int)strlen(set);
     const char* p = strchr(set, c);
     int i = p && c ? (int)(p - set) : (dir > 0 ? -1 : 0);

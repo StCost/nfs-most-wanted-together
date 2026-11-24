@@ -32,7 +32,7 @@ inline std::string CleanText(TogetherUtil::Field f, const std::string& in) {
         if ((int)out.size() >= TogetherUtil::MaxLen(f)) break;
         out += c;
     }
-    return f == TogetherUtil::Field::Name ? TogetherUtil::Trim(out) : out;
+    return out;
 }
 
 // What the start does.
@@ -59,26 +59,23 @@ inline std::string ProfileLabel(const std::string& me, const std::string& peer, 
     if (!connected || f.empty()) return m;
     return m.empty() ? f : m + " & " + f;
 }
-// The main menu's profile box: the career profile name on its own; while connected, OUR Together
-// nickname ([Player] Name) & theirs - the profile name only stands in when we have no nickname.
-inline std::string ProfileBoxText(const std::string& profile, const std::string& myNick,
-                                  const std::string& peer, bool connected) {
+// The main menu's profile box: our career profile name on its own; while connected, ours & theirs (the
+// name each player goes by is the alias of the career profile they play).
+inline std::string ProfileBoxText(const std::string& profile, const std::string& peer, bool connected) {
     if (!connected || ProfileLabel(peer, "", false).empty()) return ProfileLabel(profile, "", false);
-    std::string nick = ProfileLabel(myNick, "", false);
-    return ProfileLabel(nick.empty() ? profile : nick, peer, true);
+    return ProfileLabel(profile, peer, true);
 }
 
 // One Together screen (main menu Together, pause Together, and Options > Together):
-// nickname, Connection, Connect to IP (Join only), Reconnect on launch, the start /
+// Connection, Connect to IP (Join only), Reconnect on launch, the start /
 // stop action, then the remaining settings. The list fits in the 9 visible row slots.
 enum Row {
-    W_NAME, W_MODE, W_HOSTIP, W_AUTO, W_START, W_COUNT
+    W_MODE, W_HOSTIP, W_AUTO, W_START, W_COUNT
 };
 enum class Screen { Settings, Connect };
 
 inline std::vector<int> TogetherRows(Screen /*screen*/, bool host) {
     std::vector<int> v;
-    v.push_back(W_NAME);
     v.push_back(W_MODE);
     if (!host) v.push_back(W_HOSTIP);
     v.push_back(W_AUTO);
