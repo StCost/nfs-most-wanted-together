@@ -316,7 +316,7 @@ namespace NetUtil {
     //         slot of its grid) - where the host and its intro cutscene have us
     //  Own  - no word from the host for a moment (an older host): the slot our game built the host's racer
     //         on, as before - right only when both races put the two swapped racers on the same slot
-    //  None - neither: the other player is shown on a free slot read from the cars around (BehindUs)
+    //  None - neither: the other player is shown at their real position (collisions stay off until they are apart)
     enum class StartSlot { Wait, Host, Own, None };
     constexpr int kHostSlotWaitMs = 2500;
     inline StartSlot PickStartSlot(bool hostSlot, bool ownSlot, int sharingMs) {
