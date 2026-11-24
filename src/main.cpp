@@ -13,6 +13,7 @@
 #include "config.h"
 #include "net.h"
 #include "prologueutil.h"
+#include "noticeutil.h"
 #include "overlay.h"
 #include "together.h"
 #include "nativeui.h"
@@ -471,17 +472,14 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         // --- join / leave notices ---
         {
             static bool wasConnected = false;
-            static bool namePending = false;   // "Player joined" is up, waiting for the real name
+            static Notice::JoinNotice join;   // one "<name> joined", once their hello brought the name
             static std::string lastPeer;
             if (st.connected && !st.peerName.empty()) lastPeer = st.peerName;
+            std::string joined = Notice::JoinTick(join, st.connected, st.peerName, GetTickCount());
+            if (!joined.empty()) Toast(joined);
             if (st.connected != wasConnected) {
-                if (st.connected) Toast((st.peerName.empty() ? std::string("Player") : st.peerName) + " joined");
-                else Toast((lastPeer.empty() ? std::string("The other player") : lastPeer) + (Net::PeerSaidBye() ? " left" : " lost connection"), true);
-                namePending = st.connected && st.peerName.empty();
+                if (!st.connected) Toast((lastPeer.empty() ? std::string("The other player") : lastPeer) + (Net::PeerSaidBye() ? " left" : " lost connection"), true);
                 wasConnected = st.connected;
-            } else if (st.connected && namePending && !st.peerName.empty()) {
-                namePending = false;
-                Toast(st.peerName + " joined");   // the name arrives right after the connection
             }
         }
         // --- the other player is in an event while we roam (or back): say so ---

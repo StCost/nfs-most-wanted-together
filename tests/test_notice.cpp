@@ -38,3 +38,35 @@ TEST(notice_packs_small_pieces) {
     CHECK_EQ((int)p.size(), 2);
     CHECK(p[0] == "aaaa - bbbb");
 }
+
+TEST(notice_join_waits_for_the_name) {
+    Notice::JoinNotice j;
+    CHECK(Notice::JoinTick(j, false, "", 0).empty());
+    CHECK(Notice::JoinTick(j, true, "", 1000).empty());           // connected, no hello yet: nothing
+    CHECK(Notice::JoinTick(j, true, "", 1500).empty());
+    CHECK(Notice::JoinTick(j, true, "Laptop", 1600) == "Laptop joined");   // one notice, with the name
+    CHECK(Notice::JoinTick(j, true, "Laptop", 1700).empty());     // and only one
+    CHECK(Notice::JoinTick(j, true, "Laptop", 9000).empty());
+    // name already known (hello came with the first packets, or a reconnect)
+    CHECK(Notice::JoinTick(j, false, "Laptop", 10000).empty());
+    CHECK(Notice::JoinTick(j, true, "Laptop", 10100) == "Laptop joined");
+    CHECK(Notice::JoinTick(j, true, "Laptop", 10200).empty());
+}
+
+TEST(notice_join_falls_back_without_a_name) {
+    Notice::JoinNotice j;
+    CHECK(Notice::JoinTick(j, true, "", 5000).empty());
+    CHECK(Notice::JoinTick(j, true, "", 5000 + Notice::JoinNameWaitMs - 1).empty());
+    CHECK(Notice::JoinTick(j, true, "", 5000 + Notice::JoinNameWaitMs) == "The other player joined");
+    CHECK(Notice::JoinTick(j, true, "Laptop", 9000).empty());     // the late name does not repeat it
+    // lost before the name came: no join notice at all
+    Notice::JoinNotice k;
+    CHECK(Notice::JoinTick(k, true, "", 0).empty());
+    CHECK(Notice::JoinTick(k, false, "", 500).empty());
+    CHECK(Notice::JoinTick(k, false, "", 9000).empty());
+    // tick counter wrap
+    Notice::JoinNotice w;
+    CHECK(Notice::JoinTick(w, true, "", 0xFFFFFF00u).empty());
+    CHECK(Notice::JoinTick(w, true, "", 0x00000100u).empty());
+    CHECK(Notice::JoinTick(w, true, "", 0xFFFFFF00u + Notice::JoinNameWaitMs) == "The other player joined");
+}

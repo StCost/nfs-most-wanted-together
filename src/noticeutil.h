@@ -2,6 +2,7 @@
 // Notices in the centre of the screen (tests\test_notice.cpp). The game's HUD message holds at most 63
 // characters (it copies 64 bytes, 0x568099), so a longer notice is shown in parts, one after another.
 #include <cctype>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -39,4 +40,22 @@ namespace Notice {
         for (size_t i = 1; i < out.size(); ++i) out[i][0] = (char)toupper((unsigned char)out[i][0]);
         return out;
     }
+
+    // "<name> joined": one notice, with the other player's name. The connection comes up with their
+    // first packet; their name comes with their hello a moment later, so the notice waits for it (up to
+    // JoinNameWaitMs, then a generic one). Lost before the name came: no join notice.
+    constexpr uint32_t JoinNameWaitMs = 3000;
+    struct JoinNotice { bool wasConnected = false; bool pending = false; uint32_t since = 0; };
+    // Every frame. Returns the notice to show now, or "".
+    inline std::string JoinTick(JoinNotice& j, bool connected, const std::string& name, uint32_t now,
+                                uint32_t waitMs = JoinNameWaitMs) {
+        if (connected && !j.wasConnected) { j.pending = true; j.since = now; }
+        if (!connected) j.pending = false;
+        j.wasConnected = connected;
+        if (!j.pending) return {};
+        if (!name.empty()) { j.pending = false; return name + " joined"; }
+        if (now - j.since >= waitMs) { j.pending = false; return "The other player joined"; }
+        return {};
+    }
 }
+
