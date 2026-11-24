@@ -24,19 +24,15 @@ Wanted online free roam with a friend, Need for Speed Most Wanted two player mod
 <details open><summary><h2>Install</h2></summary>
 
 
-1. Download [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases) — the x86/Win32 `dinput8.dll` build (e.g. [v10.0.4](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/tag/v10.0.4), which we tested) — and put `dinput8.dll` next to `speed.exe`. Skip this if you are updating from 1.7.2 or earlier: you already have it.
-2. Download **[MWTogether.asi](https://github.com/StCost/nfs-most-wanted-together/releases/latest/download/MWTogether.asi)** (the latest release) and put it in the `scripts` folder next to `speed.exe` (make the folder if there is none). It is the only file: the menu logo and the default settings are built in, and the first start writes `scripts\MWTogether.ini`.
+1. Download [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases) — the x86/Win32 `dinput8.dll` build (e.g. [v10.0.4](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/tag/v10.0.4), which we tested) — and put `dinput8.dll` next to `speed.exe`.
+2. Download **[MWTogether.asi](https://github.com/StCost/nfs-most-wanted-together/releases/latest/download/MWTogether.asi)** (the latest release) and put it in the `scripts` folder next to `speed.exe` (make the folder if there is none).
 3. Run `speed.exe` as usual. The game stops at the main menu: pick the **Together** icon there,
    set **Connection** to **Host** or **Join**, and (if joining) enter the host's IP under
    **Connect to IP**. Press **Start Host** or **Connect**. **Stop Host** / **Disconnect** end the session.
-   With **Reconnect on launch** on, the next start hosts or joins by itself. Main menu Together, pause Together, and **Options > Together** all open the same screen. Remaining options are also on the overlay page (**F2** or hold **BACK** on a
-   pad).
 4. Do the same on the other PC. The game loads your career into free roam and connects you on its own.
-5. To update, replace `scripts\MWTogether.asi` with the new one. Your settings (`scripts\MWTogether.ini`) stay. Leave the existing `dinput8.dll` as is. `MWTogether-logo.dds` and `MWTogether.default.ini` from older releases are no longer used; you can delete them.
+5. To update, replace `scripts\MWTogether.asi` with the new one. Your settings (`scripts\MWTogether.ini`) stay. Leave the existing `dinput8.dll` as is.
 
-Your name in co-op is the name of the career profile you play (shown to your partner in the standings, the menus and the notices); there is no separate nickname.
-
-You can play the prologue (the opening BMW races) together too: start a new career on both PCs. Whoever is ahead waits on the next race's grid (`[Coop] Prologue`). After the car lot you both drive to Mia, and co-op picks up again once you've both met her. You both need to be in the same part of the career: both in the prologue, or both past it.
+You can play the prologue (the opening BMW races) together too: start a new career on both PCs.
 
 
 </details>
@@ -45,10 +41,10 @@ You can play the prologue (the opening BMW races) together too: start a new care
 
 
 - Need for Speed: Most Wanted (2005) for PC, patched to **v1.3**. No game files are included, bring your own copy.
-- [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases), the x86/Win32 `dinput8.dll` next to `speed.exe` (v10.0.4 is the build we tested). Already present if you used 1.7.2 or earlier.
+- [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases), the x86/Win32 `dinput8.dll` next to `speed.exe` (v10.0.4 is the build we tested).
 - The same version of the mod on both PCs.
 - A LAN, a VPN (Hamachi, Radmin VPN, ZeroTier), or a direct connection over the internet.
-- **Direct public IP, no VPN:** the host needs a public IP, **UDP port 47555** forwarded to their PC on the router, and UDP 47555 allowed for `speed.exe` in the firewall. The other player joins with the host's public IP. If the host's ISP uses CGNAT (the router's WAN address differs from the IP that sites like whatismyip show), port forwarding won't work; use a VPN instead.
+- If you want to play over a **direct public IP, no VPN**: the host needs a public IP, **UDP port 47555** forwarded to their PC on the router, and UDP 47555 allowed for `speed.exe` in the firewall. The other player joins with the host's public IP. If the host's ISP uses CGNAT (the router's WAN address differs from the IP that sites like whatismyip show), port forwarding won't work; use a VPN instead.
 - If one of you can't see the other, a firewall or another VPN (Surfshark, say) is blocking it. Allow UDP 47555 for `speed.exe` on that PC or pause the VPN. The game tells you when only one side gets through.
 
 
@@ -86,7 +82,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Status overlay on F8 (remembers if you hid it)
 - [x] **Together** in the game's own menus: one screen from Main menu > Together, the pause menu, and Options > Together (Connection, Connect to IP when joining, Reconnect on launch, Start Host / Connect); the main menu's profile box shows both profile names (yours and your partner's) while connected. If this `speed.exe` differs, the menus stay as they are and the page below is used
 - [x] Main menu Together logo, built into the plugin (no game files changed); the logo object is made taller so the original lettering stays the same size
-- [x] In-game **Together** overlay page (F2, or hold BACK on a pad): host or join, host IP, remaining menu options, your IP address and the connection state. Saving reconnects right away when needed (`[UI] TogetherKey`)
+- [x] In-game **Together** overlay page (hold BACK on a pad): host or join, host IP, remaining menu options, your IP address and the connection state. Saving reconnects right away when needed
 - [x] Join / leave notices, even with the overlay hidden
 - [x] Notices use the game's own message line in the middle of the screen: joins and leaves in green, problems (connection, firewall, prologue) in orange. Long ones come in parts. In cutscenes and menus the EA Trax song banner shows them
 - [x] Notices stay up for 10 seconds (`[UI] NoticeSeconds`)
