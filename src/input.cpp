@@ -14,6 +14,7 @@
 #include "together.h"
 #include "nativeui.h"
 #include "feutil.h"
+#include "hookutil.h"
 
 #ifdef MWT_DEVTOOLS
 namespace {
@@ -43,8 +44,10 @@ namespace {
 
     DI8Create_t    o_DI8Create = nullptr;
     CreateDevice_t o_CreateDevice = nullptr;
-    GetState_t     o_GetState = nullptr;
-    GetData_t      o_GetData = nullptr;
+    // Device vtables: the keyboard and the mouse usually share one, but not on every PC - each is
+    // hooked once, with its own originals (a call is passed on to the original of its device's vtable).
+    HookUtil::VtableOriginals<GetState_t> g_stateOrig;
+    HookUtil::VtableOriginals<GetData_t>  g_dataOrig;
 
     void* g_keyboard = nullptr;   // the game's keyboard device
     unsigned char g_kb[256] = {}; // last polled keyboard state (not swallowed)
@@ -66,6 +69,8 @@ namespace {
     }
 
     HRESULT STDMETHODCALLTYPE hk_GetState(void* dev, DWORD cb, LPVOID data) {
+        GetState_t o_GetState = dev ? g_stateOrig.Find(*(void**)dev) : nullptr;
+        if (!o_GetState) return DIERR_NOTINITIALIZED;
         HRESULT hr = o_GetState(dev, cb, data);
         if (dev == g_keyboard && cb == 256 && data) {
             if (!g_loggedState) { g_loggedState = true; LOG("Input: game polls keyboard with GetDeviceState"); }
@@ -92,6 +97,8 @@ namespace {
     }
 
     HRESULT STDMETHODCALLTYPE hk_GetData(void* dev, DWORD cbObj, LPDIDEVICEOBJECTDATA rg, LPDWORD inOut, DWORD flags) {
+        GetData_t o_GetData = dev ? g_dataOrig.Find(*(void**)dev) : nullptr;
+        if (!o_GetData) return DIERR_NOTINITIALIZED;
         HRESULT hr = o_GetData(dev, cbObj, rg, inOut, flags);
         if (dev == g_keyboard && SUCCEEDED(hr) && !g_loggedData && rg && inOut && *inOut) { g_loggedData = true; LOG("Input: game reads keyboard with GetDeviceData"); }
         if (dev == g_keyboard && SUCCEEDED(hr) && rg && inOut) {
@@ -107,13 +114,25 @@ namespace {
         return hr;
     }
 
-    void HookDevice(void* dev) {
+    // Hook a device's GetDeviceState / GetDeviceData, once per vtable. 1.7.3 - 1.7.6 hooked only the
+    // first device's vtable: where the keyboard had its own, the mod never saw its keys (Enter on the
+    // Together screen reached the menus, which played the screen's exit over the IP entry).
+    void HookDevice(void* dev, bool keyboard) {
         void** vt = *(void***)dev;
-        if (!o_GetState && vt[9] != (void*)&hk_GetState) {
-            o_GetState = (GetState_t)Mem::PatchPointer(&vt[9], (void*)&hk_GetState);
-            o_GetData  = (GetData_t)Mem::PatchPointer(&vt[10], (void*)&hk_GetData);
-            LOG("Input: hooked DirectInput device vtable %p", vt);
+        if (g_stateOrig.Has(vt)) {
+            if (keyboard) LOG("Input: keyboard shares hooked vtable %p", vt);
+            return;
         }
+        if (vt[9] == (void*)&hk_GetState) return;   // (patched by us before, can't happen)
+        GetState_t gs = (GetState_t)vt[9];
+        GetData_t gd = (GetData_t)vt[10];
+        if (!g_stateOrig.Add(vt, gs, &hk_GetState) || !g_dataOrig.Add(vt, gd, &hk_GetData)) {
+            LOG("Input: could not hook device vtable %p (%d known)", vt, g_stateOrig.count);
+            return;
+        }
+        Mem::PatchPointer(&vt[9], (void*)&hk_GetState);
+        Mem::PatchPointer(&vt[10], (void*)&hk_GetData);
+        LOG("Input: hooked DirectInput device vtable %p (%s)", vt, keyboard ? "keyboard" : "other device");
     }
 
     HRESULT STDMETHODCALLTYPE hk_CreateDevice(void* di, REFGUID guid, void** dev, LPUNKNOWN outer) {
@@ -121,7 +140,7 @@ namespace {
         if (SUCCEEDED(hr) && dev && *dev) {
             bool kb = IsEqualGUID(guid, kSysKeyboard) != 0;
             if (kb) g_keyboard = *dev;
-            HookDevice(*dev); // keyboard and mouse share the vtable; we filter by device pointer
+            HookDevice(*dev, kb); // each vtable once; we filter by device pointer
             LOG("Input: CreateDevice %s -> %p", kb ? "keyboard" : "other", *dev);
         }
         return hr;
