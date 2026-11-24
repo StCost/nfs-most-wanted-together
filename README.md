@@ -6,16 +6,16 @@
 
 ![NFS MW Together](docs/banner.png)
 
-Play the Most Wanted career with a friend. 2 players, LAN or VPN.
+Play the Most Wanted career with a friend. 2 players, over LAN, a VPN or the internet.
 
 A **co-op mod for Need for Speed: Most Wanted 2005** (PC, v1.3). Two players go through the
 **career together**: free roam with traffic, races against the AI, the Blacklist, police chases,
-each in their own car. Works over LAN or a VPN (Hamachi, Radmin VPN, ZeroTier).
+each in their own car. Works over LAN, a VPN (Hamachi, Radmin VPN, ZeroTier), or directly over the internet to the host's public IP.
 The mod aims for the best vanilla experience in co-op: the game's own menus, screens and career, played together.
 
 **Get it:** [GitHub releases](https://github.com/StCost/nfs-most-wanted-together/releases/latest) · [Nexus Mods](https://www.nexusmods.com/needforspeedmostwanted2005/mods/366) · [NFSMods](https://nfsmods.xyz/mod/8207)
 
-**Tested by the developers:** the co-op career up to Blacklist #11 Big Lou. More playtesting soon.
+**Tested by the developers:** the Blacklist up to #10 and the Challenge Series up to #16, all in co-op. Playable and fun, 9/10. Minor sync issues remain on the joining player's side only: physics, traffic and police movement can be slightly off compared to the host. Playtesting and fixes continue until the whole game is completed together.
 
 <table>
 <tr><td><img src="docs/screenshots/01_race_start_side_by_side.jpg" alt="Race start together"></td><td><img src="docs/screenshots/02_start_grid_together.jpg" alt="On the grid together"></td></tr>
@@ -51,7 +51,8 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - Need for Speed: Most Wanted (2005) for PC, patched to **v1.3**. No game files are included, bring your own copy.
 - [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases), the x86/Win32 `dinput8.dll` next to `speed.exe` (v10.0.4 is the build we tested). Already present if you used 1.7.2 or earlier.
 - The same version of the mod on both PCs.
-- A LAN, a VPN (Hamachi, Radmin VPN, ZeroTier), or UDP port 47555 forwarded to the host.
+- A LAN, a VPN (Hamachi, Radmin VPN, ZeroTier), or a direct connection over the internet.
+- **Direct public IP, no VPN:** the host needs a public IP, **UDP port 47555** forwarded to their PC on the router, and UDP 47555 allowed for `speed.exe` in the firewall. The other player joins with the host's public IP. If the host's ISP uses CGNAT (the router's WAN address differs from the IP that sites like whatismyip show), port forwarding won't work; use a VPN instead.
 - If one of you can't see the other, a firewall or another VPN (Surfshark, say) is blocking it. Allow UDP 47555 for `speed.exe` on that PC or pause the VPN. The game tells you when only one side gets through.
 
 
