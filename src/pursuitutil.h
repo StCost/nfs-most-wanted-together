@@ -104,6 +104,7 @@ namespace SharedPursuit {
         bool ready;     // evade bar full, or already cooling (PURSUIT_READY)
         bool busted;
         bool evaded;    // pursuit ended as an escape (PURSUIT_EVADED)
+        bool hiding;    // in a hiding spot during its cooldown, by its own game (PURSUIT_HIDING)
     };
     inline View FromWire(uint8_t flags, uint16_t left10) {
         View v{};
@@ -114,6 +115,7 @@ namespace SharedPursuit {
         v.ready = (flags & PURSUIT_READY) != 0 || v.cooling;
         v.busted = (flags & PURSUIT_BUSTED) != 0;
         v.evaded = (flags & PURSUIT_EVADED) != 0;
+        v.hiding = (flags & PURSUIT_HIDING) != 0 && v.cooling;
         return v;
     }
     inline uint16_t LeftToWire(float left) {
@@ -205,6 +207,27 @@ namespace SharedPursuit {
         accum -= a; excess -= a;
         float room = sinceSeen - (SEEN_LIMIT_S + 0.1f);
         if (excess > 0.f && room > 0.f) sinceSeen -= excess < room ? excess : room;
+    }
+
+    // ---- hiding spot and cooldown progress, shared while both are in cooldown ----------------------
+    // When both players are in cooldown (neither seen) and one of them is in a hiding spot, the other
+    // gets the hiding spot's faster cooldown too: their game's pursuit is told it is hidden, so it
+    // fills the meter as vanilla does in a hiding spot. Only the cooldown speeds up: the cops' own sight
+    // is not touched, so a player who is not really hidden is still spotted as usual (and a spot ends the
+    // sharing, as the spotted player leaves cooldown).
+    inline bool ShareHidingSpot(const View& me, const View& peer, bool peerConnected) {
+        if (!SharedPursuitLive(me, peer, peerConnected)) return false;
+        return me.cooling && peer.cooling && !me.seen && !peer.seen && peer.hiding && !me.hiding;
+    }
+    // While both are in cooldown (neither seen) the cooldown is one: the one further on wins. Returns the
+    // progress (seconds) to add to ours so that we have no more time left than they do, or 0. We only ever
+    // catch up (the other game does the same with ours), so the two meet at the larger progress.
+    inline float CooldownCatchUp(const View& me, const View& peer, bool peerConnected, float slack = DELAY_SLACK_S) {
+        if (!SharedPursuitLive(me, peer, peerConnected)) return 0.f;
+        if (!me.cooling || !peer.cooling || me.seen || peer.seen) return 0.f;
+        if (!(me.left >= 0.f) || !(peer.left >= 0.f)) return 0.f;
+        float d = me.left - peer.left;
+        return d > slack ? d : 0.f;
     }
 
     // ---- where the cooldown is shared --------------------------------------------------------------

@@ -282,6 +282,60 @@ TEST(pursuit_peer_safehouse_forces_our_escape) {
     CHECK(DecideCooldown(me, peer, false, true).what == Cool::Free);
 }
 
+TEST(pursuit_shared_hiding_spot) {
+    View me = V(true, false, true, 20, true), peer = V(true, false, true, 25, true);
+    CHECK(!ShareHidingSpot(me, peer, true));                   // nobody hides
+    peer.hiding = true;
+    CHECK(ShareHidingSpot(me, peer, true));                    // both in cooldown, they hide: ours runs hidden too
+    CHECK(!ShareHidingSpot(me, peer, false));                  // disconnected: solo
+    me.hiding = true;
+    CHECK(!ShareHidingSpot(me, peer, true));                   // we hide ourselves: vanilla already
+    me.hiding = false;
+    View chased = V(true, false, false, 0, false);
+    CHECK(!ShareHidingSpot(chased, peer, true));               // we are not in cooldown yet
+    View seen = V(true, true, true, 20, true);
+    CHECK(!ShareHidingSpot(seen, peer, true));                 // we were spotted
+    View peerSeen = peer; peerSeen.seen = true;
+    CHECK(!ShareHidingSpot(me, peerSeen, true));               // they were spotted
+    View peerOut = V(true, false, false, 0, true); peerOut.hiding = true;
+    CHECK(!ShareHidingSpot(me, peerOut, true));                // they are not in cooldown
+    View peerBusted = peer; peerBusted.busted = true;
+    CHECK(!ShareHidingSpot(me, peerBusted, true));
+    // the wire: hiding only counts in cooldown
+    View w = FromWire(PURSUIT_ACTIVE | PURSUIT_COOLDOWN | PURSUIT_HIDING, 100);
+    CHECK(w.hiding);
+    w = FromWire(PURSUIT_ACTIVE | PURSUIT_HIDING, 100);
+    CHECK(!w.hiding);
+    CHECK((PURSUIT_HIDING & PURSUIT_KNOWN_BITS) == PURSUIT_HIDING);
+}
+
+TEST(pursuit_shared_cooldown_progress) {
+    View me = V(true, false, true, 20, true), peer = V(true, false, true, 12, true);
+    CHECK_NEAR(CooldownCatchUp(me, peer, true), 8.0, 1e-4);   // they are further on: we take their progress
+    CHECK_NEAR(CooldownCatchUp(peer, me, true), 0.0, 1e-6);   // never back: they keep theirs
+    View close = V(true, false, true, 12.2f, true);
+    CHECK_NEAR(CooldownCatchUp(close, peer, true), 0.0, 1e-6);   // within the slack (wire is 0.1 s)
+    CHECK_NEAR(CooldownCatchUp(me, peer, false), 0.0, 1e-6);  // disconnected
+    View seen = V(true, true, true, 20, true);
+    CHECK_NEAR(CooldownCatchUp(seen, peer, true), 0.0, 1e-6); // we were spotted: vanilla
+    View peerSeen = peer; peerSeen.seen = true;
+    CHECK_NEAR(CooldownCatchUp(me, peerSeen, true), 0.0, 1e-6);
+    View peerChased = V(true, false, false, 0, false);
+    CHECK_NEAR(CooldownCatchUp(me, peerChased, true), 0.0, 1e-6);   // only both in cooldown (Freeze / Reset rule)
+    View chased = V(true, false, false, 0, false);
+    CHECK_NEAR(CooldownCatchUp(chased, peer, true), 0.0, 1e-6);
+    View peerBusted = peer; peerBusted.busted = true;
+    CHECK_NEAR(CooldownCatchUp(me, peerBusted, true), 0.0, 1e-6);
+    View nanLeft = me; nanLeft.left = std::numeric_limits<float>::quiet_NaN();
+    CHECK_NEAR(CooldownCatchUp(nanLeft, peer, true), 0.0, 1e-6);
+    // after catching up, the two meet: both see the same time left and hold / escape together
+    float search = 3.f;
+    search += CooldownCatchUp(me, peer, true);
+    CHECK_NEAR(search, 11.0, 1e-4);
+    View done = V(true, false, true, 0.1f, true), peerDone = V(true, false, true, 0.1f, true);
+    CHECK(DecideCooldown(done, peerDone, true, true).what == Cool::Free);
+}
+
 TEST(pursuit_wire_view) {
     View v = FromWire(PURSUIT_ACTIVE | PURSUIT_COOLDOWN, 123);
     CHECK(v.inPursuit); CHECK(!v.seen); CHECK(v.cooling); CHECK(v.ready); CHECK(!v.busted);
