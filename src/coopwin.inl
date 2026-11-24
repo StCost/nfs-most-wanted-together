@@ -159,6 +159,7 @@ namespace {
     uint32_t g_teamWinEvent = 0;       // event whose win came from the other player
     uint32_t g_teamOutroEvent = 0;     // ... whose results list stands in for the photo in the "postrace" state
     bool     g_inPostRaceFlow = false; // ShowPostRaceCoop called by EnterPostRaceFlow (the "postrace" state)
+    uint32_t g_outWinEvent = 0;        // ... whose win was counted for us after we were out ("raceover")
 }
 static void MarkTeamWin() { g_teamWinEvent = Game::CurrentEventHash(); }
 static bool ShowTeamResultsImpl() {
@@ -219,7 +220,8 @@ namespace {
         ((FeNotifyFn)kPhotoNotifyFn)(photo, CoopRace::kFeAccept, nullptr, 0, 0);
     }
     int TeamResultsStepFor(uint32_t msg) {
-        return CoopRace::TeamResultsAction(msg, Game::CurrentEventHash(), g_teamOutroEvent,
+        uint32_t ev = Game::CurrentEventHash();
+        return CoopRace::TeamResultsAction(msg, ev, g_teamOutroEvent, g_teamWinEvent == ev ? g_outWinEvent : 0,
                                            FEScreens::IsPushed("PostRace_Results.fng"), FEScreens::IsPushed("InGamePhotoMaster.fng"));
     }
     void __fastcall hk_ResultsNotify(void* scr, void*, uint32_t msg, void* obj, uint32_t a, uint32_t b) {
@@ -253,7 +255,7 @@ static void CoopWinLatchTick(bool connected, const Net::Snapshot& peer) {
     bool sameEvent = peer.valid && peer.s.eventHash && peer.s.eventHash == ev;
     uint8_t pfin = sameEvent ? peer.s.finished : 0;
     if (ev != lastEvent || (restart && !lastRestart) || (lastPeerFin && !pfin && sameEvent && peer.s.inRace)) {
-        g_coopWinLogged = false; g_peerWonEvent = 0; g_peerRacedHere = false; g_teamWinEvent = 0; g_teamOutroEvent = 0;
+        g_coopWinLogged = false; g_peerWonEvent = 0; g_peerRacedHere = false; g_teamWinEvent = 0; g_teamOutroEvent = 0; g_outWinEvent = 0;
         g_bustedEvent = 0;   // a new run: not busted in it (yet)
     }
     lastEvent = ev; lastRestart = restart; lastPeerFin = pfin;
@@ -381,6 +383,60 @@ static void CoopFinishTickImpl() {
         posted ? "posted - the race script goes on to the winner's screen" : "NOT posted - the race ends when the game's AI drives our car over the line");
 }
 
+// ---- out of the race, and then the other player wins ----
+//  Totaled / knocked out / beaten: the race script is in "raceover" (it showed "race over", then the losing
+//  screen). Their win counts for us too (shared wins), once per run of the event, while we are still in it -
+//  the losing screen (results list or Restart / Quit), spectating or the knockout wait. A player who left
+//  with Quit / Continue before they won gave the race up: not counted (the race is no longer running here).
+//   - NotifyRaceFinished (0x6119F0): finished, the win gate pays the win and records the race result.
+//   - MNotifyRacePlacement(placing 1): the career counts a won event only from that message - the Blacklist
+//     scripts (race_bin_rival_locked: the bin's races, race_bin_rival_unlocked: the rival's races won) and
+//     completion_unlock_monitor. "raceover" itself does not answer it: the race script stays where it is.
+//  The race then ends the way "raceover" does: the list's Continue -> MNotifyRaceAbandoned -> back to free
+//  roam with control (without the "you did not win" dialog of a Blacklist race; coopwin hk_ResultsNotify).
+//  The bin's race sheet / rival challenge comes from the world map / safehouse as after any won race.
+static bool CreditTeamWinOut(const char* where) {
+    uint32_t ev = Game::CurrentEventHash();
+    if (!ev || g_outWinEvent == ev) return false;
+    g_outWinEvent = ev;
+    void* sim = LocalSimable();
+    if (sim) {
+        g_forcedFinishTried = true; g_forcedFinishEvent = ev;
+        ((void(__cdecl*)(void*))0x6119F0)(sim);                   // NotifyRaceFinished: the win gate counts their win
+    }
+    bool won = CoopWonImpl(RacerInfoOfLocal());
+    bool posted = false;
+    if (won) {
+        MarkTeamWin();
+        posted = sim && PostRacePlacement(CurrentParms(), sim, 1);
+        Game::QueueNotice("Your partner won - the win counts for you too", false);
+    }
+    LOG("Race: the other player won after we were out (%s) - %s, placement 1 %s", where,
+        won ? "counted for us too" : "not counted (shared wins off / scripted loss)", posted ? "posted" : "not posted");
+    return won;
+}
+static bool RacingMode() {
+    void* rs = nullptr; int mode = 0;
+    return Mem::Read(0x91E000, rs) && rs && Mem::Read((uintptr_t)rs + 0x1960, mode) && mode == 1;
+}
+// The screen for a race we are out of ("raceover"): won, the results list (ShowPostRaceCoop). A milestone
+// event's winning screen (EShowMilestones) ends with MFlowReadyForOutro, which "raceover" does not answer:
+// there the race-over Restart / Quit screen stays the way out (the win is counted all the same).
+static void ShowPostRaceOut(bool won) {
+    bool milestone = false;
+    __try {
+        void* rs = nullptr; void* parms = nullptr;
+        milestone = won && Mem::Read(0x91E000, rs) && rs && Mem::Read((uintptr_t)rs + 0x1968, parms) && parms &&
+                    ((bool(__thiscall*)(void*))0x5FBE70)(parms);
+    } __except (EXCEPTION_EXECUTE_HANDLER) { milestone = false; }
+    if (milestone) {
+        LOG("Race: a milestone event - its Restart / Quit screen (the win is counted)");
+        ((void(__cdecl*)(bool))0x60AC20)(false);
+        return;
+    }
+    ShowPostRaceCoop(won);
+}
+
 // ---- lap knockout: knocked out while the other player still races ----
 //  The race script knocks a racer out with the native KnockoutRacer (0x611440, cdecl(racer)): the racer's
 //  "knocked out" flag (0x600210), MNotifyKnockedOut, its AI told (+0x84), and the race status takes the car
@@ -423,6 +479,15 @@ namespace {
                 LOG("Race: knocked out while the other player still races - the results screen waits for them");
                 return;
             }
+            // they won while "race over" was shown: the winner's flow (results list) instead of the losing one
+            void* ri = RacerInfoOfLocal(); int rank = 0; uint8_t fin = 0;
+            if (ri) { Mem::Read((uintptr_t)ri + 0x10, rank); Mem::Read((uintptr_t)ri + 0x21, fin); }
+            if (Spectate::CreditBeforeLoseScreen(Game::Spectating(), PeerWonThisEvent(), RacingMode(), LocalRacerOut(),
+                                                 fin && rank == 1, g_outWinEvent == Game::CurrentEventHash())
+                && CreditTeamWinOut("before the losing screen")) {
+                ShowPostRaceOut(true);
+                return;
+            }
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
         ((void(__cdecl*)(bool))0x60AC20)(false);                 // ShowPostRace(false), as the game does
     }
@@ -460,22 +525,17 @@ static void KnockoutReleaseTickImpl() {
     if (ev != g_koEvent || Game::GameFlowState() != 6) { g_koHeld = false; return; }   // restarted / left
     if (PeerStillRacing() && GetTickCount() - g_koSince <= 15u * 60u * 1000u) return;
     g_koHeld = false;
-    if (PeerWonThisEvent()) {                                     // they won: the shared win is paid to us too
-        if (void* sim = LocalSimable()) {
-            g_forcedFinishTried = true; g_forcedFinishEvent = ev;
-            ((void(__cdecl*)(void*))0x6119F0)(sim);               // NotifyRaceFinished (the win gate counts their win)
-            LOG("Race: the other player won the knockout - counted as our win too");
-        }
-    }
-    bool won = PeerWonThisEvent() && CoopWonImpl(RacerInfoOfLocal());
-    if (won) MarkTeamWin();
+    bool won = false;
+    if (PeerWonThisEvent())                                       // they won: the shared win is paid to us too
+        won = CreditTeamWinOut("the knockout wait") || (g_outWinEvent == ev && g_teamWinEvent == ev);
     LOG("Race: the other player is done - our results screen now%s", won ? " (their win counts for us)" : "");
-    ShowPostRaceCoop(won);                                       // the screen the game held back
+    ShowPostRaceOut(won);                                        // the screen the game held back
 }
 
-// Out of the event (busted, totaled, beaten) with the race-over Restart / Quit screen up, not spectating,
-// and then the other player wins: the win counts for us too, so that screen gives way to the winner's flow
-// (the same steps as the end of spectating). Once per run of the event.
+// Out of the event (busted, totaled, beaten), not spectating, and then the other player wins: the win counts
+// for us too (CreditTeamWinOut). The race-over Restart / Quit screen (Pause_Main) gives way to the results
+// list (the same steps as the end of spectating); the losing results list stays and is now a won race's.
+// Once per run of the event.
 namespace { uint32_t g_loseToWinEvent = 0; DWORD g_loseToWinAt = 0; }
 static void LoseScreenWinTickImpl() {
     uint32_t ev = Game::CurrentEventHash();
@@ -483,22 +543,23 @@ static void LoseScreenWinTickImpl() {
         if (ev != g_loseToWinEvent || Game::GameFlowState() != 6) { g_loseToWinAt = 0; return; }
         if (FEScreens::IsPushed("Pause_Main.fng") && GetTickCount() - g_loseToWinAt < 1500) return;
         g_loseToWinAt = 0;
-        if (void* sim = LocalSimable()) {
-            g_forcedFinishTried = true; g_forcedFinishEvent = ev;
-            ((void(__cdecl*)(void*))0x6119F0)(sim);               // NotifyRaceFinished: the win gate counts their win
-        }
-        bool won = CoopWonImpl(RacerInfoOfLocal());
-        if (won) MarkTeamWin();
-        LOG("Race: the other player won while our Restart / Quit screen was up - %s", won ? "counted for us too" : "not counted (shared wins off / scripted loss)");
-        ShowPostRaceCoop(won);
+        bool won = CreditTeamWinOut("the Restart / Quit screen") || (g_outWinEvent == ev && g_teamWinEvent == ev);
+        ShowPostRaceOut(won);
         return;
     }
     if (!ev || !PeerWonThisEvent()) return;
     void* ri = RacerInfoOfLocal(); int rank = 0; uint8_t fin = 0;
     if (ri) { Mem::Read((uintptr_t)ri + 0x10, rank); Mem::Read((uintptr_t)ri + 0x21, fin); }
-    if (!Spectate::LoseScreenToWinner(Game::Spectating(), g_koHeld, true, FEScreens::IsPushed("Pause_Main.fng"),
-                                      LocalRacerOut(), fin && rank == 1, g_loseToWinEvent == ev)) return;
+    Spectate::OutWin step = Spectate::OutOfRaceWin(Game::Spectating(), g_koHeld, true, RacingMode(), LocalRacerOut(),
+                                                   fin && rank == 1, g_loseToWinEvent == ev || g_outWinEvent == ev,
+                                                   FEScreens::IsPushed("Pause_Main.fng"),
+                                                   FEScreens::IsPushed("PostRace_Results.fng"), FEScreens::IsPushed("InGamePhotoMaster.fng"));
+    if (step == Spectate::OutWin::None) return;
     g_loseToWinEvent = ev;
+    if (step == Spectate::OutWin::CreditHere) {                   // the losing results list: it stays, now a won race
+        CreditTeamWinOut("the results list");
+        return;
+    }
     void* un = ((void*(__cdecl*)(uint32_t))0x627400)(8);          // step 1, EUnPause: the Restart / Quit screen goes
     if (!un) return;
     ((void(__thiscall*)(void*))0x625870)(un);

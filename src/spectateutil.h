@@ -29,10 +29,23 @@ namespace Spectate {
         return Next::EndLost;                                      // they lost too, quit, or left: our Restart / Quit
     }
 
-    // Not spectating, out of the event with the race-over Restart / Quit screen up, and then the other
-    // player wins: that screen gives way to the winner's flow (once per run of the event).
-    inline bool LoseScreenToWinner(bool spectating, bool knockoutHeld, bool peerWon, bool loseScreenUp,
-                                   bool localOut, bool localWon, bool doneThisRun) {
-        return !spectating && !knockoutHeld && peerWon && loseScreenUp && localOut && !localWon && !doneThisRun;
+    // Out of the event ("raceover": totaled, knocked out, beaten), not spectating / waiting for a knockout, the
+    // race still running here, and then the other player wins (once per run): what happens to the screen up.
+    //  ViaPauseScreen - the race-over Restart / Quit screen: it goes, the win is counted, the results list
+    //  CreditHere     - the losing results list: the win is counted, the list stays (its Continue ends the race)
+    //  None           - nothing yet (the "race over" message: ShowLosingPostRaceScreen decides), or we left
+    enum class OutWin { None, CreditHere, ViaPauseScreen };
+    inline OutWin OutOfRaceWin(bool spectating, bool knockoutHeld, bool peerWon, bool racing, bool localOut,
+                               bool localWon, bool doneThisRun, bool pauseScreenUp, bool resultsUp, bool photoUp) {
+        if (spectating || knockoutHeld || !peerWon || !racing || !localOut || localWon || doneThisRun) return OutWin::None;
+        if (pauseScreenUp) return OutWin::ViaPauseScreen;
+        if (resultsUp && !photoUp) return OutWin::CreditHere;
+        return OutWin::None;
+    }
+    // ShowLosingPostRaceScreen with their win already in (they won while "race over" was shown): the win is
+    // counted and the results list comes instead of the losing screen
+    inline bool CreditBeforeLoseScreen(bool spectating, bool peerWon, bool racing, bool localOut, bool localWon,
+                                       bool doneThisRun) {
+        return !spectating && peerWon && racing && localOut && !localWon && !doneThisRun;
     }
 }

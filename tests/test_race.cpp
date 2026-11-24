@@ -306,14 +306,35 @@ TEST(spectate_ends_with_their_result) {
 
 TEST(spectate_lose_screen_gives_way_to_the_winners_screen) {
     using namespace Spectate;
-    CHECK(LoseScreenToWinner(false, false, true, true, true, false, false));
-    CHECK(!LoseScreenToWinner(true, false, true, true, true, false, false));    // spectating: its own ending
-    CHECK(!LoseScreenToWinner(false, true, true, true, true, false, false));    // knockout hold: its own release
-    CHECK(!LoseScreenToWinner(false, false, false, true, true, false, false));  // they haven't won
-    CHECK(!LoseScreenToWinner(false, false, true, false, true, false, false));  // no Restart / Quit screen up
-    CHECK(!LoseScreenToWinner(false, false, true, true, false, false, false));  // we still race (a plain pause)
-    CHECK(!LoseScreenToWinner(false, false, true, true, true, true, false));    // we won ourselves
-    CHECK(!LoseScreenToWinner(false, false, true, true, true, false, true));    // once per run
+    // (spectating, koHeld, peerWon, racing, localOut, localWon, doneThisRun, pauseUp, resultsUp, photoUp)
+    CHECK(OutOfRaceWin(false, false, true, true, true, false, false, true, false, false) == OutWin::ViaPauseScreen);
+    CHECK(OutOfRaceWin(true, false, true, true, true, false, false, true, false, false) == OutWin::None);    // spectating: its own ending
+    CHECK(OutOfRaceWin(false, true, true, true, true, false, false, true, false, false) == OutWin::None);    // knockout hold: its own release
+    CHECK(OutOfRaceWin(false, false, false, true, true, false, false, true, false, false) == OutWin::None);  // they haven't won
+    CHECK(OutOfRaceWin(false, false, true, true, true, false, false, false, false, false) == OutWin::None);  // "race over" message / left
+    CHECK(OutOfRaceWin(false, false, true, true, false, false, false, true, false, false) == OutWin::None);  // we still race (a plain pause)
+    CHECK(OutOfRaceWin(false, false, true, true, true, true, false, true, false, false) == OutWin::None);    // we won ourselves
+    CHECK(OutOfRaceWin(false, false, true, true, true, false, true, true, false, false) == OutWin::None);    // once per run
+}
+
+TEST(race_out_player_gets_the_team_win) {
+    using namespace Spectate;
+    // totaled / knocked out with the losing results list up, then they win: counted, the list stays
+    CHECK(OutOfRaceWin(false, false, true, true, true, false, false, false, true, false) == OutWin::CreditHere);
+    CHECK(OutOfRaceWin(false, false, true, true, true, false, false, false, true, true) == OutWin::None);    // the photo, not ours
+    CHECK(OutOfRaceWin(false, false, true, true, true, false, true, false, true, false) == OutWin::None);    // already counted
+    // quit / continued off the losing screen before they won: the race is over here - not counted
+    CHECK(OutOfRaceWin(false, false, true, false, true, false, false, false, false, false) == OutWin::None);
+    CHECK(OutOfRaceWin(false, false, true, false, true, false, false, false, true, false) == OutWin::None);
+    CHECK(OutOfRaceWin(false, false, true, false, true, false, false, true, false, false) == OutWin::None);
+    // they won while "race over" was shown: the results list instead of the losing screen
+    CHECK(CreditBeforeLoseScreen(false, true, true, true, false, false));
+    CHECK(!CreditBeforeLoseScreen(true, true, true, true, false, false));    // spectating
+    CHECK(!CreditBeforeLoseScreen(false, false, true, true, false, false));  // they haven't won (yet)
+    CHECK(!CreditBeforeLoseScreen(false, true, false, true, false, false));  // the race is over here
+    CHECK(!CreditBeforeLoseScreen(false, true, true, false, false, false));  // we still race
+    CHECK(!CreditBeforeLoseScreen(false, true, true, true, true, false));    // we won ourselves
+    CHECK(!CreditBeforeLoseScreen(false, true, true, true, false, true));    // already counted
 }
 
 // ---- start together at the loading screen (1.7.5) ------------------------------------------------
@@ -395,12 +416,19 @@ TEST(race_team_win_shows_the_results_list) {
     CHECK(!TeamWinResults(true, 0, 0));
 }
 TEST(race_team_results_leave_like_the_photo) {
-    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x1234, true, false) == kResultsOutro);
-    CHECK(TeamResultsAction(kFeAccept, 0x1234, 0x1234, true, false) == kResultsNoDialog);
-    CHECK(TeamResultsAction(0xE1A57D51u, 0x1234, 0x1234, true, false) == kResultsAsIs);   // Restart: as the game does
-    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0, true, false) == kResultsAsIs);    // a lost race / "raceover"
-    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x999, true, false) == kResultsAsIs);
-    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x1234, false, false) == kResultsAsIs);
-    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x1234, true, true) == kResultsAsIs);  // opened from the photo
-    CHECK(TeamResultsAction(kFeExitComplete, 0, 0, true, false) == kResultsAsIs);
+    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x1234, 0, true, false) == kResultsOutro);
+    CHECK(TeamResultsAction(kFeAccept, 0x1234, 0x1234, 0, true, false) == kResultsNoDialog);
+    CHECK(TeamResultsAction(0xE1A57D51u, 0x1234, 0x1234, 0, true, false) == kResultsAsIs);   // Restart: as the game does
+    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0, 0, true, false) == kResultsAsIs);    // a lost race / "raceover"
+    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x999, 0, true, false) == kResultsAsIs);
+    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x1234, 0, false, false) == kResultsAsIs);
+    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x1234, 0, true, true) == kResultsAsIs);  // opened from the photo
+    CHECK(TeamResultsAction(kFeExitComplete, 0, 0, 0, true, false) == kResultsAsIs);
+    // won after we were out ("raceover"): Continue without the dialog, the list's own exit
+    CHECK(TeamResultsAction(kFeAccept, 0x1234, 0, 0x1234, true, false) == kResultsNoDialog);
+    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0, 0x1234, true, false) == kResultsAsIs);
+    CHECK(TeamResultsAction(0xE1A57D51u, 0x1234, 0, 0x1234, true, false) == kResultsAsIs);
+    CHECK(TeamResultsAction(kFeAccept, 0x1234, 0, 0x999, true, false) == kResultsAsIs);
+    CHECK(TeamResultsAction(kFeAccept, 0x1234, 0, 0x1234, false, false) == kResultsAsIs);
+    CHECK(TeamResultsAction(kFeAccept, 0x1234, 0, 0x1234, true, true) == kResultsAsIs);
 }

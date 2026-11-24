@@ -155,14 +155,10 @@ static void SpectateTickImpl() {
     if (n == Spectate::Next::EndQuiet) { StopSpectating("race restarted or left"); return; }
     if (n == Spectate::Next::EndWon) {
         StopSpectating("the other player won");
-        if (void* sim = LocalSimable()) {
-            g_forcedFinishTried = true; g_forcedFinishEvent = Game::CurrentEventHash();
-            ((void(__cdecl*)(void*))0x6119F0)(sim);                   // NotifyRaceFinished: the win gate counts their win
-        }
-        bool won = CoopWonImpl(RacerInfoOfLocal());
-        if (won) MarkTeamWin();
+        uint32_t ev = Game::CurrentEventHash();
+        bool won = CreditTeamWinOut("spectating") || (g_outWinEvent == ev && g_teamWinEvent == ev);
         LOG("Spectate: their win counts for us too - %s", won ? "the results list" : "not counted (shared wins off / scripted loss)");
-        ShowPostRaceCoop(won);
+        ShowPostRaceOut(won);
         return;
     }
     StopSpectating("the other player is out too");

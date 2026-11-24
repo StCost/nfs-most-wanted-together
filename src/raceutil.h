@@ -237,8 +237,12 @@ namespace CoopRace {
     // MNotifyRaceAbandoned, which only "raceover" answers - the race never ended and nothing responded.
     enum TeamResultsStep { kResultsAsIs = 0, kResultsNoDialog = 1, kResultsOutro = 2 };
     constexpr uint32_t kFeAccept = 0x406415E3u, kFeExitComplete = 0xE1FDE1D1u;
-    inline int TeamResultsAction(uint32_t msg, uint32_t event, uint32_t outroEvent, bool resultsUp, bool photoUp) {
-        if (!event || event != outroEvent || !resultsUp || photoUp) return kResultsAsIs;
+    // outWinEvent: the event whose win was counted for us after we were out ("raceover"): the list's own exit
+    // (MNotifyRaceAbandoned) is the way out there, only the "you did not win" dialog is skipped.
+    inline int TeamResultsAction(uint32_t msg, uint32_t event, uint32_t outroEvent, uint32_t outWinEvent,
+                                 bool resultsUp, bool photoUp) {
+        if (!event || !resultsUp || photoUp) return kResultsAsIs;
+        if (event != outroEvent) return (msg == kFeAccept && event == outWinEvent) ? kResultsNoDialog : kResultsAsIs;
         if (msg == kFeExitComplete) return kResultsOutro;     // the list has gone after Continue: the photo's Continue
         if (msg == kFeAccept) return kResultsNoDialog;        // Continue: no "you did not win" dialog for a counted win
         return kResultsAsIs;
