@@ -1150,7 +1150,7 @@ bool NativeUI::Install() {
     uint8_t ctorHead[3] = {}, qmHead[6] = {};
     ok = ok && Mem::SafeRead((const void*)0x586FA0, ctorHead, 3) && ctorHead[0] == 0x8B && ctorHead[1] == 0x54;   // IconOption ctor
     ok = ok && Mem::SafeRead((const void*)kQueueMessageAddr, qmHead, 6) && memcmp(qmHead, kQueueMessageHead, 6) == 0;
-    if (!ok) { LOG("Native: this speed.exe isn't the one the menu entries are made for - the game's menus stay as they are (F2 page)"); return false; }
+    if (!ok) { LOG("Native: this speed.exe isn't the one the menu entries are made for - the game's menus stay as they are (Together page: hold BACK on a pad)"); return false; }
 
     InitStrings();
     memcpy(g_widgetVt, (const void*)kVtGODamage, sizeof(g_widgetVt));

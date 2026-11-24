@@ -46,7 +46,6 @@ namespace {
     int      g_flow = -1;
     bool     g_hint = false;
     DWORD    g_lastRefresh = 0;
-    uint8_t  g_dikOpen = 0x3C;         // DIK of [UI] TogetherKey (F2)
     // After the page closes, the key / button that closed it (Esc, Enter, B, START) is still down: the game
     // must not see it (Esc would open the pause menu), so input stays blocked until it is released.
     bool     g_swallowKb = false, g_swallowPad = false;
@@ -304,15 +303,14 @@ void Together::Init(const char* iniPath) {
     g_setupDone = atoi(b) != 0;
     GetPrivateProfileStringA("Network", "AutoConnect", "1", b, sizeof(b), iniPath);
     g_autoConnect = atoi(b) != 0;
-    GetPrivateProfileStringA("UI", "TogetherKey", "0x71", b, sizeof(b), iniPath);   // VK, default F2
-    UINT vk = (UINT)strtoul(b, nullptr, 0);
-    g_dikOpen = vk ? (uint8_t)MapVirtualKeyA(vk, MAPVK_VK_TO_VSC) : 0;   // DirectInput codes are scan codes
+    // no keyboard key opens the page (an old [UI] TogetherKey is ignored): the game's own menus have
+    // the same rows, and holding BACK on a pad opens it
 #ifdef MWT_DEVTOOLS
     if (g_cfg.testKeys) g_setupDone = true;     // scripted test runs never wait for the first-start setup
 #endif
     memset(g_prev, 0, sizeof(g_prev));
     KeepWidescreenFixMovies();   // before / besides the game's Widescreen Fix: SkipIntro=1 would skip boss movies
-    LOG("Together: settings page on %s%s%s", vk ? "the key / holding BACK on a pad" : "holding BACK on a pad (no key)",
+    LOG("Together: settings page on holding BACK on a pad%s%s",
         g_setupDone ? "" : " - first start", g_autoConnect ? "" : " - asks Host / Join at start");
 }
 
@@ -325,9 +323,7 @@ void Together::OnKeyboard(const uint8_t* k) {
     if (!Focused()) { memcpy(g_prev, k, 256); return; }
     if (!g_open) {
         if (g_swallowKb) return;                    // g_prev keeps the keys that closed the page
-        if (g_dikOpen && Pressed(k, g_dikOpen, false)) Open();
-        g_prev[g_dikOpen] = k[g_dikOpen];          // only the open key is looked at while the page is closed
-        if (g_open) memcpy(g_prev, k, 256);         // keys already held don't act on the page
+        memcpy(g_prev, k, 256);                     // no key opens the page: keys held when it opens don't act on it
         return;
     }
     bool shift = (k[0x2A] & 0x80) || (k[0x36] & 0x80);
@@ -482,10 +478,7 @@ bool Together::Paint(uint32_t* pixels, int pitch, int maxW, int maxH, int* outW,
     if (!g_open) {   // front-end hint
         Fill(dc, 0, 0, W, H, kBack);
         Fill(dc, 0, 0, 4, H, kAccent);
-        char key[32] = "", hint[128];
-        if (g_dikOpen && GetKeyNameTextA((LONG)g_dikOpen << 16, key, sizeof(key)) <= 0) sprintf_s(key, "key %u", g_dikOpen);
-        sprintf_s(hint, "%s%shold BACK on the pad: MW Together settings", key, key[0] ? " or " : "");
-        Text(dc, fSmall, 12, 0, W - 16, H, hint, kText, DT_LEFT);
+        Text(dc, fSmall, 12, 0, W - 16, H, "Hold BACK on the pad: MW Together settings", kText, DT_LEFT);
     } else {
         Fill(dc, 0, 0, W, H, kBack);
         // header: stripes like the game's panels

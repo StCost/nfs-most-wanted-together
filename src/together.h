@@ -7,7 +7,7 @@
 //   - normally in the game's own menus (nativeui.cpp): Options > Together, and Main menu > Together to
 //     host or join. Until Host / Join is picked ([UI] TogetherSetupDone=0, or [Network] AutoConnect=0)
 //     AutoStart stops at the main menu; with AutoConnect=1 it connects as last time.
-//   - the overlay page (F2 or holding BACK on a pad) has the same rows; it opens by itself on the
+//   - the overlay page (holding BACK on a pad; no keyboard key) has the same rows; it opens by itself on the
 //     first start only when the game's menus couldn't get their entries
 //   - Save & Play writes scripts\MWTogether.ini (comments kept) and applies the settings; a changed
 //     name / colour / mode / address / port reconnects (Net::Restart)
