@@ -70,6 +70,124 @@ TEST(race_pick_racer_rival_of_another_model) {
     CHECK(ANY_MODEL_AFTER_MS > 0);
 }
 
+TEST(race_pick_racer_duplicate_models_by_slot_and_role) {
+    // Big Lou 11.1.2: the rival and the helper are both Eclipse GTs (A2D70BBD). Slot 0 is the local
+    // player (not a candidate), 1 the rival, 2 the helper, 3 the other player's car (reserved).
+    const uint32_t ecl = 0xA2D70BBDu;
+    RacerCand c[3] = { { ecl, true, 2, kRoleHelper }, { ecl, true, 1, kRoleRival }, { 0x5A784095u, false, 3, kRoleUnknown } };
+    RacerWant rival{ ecl, 1, kRoleRival }, helper{ ecl, 2, kRoleHelper };
+    CHECK_EQ(PickRacer(c, 3, rival, false), 1);       // not the first Eclipse in the list (the helper)
+    CHECK_EQ(PickRacer(c, 3, helper, false), 0);
+    // a 1.7.9 host sends no slot: the role from our side still keeps a role-less want on the same model
+    RacerWant old{ ecl };
+    CHECK_EQ(PickRacer(c, 3, old, false), 0);         // model only: the first free one (old behaviour)
+    // roles known, slot differs (one game had no helper): role + model wins over a bare slot
+    RacerWant rivalOtherSlot{ ecl, 5, kRoleRival };
+    CHECK_EQ(PickRacer(c, 3, rivalOtherSlot, false), 1);
+    // the slot matches but our racer there has another role: not that one
+    RacerWant helperInRivalSlot{ ecl, 1, kRoleHelper };
+    CHECK_EQ(PickRacer(c, 3, helperInRivalSlot, false), 0);
+    // helper of another model here (no roster): the helper role binds at once, never the rival
+    RacerCand d[2] = { { ecl, true, 1, kRoleRival }, { 0x11111111u, true, 2, kRoleHelper } };
+    CHECK_EQ(PickRacer(d, 2, helper, false), 1);
+    d[1].free = false;                                 // our helper is taken: wait, then...
+    CHECK_EQ(PickRacer(d, 2, helper, false), -1);
+    CHECK_EQ(PickRacer(d, 2, helper, true), 0);        // ... any free racer rather than none
+    // normal races: the same slot even when our game built another model there
+    RacerCand e[2] = { { 0x22, true, 2, kRoleNormal }, { 0x33, true, 3, kRoleNormal } };
+    RacerWant n3{ 0x22, 3, kRoleNormal };
+    CHECK_EQ(PickRacer(e, 2, n3, false), 1);
+    RacerWant nNoSlot{ 0x33, -1, kRoleNormal };
+    CHECK_EQ(PickRacer(e, 2, nNoSlot, false), 1);
+}
+
+TEST(race_racer_role_of_slot) {
+    CHECK_EQ(RacerRoleOf(1, true, 2, 3), kRoleRival);
+    CHECK_EQ(RacerRoleOf(2, true, 2, 3), kRoleHelper);
+    CHECK_EQ(RacerRoleOf(3, true, 2, 3), kRoleUnknown);   // the other player's slot
+    CHECK_EQ(RacerRoleOf(1, true, -1, -1), kRoleRival);  // no helper
+    CHECK_EQ(RacerRoleOf(4, false, -1, 1), kRoleNormal);
+    CHECK_EQ(RacerRoleOf(-1, true, 2, 3), kRoleUnknown);
+}
+
+TEST(race_racer_slot_on_the_wire) {
+    int slot = 0, role = 0;
+    uint16_t f = EncodeRacerSlot(2 | 8, 2, kRoleHelper);
+    CHECK((f & 0xFF) == (2 | 8));                      // the old bits stay as they were
+    CHECK(DecodeRacerSlot(f, slot, role)); CHECK_EQ(slot, 2); CHECK_EQ(role, kRoleHelper);
+    f = EncodeRacerSlot(2, 15, kRoleRival);
+    CHECK(DecodeRacerSlot(f, slot, role)); CHECK_EQ(slot, 15); CHECK_EQ(role, kRoleRival);
+    f = EncodeRacerSlot(2, 0, kRoleNormal);
+    CHECK(DecodeRacerSlot(f, slot, role)); CHECK_EQ(slot, 0); CHECK_EQ(role, kRoleNormal);
+    f = EncodeRacerSlot(2, 4, kRoleUnknown);
+    CHECK(DecodeRacerSlot(f, slot, role)); CHECK_EQ(slot, 4); CHECK_EQ(role, kRoleUnknown);
+    CHECK_EQ(EncodeRacerSlot(2, -1, kRoleRival), 2);   // no slot: nothing added
+    CHECK_EQ(EncodeRacerSlot(2, 16, kRoleRival), 2);
+    CHECK(!DecodeRacerSlot(2 | 8, slot, role)); CHECK_EQ(slot, -1); CHECK_EQ(role, kRoleUnknown);   // 1.7.9 host
+    CHECK(!DecodeRacerSlot(EncodeRacerSlot(2, 3, kRoleRival) & ~2, slot, role));   // not a racer: ignored
+    CHECK_EQ(EncodeRacerSlot(0xFF02, 3, kRoleRival) & 0xFF, 0x02);   // stale high bits are replaced
+}
+
+TEST(race_roster_role_byte) {
+    CHECK_EQ(DecodeRosterRole(0), kRoleUnknown);       // 1.7.9 and older: padding, always 0
+    for (int r = kRoleNormal; r <= kRoleHelper; ++r) CHECK_EQ(DecodeRosterRole(EncodeRosterRole(r)), r);
+    CHECK_EQ(EncodeRosterRole(kRoleUnknown), 0);
+    CHECK_EQ(EncodeRosterRole(7), 0);
+    CHECK_EQ(DecodeRosterRole(0x80 | 5), kRoleUnknown);  // a role we don't know
+    CHECK_EQ(DecodeRosterRole(0x02), kRoleUnknown);      // no "present" bit
+    int marked[3] = { kRoleRival, kRoleHelper, kRoleNormal };
+    CHECK_EQ(RosterHelperEntry(marked, 3, 1), 1);
+    int marked2[2] = { kRoleHelper, kRoleRival };
+    CHECK_EQ(RosterHelperEntry(marked2, 2, 1), 0);       // the marked entry, not the index
+    int noHelper[1] = { kRoleRival };
+    CHECK_EQ(RosterHelperEntry(noHelper, 1, 1), -1);     // marked roster without a helper: none
+    int old[2] = { kRoleUnknown, kRoleUnknown };
+    CHECK_EQ(RosterHelperEntry(old, 2, 1), 1);           // 1.7.9 sender: by opponent index
+    CHECK_EQ(RosterHelperEntry(old, 1, 1), -1);
+    CHECK_EQ(RosterHelperEntry(old, 0, 0), -1);
+}
+
+TEST(race_helper_always_gets_a_parts_record) {
+    const uint32_t ecl = 0xA2D70BBDu, pick = 0x12345678u, wrx = 0x0BADF00Du;
+    // Big Lou: the game picked another car, the rival is an Eclipse with its record: the rival's parts
+    HelperIn in{ ecl, pick, ecl, true, 0, false };
+    HelperOut o = ChooseHelperCar(in);
+    CHECK_EQ(o.model, ecl); CHECK_EQ(o.record, kHelperRivalRecord);
+    // the game already picked the list model: its own record
+    in = HelperIn{ ecl, ecl, ecl, true, 0, false };
+    o = ChooseHelperCar(in); CHECK_EQ(o.model, ecl); CHECK_EQ(o.record, kHelperGameRecord);
+    // Ming: the list model is not the rival's: no record for it here - the game's pick stays
+    in = HelperIn{ wrx, pick, ecl, true, 0, false };
+    o = ChooseHelperCar(in); CHECK_EQ(o.model, pick); CHECK_EQ(o.record, kHelperGameRecord);
+    // rival without a record: never build the list model bare
+    in = HelperIn{ ecl, pick, ecl, false, 0, false };
+    o = ChooseHelperCar(in); CHECK_EQ(o.model, pick); CHECK_EQ(o.record, kHelperGameRecord);
+    // no list model for this rival: the game's pick
+    in = HelperIn{ 0, pick, ecl, true, 0, false };
+    o = ChooseHelperCar(in); CHECK_EQ(o.model, pick); CHECK_EQ(o.record, kHelperGameRecord);
+    // joining: the other game's helper with its record wins
+    in = HelperIn{ ecl, pick, ecl, true, wrx, true };
+    o = ChooseHelperCar(in); CHECK_EQ(o.model, wrx); CHECK_EQ(o.record, kHelperPeerRecord);
+    // a bare entry from a 1.7.9 game (the bug): its model with the rival's record when that fits ...
+    in = HelperIn{ 0, pick, ecl, true, ecl, false };
+    o = ChooseHelperCar(in); CHECK_EQ(o.model, ecl); CHECK_EQ(o.record, kHelperRivalRecord);
+    // ... the game's own record when the game picked that model ...
+    in = HelperIn{ 0, ecl, ecl, true, ecl, false };
+    o = ChooseHelperCar(in); CHECK_EQ(o.model, ecl); CHECK_EQ(o.record, kHelperGameRecord);
+    // ... else the game's pick, never a bare car
+    in = HelperIn{ ecl, pick, ecl, true, wrx, false };
+    o = ChooseHelperCar(in); CHECK_EQ(o.model, pick); CHECK_EQ(o.record, kHelperGameRecord);
+}
+
+TEST(race_join_waits_for_the_roster_in_rival_races) {
+    CHECK(WaitForRoster(true, true, false, 0));
+    CHECK(WaitForRoster(true, true, false, kRosterWaitMs - 1));
+    CHECK(!WaitForRoster(true, true, false, kRosterWaitMs));   // not forever: our own helper then
+    CHECK(!WaitForRoster(true, true, true, 0));                // it's here
+    CHECK(!WaitForRoster(false, true, false, 0));              // not a rival race
+    CHECK(!WaitForRoster(true, false, false, 0));              // no helper
+}
+
 TEST(race_peer_ghost_is_never_a_racer_or_traffic_slot) {
     // the other player's car (ghost, or the racer built as their model) is not a bind candidate
     CHECK(MayBindAsRaceMirror(false, false, false));

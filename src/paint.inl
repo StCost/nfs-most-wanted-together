@@ -119,6 +119,14 @@ namespace {
     }
 }
 
+// game.cpp's body-shell log: the CarPart of a part index, null if the index is unknown (or the lookup isn't verified)
+static void* CarPartByIndex(int16_t index) {
+    __try {
+        if (index < 0 || !PaintFnsOk()) return nullptr;
+        return ((void*(__thiscall*)(void*, int))kGetCarPartByIndex)((void*)kCarPartDB, (int)index);
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
+}
+
 uint32_t Game::LocalBlipColor() { return g_blipLocal; }
 uint32_t Game::PeerBlipColor()  { return g_blipPeer; }
 

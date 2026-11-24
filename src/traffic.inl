@@ -1017,8 +1017,9 @@ static int MaintainMirrors(double now) {
                 LOG("Race: opponent mirror %u was bound to the other player's car - letting go", m.id);
                 m.iv = nullptr; m.wid = 0; m.bound = false; m.fails = 0;
             }
-            // bind to one of our own AI racers - the same model, else (after a moment) any free one -
-            // switch its AI off and drive it. The peer ghost / factory peer racer is never a candidate.
+            // bind to one of our own AI racers - the same racer slot and role (1.8+ hosts send them), else the
+            // same model, else (after a moment) any free one - switch its AI off and drive it. The peer ghost /
+            // factory peer racer is never a candidate.
             if (!m.iv && m.n) {
                 if (!m.unboundSince || m.unboundSince > now) m.unboundSince = now;
                 void** b = nullptr;
@@ -1032,15 +1033,21 @@ static int MaintainMirrors(double now) {
                     cand[i].free = r && !IsMirrorCar(r) && RigidBodyOf(r) &&
                                    CoopRace::MayBindAsRaceMirror(r == me, r == g_ghost, r == g_replacedRacer);
                     cand[i].model = cand[i].free ? ModelKeyOf(r) : 0;
+                    cand[i].slot = cand[i].free ? RacerSlotOfInfo(RacerInfoOf(r)) : -1;
+                    cand[i].role = RacerRoleOfSlot(cand[i].slot);
                 }
-                int k = CoopRace::PickRacer(cand, cnt, m.model, now - m.unboundSince > CoopRace::ANY_MODEL_AFTER_MS);
+                CoopRace::RacerWant want{ m.model };
+                CoopRace::DecodeRacerSlot(m.s[m.n - 1].e.flags, want.slot, want.role);
+                int k = CoopRace::PickRacer(cand, cnt, want, now - m.unboundSince > CoopRace::ANY_MODEL_AFTER_MS);
                 if (k >= 0) {
                     void* r = cars[k];
                     m.iv = r; m.wid = WorldIdOf(r); m.unboundSince = 0;
                     DisableAI(r);
-                    if (cand[k].model == m.model) LOG("Race: our racer %p (%s) now follows the host's opponent (mirror id %u)", r, VehName(r), m.id);
-                    else LOG("Race: our racer %p (%s, model %08X) now follows the host's opponent %u of model %08X - no free racer of that model here",
-                             r, VehName(r), cand[k].model, m.id, m.model);
+                    static const char* const kRoleName[] = { "normal", "rival", "helper" };
+                    const char* wr = (want.role >= 0 && want.role <= 2) ? kRoleName[want.role] : "role unknown";
+                    if (cand[k].model == m.model) LOG("Race: our racer %p (%s, slot %d) now follows the host's opponent (mirror id %u, host slot %d, %s)", r, VehName(r), cand[k].slot, m.id, want.slot, wr);
+                    else LOG("Race: our racer %p (%s, model %08X, slot %d) now follows the host's opponent %u of model %08X (host slot %d, %s) - no free racer of that model in that slot here",
+                             r, VehName(r), cand[k].model, cand[k].slot, m.id, m.model, want.slot, wr);
                 }
                 if (!m.iv && !m.fails) {   // log once why it found no partner
                     m.fails = 1;
@@ -1134,6 +1141,11 @@ static int CollectOwned(std::initializer_list<int> lists, const float* to, Traff
             if (pai && VCall<bool(__thiscall*)(void*)>(pai, 5)(pai)) e.flags |= 4;
         }
         if (EmulatedPhysics(cand[i].iv)) e.flags |= 8;     // floating here: the other game puts its copy on the ground
+        // host: a racer's slot and role, so the client's racer in the same slot follows it (not just one of the same model)
+        if (g_cfg.isHost && (e.flags & 2)) {
+            int slot = RacerSlotOfInfo(RacerInfoOf(cand[i].iv));
+            e.flags = CoopRace::EncodeRacerSlot(e.flags, slot, RacerRoleOfSlot(slot));
+        }
         e.model = ModelKeyOf(cand[i].iv);
         e.glare = GlareBits(cand[i].iv);
         memcpy(e.pos, RB_GetVec(rb, RB_GetPosition), 12);

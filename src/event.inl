@@ -21,8 +21,6 @@ namespace {
     void*    g_lastParms = nullptr;          // race parameters we last saw on this machine
     uint32_t g_handledHash = 0; DWORD g_handledAt = 0;   // invitation we already acted on (repeats are ignored)
     uint32_t g_curEventHash = 0;             // event we are in (0 = none), sent with our state
-    uint32_t g_joiningEvent = 0;             // event hash we're joining because the peer started it
-    DWORD    g_joinStartedAt = 0;
     char     g_eventStatus[96] = "";
 
     void* RaceStatus() { void* p = nullptr; Mem::Read(0x91E000, p); return p; }
@@ -80,6 +78,27 @@ namespace {
         Game::QueueNotice(text, warn);
     }
 
+    // Joining the other player's rival race: their roster (rival, helper) comes with the invitation and is
+    // repeated with it. Wait up to CoopRace::kRosterWaitMs for it, so both games build the same helper
+    // (with none, each game built its own). False = wait (keep the invitation and retry).
+    bool RosterReadyFor(uint32_t hash, void* parms, const char* eventId) {
+        static uint32_t waitHash = 0; static DWORD waitSince = 0, lastCall = 0, lastLog = 0;
+        DWORD now = GetTickCount();
+        if (waitHash != hash || now - lastCall > 10000) { waitHash = hash; waitSince = now; lastLog = 0; }
+        lastCall = now;
+        bool boss = false;
+        __try { boss = parms && ((bool(__thiscall*)(void*))0x5FBD90)(parms); } __except (EXCEPTION_EXECUTE_HANDLER) { boss = false; }
+        bool fresh = PeerRosterFresh();
+        if (CoopRace::WaitForRoster(boss, g_cfg.bossHelper, fresh, now - waitSince)) {
+            if (!lastLog) { lastLog = now; LOG("Event: %s is a rival race - waiting for the other player's racer list first", eventId); }
+            return false;
+        }
+        if (boss && g_cfg.bossHelper && lastLog)
+            LOG("Event: %s - %s after %lu ms", eventId, fresh ? "the other player's racer list is here" : "no racer list from the other player, our own helper", (unsigned long)(now - waitSince));
+        lastLog = 0;
+        return true;
+    }
+
     // Returns true while the invitation should be kept and retried (EventTickImpl, g_pending): a step
     // was taken (menu closed, results left, quit to the main menu) or we're loading. False when it's
     // done (started), or refused.
@@ -105,6 +124,8 @@ namespace {
                 if (GetTickCount() - lastRefuseLog > 10000) { lastRefuseLog = GetTickCount(); LOG("Event: %s invited while we're on the results screen - not joined (a rival event of another Blacklist rival: ours #%d, theirs #%d)", eventId, (int)Game::CareerBin(), PeerCareerBin()); }
                 return false;
             }
+            // "race the rival": the game starts their next race by itself once we leave - their roster first
+            if (!strcmp(resultsScreen, "InGameRivalChallenge.fng") && !RosterReadyFor(eventHash, next, eventId)) return true;
             static DWORD lastExit = 0;
             void* fe = nullptr;
             if (GetTickCount() - lastExit > 2500 && Mem::Read(0x91CADC, fe) && fe) {
@@ -169,6 +190,7 @@ namespace {
                 return true;                          // the main menu starts it (EventTickImpl retries)
             }
         }
+        if (fromPeer && !RosterReadyFor(eventHash, parms, eventId)) return true;   // kept: retried with the next copy
         g_joiningEvent = fromPeer ? eventHash : 0;   // a local test start is sent on to the peer
         if (fromPeer) g_closeMenusUntil = GetTickCount() + 15000;   // close our event menus that may still be open
         g_startingEventHash = eventHash;             // lets the car factory know which event is loading
@@ -233,6 +255,7 @@ namespace {
             rp.index = (uint8_t)i; rp.count = (uint8_t)g_inviteN;
             rp.carKey = g_inviteRoster[i].key;
             rp.hasCustom = g_inviteRoster[i].hasCustom ? 1 : 0;
+            rp.role = CoopRace::EncodeRosterRole(g_inviteRoster[i].role);   // 0 (= unknown) to 1.7.9 and older
             memcpy(rp.custom, g_inviteRoster[i].custom, sizeof(rp.custom));
             Net::SendRoster(rp);
         }
@@ -355,6 +378,7 @@ bool Game::InstallEventSync() {
         if (GetTickCount() - g_peerRosterAt > 3000 && !g_usePeerRoster) g_peerRosterN = 0;
         RosterEntry& r = g_peerRoster[p.index];
         r.key = p.carKey; r.hasCustom = p.hasCustom != 0;
+        r.role = CoopRace::DecodeRosterRole(p.role);
         memcpy(r.custom, p.custom, sizeof(r.custom));
         memcpy(r.name, p.name, sizeof(r.name)); r.name[23] = 0;
         if (p.index + 1 > g_peerRosterN) g_peerRosterN = p.index + 1;

@@ -227,6 +227,7 @@ TEST(packets_roster_round_trip) {
             rp.h.magic = 0xDEAD; rp.h.type = 77;     // whatever the caller left there is overwritten
             rp.index = (uint8_t)i; rp.count = 3;
             rp.carKey = 0x100u + i; rp.hasCustom = 1;
+            rp.role = (uint8_t)(i == 0 ? 0 : 0x80 | i);   // 0: from 1.7.9 (no role), then rival, helper
             sprintf_s(rp.name, "Racer %d", i);
             memset(rp.custom, 0x40 + i, sizeof(rp.custom));
             Net::SendRoster(rp);
@@ -250,6 +251,7 @@ TEST(packets_roster_round_trip) {
         CHECK_EQ(r.count, 3);
         CHECK_EQ(r.carKey, 0x100u + i / 3);
         CHECK_EQ(r.custom[CUSTOM_RECORD_SIZE - 1], 0x40 + i / 3);
+        CHECK_EQ(r.role, i / 3 == 0 ? 0 : 0x80 | (i / 3));
         char want[24]; sprintf_s(want, "Racer %d", i / 3);
         CHECK_STR(std::string(r.name, strnlen(r.name, sizeof(r.name))), want);
     }

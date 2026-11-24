@@ -44,15 +44,113 @@ namespace CoopRace {
         return (isLocalRacer && peerWon) ? 1 : gamePlacing;
     }
 
-    // Racer mirrors (client): each opponent of the host drives one of our own AI racers. The same model
-    // first; when none of that model is free for a while (our game built another car for that opponent,
-    // e.g. a different rival), any free racer, so nobody races on their own AI next to the host's.
+    // Racer mirrors (client): each opponent of the host drives one of our own AI racers.
+    // Racer roles in a rival race: the rival(s), our extra helper racer, or a normal racer. Both games
+    // build their racers in the same order (humans first, then the event's opponents, then the helper,
+    // then the other player's slot), so a racer's GRacerInfo slot and role match on both machines.
+    // Matching by model alone swapped the rival and the helper when both are the same car (Big Lou
+    // and his helper are both Eclipse GTs in 11.1.2).
+    enum RacerRole : int { kRoleUnknown = -1, kRoleNormal = 0, kRoleRival = 1, kRoleHelper = 2 };
+    inline bool RolesCompatible(int a, int b) { return a == kRoleUnknown || b == kRoleUnknown || a == b; }
+    // Binding order: the same slot (and a role that doesn't contradict it), then the same role and
+    // model, then the same model (role not contradicting), then - for the one-of-a-kind roles (rival,
+    // helper) - the same role in any model; when none of that is free for a while (our game built
+    // another car for that opponent), any free racer of a compatible role, then any free racer, so
+    // nobody races on their own AI next to the host's.
     constexpr double ANY_MODEL_AFTER_MS = 1500.0;
-    struct RacerCand { uint32_t model; bool free; };
-    inline int PickRacer(const RacerCand* c, int n, uint32_t model, bool anyModel) {
-        for (int i = 0; i < n; ++i) if (c[i].free && c[i].model == model) return i;
-        if (anyModel) for (int i = 0; i < n; ++i) if (c[i].free) return i;
+    struct RacerCand { uint32_t model; bool free; int slot = -1; int role = kRoleUnknown; };
+    struct RacerWant { uint32_t model; int slot = -1; int role = kRoleUnknown; };
+    inline int PickRacer(const RacerCand* c, int n, const RacerWant& w, bool anyModel) {
+        if (w.slot >= 0)
+            for (int i = 0; i < n; ++i) if (c[i].free && c[i].slot == w.slot && RolesCompatible(c[i].role, w.role)) return i;
+        if (w.role != kRoleUnknown)
+            for (int i = 0; i < n; ++i) if (c[i].free && c[i].role == w.role && c[i].model == w.model) return i;
+        for (int i = 0; i < n; ++i) if (c[i].free && c[i].model == w.model && RolesCompatible(c[i].role, w.role)) return i;
+        if (w.role == kRoleRival || w.role == kRoleHelper)
+            for (int i = 0; i < n; ++i) if (c[i].free && c[i].role == w.role) return i;
+        if (anyModel) {
+            for (int i = 0; i < n; ++i) if (c[i].free && RolesCompatible(c[i].role, w.role)) return i;
+            for (int i = 0; i < n; ++i) if (c[i].free) return i;
+        }
         return -1;
+    }
+    inline int PickRacer(const RacerCand* c, int n, uint32_t model, bool anyModel) {
+        RacerWant w{ model };
+        return PickRacer(c, n, w, anyModel);
+    }
+    // Role of an AI racer by its GRacerInfo slot: `helperSlot` / `partnerSlot` as this race load set
+    // them (-1 = none), `bossRace` = a Blacklist rival race. The other player's slot is no AI racer.
+    inline int RacerRoleOf(int slot, bool bossRace, int helperSlot, int partnerSlot) {
+        if (slot < 0) return kRoleUnknown;
+        if (helperSlot >= 0 && slot == helperSlot) return kRoleHelper;
+        if (partnerSlot >= 0 && slot == partnerSlot) return kRoleUnknown;
+        return bossRace ? kRoleRival : kRoleNormal;
+    }
+    // Racer slot and role on the wire, in TrafficEntry::flags of a racer (bit 1) from the host:
+    // bit 15 = present (1.8+ hosts; older builds leave bits 8-15 at 0 and ignore them),
+    // bits 8-12 = GRacerInfo slot (0-15), bits 13-14 = role (0 normal, 1 rival, 2 helper, 3 unknown).
+    constexpr uint16_t kRacerSlotPresent = 0x8000;
+    inline uint16_t EncodeRacerSlot(uint16_t flags, int slot, int role) {
+        flags = (uint16_t)(flags & 0x00FF);
+        if (slot < 0 || slot > 15) return flags;
+        int r = (role == kRoleNormal || role == kRoleRival || role == kRoleHelper) ? role : 3;
+        return (uint16_t)(flags | kRacerSlotPresent | ((slot & 0x1F) << 8) | (r << 13));
+    }
+    inline bool DecodeRacerSlot(uint16_t flags, int& slot, int& role) {
+        slot = -1; role = kRoleUnknown;
+        if (!(flags & kRacerSlotPresent) || !(flags & 2)) return false;
+        int s = (flags >> 8) & 0x1F, r = (flags >> 13) & 3;
+        if (s > 15) return false;
+        slot = s; role = r == 3 ? kRoleUnknown : r;
+        return true;
+    }
+    // Racer role in RosterPacket's spare byte (was padding, always 0 from 1.7.9 and older):
+    // bit 7 = present, bits 0-1 = role (0 normal, 1 rival, 2 helper).
+    constexpr uint8_t kRosterRolePresent = 0x80;
+    inline uint8_t EncodeRosterRole(int role) {
+        return (role == kRoleNormal || role == kRoleRival || role == kRoleHelper) ? (uint8_t)(kRosterRolePresent | role) : 0;
+    }
+    inline int DecodeRosterRole(uint8_t b) {
+        if (!(b & kRosterRolePresent)) return kRoleUnknown;
+        int r = b & 0x7F;
+        return (r == kRoleNormal || r == kRoleRival || r == kRoleHelper) ? r : kRoleUnknown;
+    }
+    // The roster entry of the helper: the one the sender marked as the helper, else (a 1.7.9 sender)
+    // the entry at the helper's opponent index. -1 = none.
+    inline int RosterHelperEntry(const int* roles, int n, int helperOpp) {
+        bool anyRole = false;
+        for (int i = 0; i < n; ++i) { if (roles[i] == kRoleHelper) return i; if (roles[i] != kRoleUnknown) anyRole = true; }
+        if (anyRole) return -1;   // a roster with roles but no helper: the sender had none
+        return (helperOpp >= 0 && helperOpp < n) ? helperOpp : -1;
+    }
+
+    // The helper's car. A racer built with no customization record (the model swapped in, the
+    // record left null) came out with only its wheels: no body mesh. So the helper always gets a
+    // full record of its own model: the other game's helper with its record, else the list model
+    // (BossHelperCar) with the game's own record when the game already picked that model, or the
+    // rival's record when the rival is that model (both built from the event, so the same on both
+    // machines), else the game's pick as it is.
+    enum HelperRecord : int { kHelperGameRecord = 0, kHelperRivalRecord = 1, kHelperPeerRecord = 2 };
+    struct HelperIn {
+        uint32_t want;            // BossHelperCar model key, 0 = none for this rival
+        uint32_t gameModel;       // what the game picked for the helper
+        uint32_t rivalModel;      // the rival built just before it (0 = unknown)
+        bool     rivalHasRecord;
+        uint32_t peerModel;       // the other game's helper from its roster (0 = none)
+        bool     peerHasRecord;
+    };
+    struct HelperOut { uint32_t model; int record; };
+    inline HelperOut ChooseHelperCar(const HelperIn& in) {
+        if (in.peerModel && in.peerHasRecord) return { in.peerModel, kHelperPeerRecord };
+        uint32_t want = in.peerModel ? in.peerModel : in.want;   // a bare entry (1.7.9): its model, a record from here
+        if (want && want != in.gameModel && in.rivalModel == want && in.rivalHasRecord) return { want, kHelperRivalRecord };
+        return { in.gameModel, kHelperGameRecord };
+    }
+    // Joining the other player's rival race: wait a little for their roster (it comes with the
+    // invitation, repeated every 1.5 s) so both games build the same helper.
+    constexpr unsigned long kRosterWaitMs = 3000;
+    inline bool WaitForRoster(bool bossRace, bool helperOn, bool rosterFresh, unsigned long waitedMs) {
+        return bossRace && helperOn && !rosterFresh && waitedMs < kRosterWaitMs;
     }
 
     // The other player's car must never be borrowed as a racer or traffic mirror (same class of

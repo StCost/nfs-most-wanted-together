@@ -262,11 +262,15 @@ namespace {
     uint8_t  g_peerCustomForRace[0x198];
     // Race rosters: each game picks its AI opponents at random, so the game that starts an event sends
     // the opponents it built (model + tuning, in construction order) and the other game builds the same.
-    struct RosterEntry { uint32_t key; bool hasCustom; char name[24]; uint8_t custom[0x198]; };
+    // role: CoopRace::RacerRole (rival / helper / normal) the sender marked (kRoleUnknown from 1.7.9 and older)
+    struct RosterEntry { uint32_t key; bool hasCustom; char name[24]; uint8_t custom[0x198]; int role; };
     RosterEntry g_localRoster[8];  int g_localRosterN = 0;     // AI racers built here since the last event
     RosterEntry g_peerRoster[8];   int g_peerRosterN = 0;      // received from the peer
     DWORD    g_peerRosterAt = 0;
     bool     g_usePeerRoster = false;  int g_peerRosterNext = 0;
+    bool     PeerRosterFresh() { return g_peerRosterN > 0 && GetTickCount() - g_peerRosterAt < 5000; }
+    uint32_t g_joiningEvent = 0;             // event hash we're joining because the peer started it (event.inl)
+    DWORD    g_joinStartedAt = 0;
     bool   g_aiPatched = false;
     bool   g_ghostCollide = false;  // collisions currently enabled on the ghost
     bool   g_separated = false;     // has the pair ever been far enough apart?
@@ -925,12 +929,42 @@ namespace {
     bool     g_partnerOn = false;       // this rival race load added a racer slot for the other player
     int      g_partnerOpp = -1;         // its opponent index (after the helper)
     int      g_partnerSlot = -1;        // its GRacerInfo slot
+    bool     g_bossRaceOn = false;      // this race load is a Blacklist rival race (racer roles: traffic.inl)
+    uint32_t g_bossRivalKey = 0;        // the rival's car as built in this load (its record: for the helper)
+    bool     g_bossRivalHasRec = false;
+    uint8_t  g_bossRivalRec[0x198];
+    uint8_t  g_helperRec[0x198];        // the helper's record (the game copies it while building the car)
+    // GRacerInfo slot of a racer info (GRaceStatus+0x18 + n*0x194), -1 = none
+    int RacerSlotOfInfo(void* ri) {
+        char* rs = nullptr;
+        if (!ri || !Mem::Read(0x91E000, rs) || !rs) return -1;
+        intptr_t off = (char*)ri - (rs + 0x18);
+        if (off < 0 || off % 0x194 || off / 0x194 > 15) return -1;
+        return (int)(off / 0x194);
+    }
+    int RacerRoleOfSlot(int slot) {
+        return CoopRace::RacerRoleOf(slot, g_bossRaceOn, g_helperOn ? g_helperSlot : -1, g_partnerOn ? g_partnerSlot : -1);
+    }
 }
 static void InstallBossHelper();
 static void InstallBudgetLog();
 // The helper's car per Blacklist rival: the partner the rival's race intro shows, where it shows one
 // (BossHelperCar, raceutil.h); otherwise the game's own pick. (The cars the intro cutscene itself builds
 // are traffic and police props - traftaxi, copmidsize_nis ... - never the partner, so they aren't used.)
+// Body-shell check for the log: the car's BODY part (car slot 23 - the slot table at 0x9044D8: BASE 0,
+// ..., BODY 23, ..., BASE_PAINT 76) in the record it is built with. With no record the game gives the
+// car its model's stock parts (RideInfo 0x7594A0) and only then applies a record (0x56F2B0).
+static void* CarPartByIndex(int16_t index);   // paint.inl
+static void LogCarBody(const char* who, uint32_t model, const void* rec) {
+    int16_t body = -1, paint = -1; void* part = nullptr;
+    if (rec) {
+        Mem::SafeRead((const uint8_t*)rec + 23 * 2, &body, sizeof(body));
+        Mem::SafeRead((const uint8_t*)rec + Paint::kBasePaintOff, &paint, sizeof(paint));
+        if (body >= 0) part = CarPartByIndex(body);
+    }
+    if (!rec) LOG("Body: %s %08X - NO parts record (the model's stock parts)", who, model);
+    else LOG("Body: %s %08X - BODY part %d (%s), paint %d", who, model, body, part ? "found" : body < 0 ? "none" : "NOT FOUND", paint);
+}
 static uint32_t PartnerCarKey() {
     __try {
         void* rs = nullptr; void* parms = nullptr;
@@ -945,7 +979,7 @@ static void* __cdecl hk_VehicleConstruct(SimParam p) {
     using Fn = void* (__cdecl*)(SimParam);
     VehicleParams* vp = (VehicleParams*)p.mData;
     bool replaced = false;
-    if (vp && vp->carClass == DRV_NIS && vp->carType) LOG("Race: cutscene car built, model %08X", vp->carType);
+    if (vp && vp->carClass == DRV_NIS && vp->carType) { LOG("Race: cutscene car built, model %08X", vp->carType); LogCarBody("cutscene car", vp->carType, vp->customization); }
     if (vp && vp->carClass == DRV_RACER && !g_racerReplacedThisLoad && g_cfg.ghostEnabled && Net::Stats().connected && g_coopLinked && !BossRaceStarting() && !PrologueRaceStarting()) {
         if (const CarInfo* pc = Net::PeerCar()) {
             g_origRacer[0] = vp->carType; g_origRacerCustom = vp->customization; g_origRacerMatched = vp->matched;
@@ -966,7 +1000,7 @@ static void* __cdecl hk_VehicleConstruct(SimParam p) {
     bool boss = vp && vp->carClass == DRV_RACER && BossRaceStarting();
     if (boss && g_usePeerRoster) {
         g_usePeerRoster = false; LOG("Race: rival race - the event's own rival car, not the partner's roster");
-        if (g_helperOn) g_helperPeerRoster = true;      // ... but the helper is the host's
+        if (g_helperOn) g_helperPeerRoster = true;      // ... but the helper is theirs (the game that started it)
     }
     // the helper (the racer after the event's own opponents): the host's choice on the client, else the
     // rival's partner from the list when that model is loaded, else the car the game picked
@@ -989,23 +1023,44 @@ static void* __cdecl hk_VehicleConstruct(SimParam p) {
     uint32_t hKey = 0; void* hCustom = nullptr; void* hMatched = nullptr; const char* hFrom = "";
     if (helper) {
         hKey = vp->carType; hCustom = vp->customization; hMatched = vp->matched;
-        uint32_t want = 0; void* wantCustom = nullptr;
-        if (g_helperPeerRoster && g_helperOpp < g_peerRosterN) {
-            const RosterEntry& r = g_peerRoster[g_helperOpp];
-            want = r.key; wantCustom = r.hasCustom ? (void*)r.custom : nullptr; hFrom = "the host's helper";
-        } else {
-            want = PartnerCarKey(); hFrom = "the rival's partner from the list";
+        // the other game's helper when we join its race: from the roster we joined with, or one that came
+        // in for this event since (the rival's next race starts by itself, the roster may come late)
+        const RosterEntry* pe = nullptr;
+        if (g_helperPeerRoster || (g_joiningEvent && PeerRosterFresh())) {
+            int roles[8]; int n = g_peerRosterN < 8 ? g_peerRosterN : 8;
+            for (int i = 0; i < n; ++i) roles[i] = g_peerRoster[i].role;
+            int k = CoopRace::RosterHelperEntry(roles, n, g_helperOpp);
+            if (k >= 0) pe = &g_peerRoster[k];
         }
-        if (want && want != vp->carType) { vp->carType = want; vp->customization = wantCustom; vp->matched = nullptr; }
-        else { hKey = 0; hFrom = "the game's pick"; }
+        uint32_t listKey = PartnerCarKey();
+        CoopRace::HelperIn in{ listKey, vp->carType, g_bossRivalKey, g_bossRivalHasRec, pe ? pe->key : 0u, pe && pe->hasCustom };
+        CoopRace::HelperOut o = CoopRace::ChooseHelperCar(in);
+        if (o.record == CoopRace::kHelperPeerRecord && pe) {
+            memcpy(g_helperRec, pe->custom, sizeof(g_helperRec));
+            hFrom = "the other player's helper, its parts";
+        } else if (o.record == CoopRace::kHelperRivalRecord) {
+            memcpy(g_helperRec, g_bossRivalRec, sizeof(g_helperRec));
+            hFrom = pe ? "the other player's helper model, the rival's parts" : "the rival's partner from the list, the rival's parts";
+        } else {
+            hKey = 0;
+            uint32_t wanted = pe ? pe->key : listKey;
+            hFrom = (wanted && wanted != vp->carType) ? "the game's pick (no parts for the wanted model here)" : "the game's pick, its parts";
+            if (wanted && wanted != vp->carType) LOG("Race: rival race - helper model %08X has no parts here (rival %08X%s) - keeping the game's pick", wanted, g_bossRivalKey, g_bossRivalHasRec ? "" : " without a record");
+        }
+        if (hKey) { vp->carType = o.model; vp->customization = g_helperRec; vp->matched = nullptr; }
     }
     if (vp && vp->carClass == DRV_RACER && !replaced && g_coopLinked && g_usePeerRoster && g_peerRosterNext < g_peerRosterN) {
         RosterEntry& r = g_peerRoster[g_peerRosterNext++];
-        rKey = vp->carType; rCustom = vp->customization; rMatched = vp->matched;
-        vp->carType = r.key;
-        vp->customization = r.hasCustom ? (void*)r.custom : nullptr;
-        vp->matched = nullptr;
-        fromRoster = true;
+        if (r.hasCustom) {
+            rKey = vp->carType; rCustom = vp->customization; rMatched = vp->matched;
+            vp->carType = r.key;
+            vp->customization = (void*)r.custom;
+            vp->matched = nullptr;
+            fromRoster = true;
+        } else if (r.key != vp->carType) {
+            // built without a record it would have no body: our own car (the mirror binds it by its slot)
+            LOG("Race: the peer's opponent %d (model %08X) came without its parts - keeping our own %08X", g_peerRosterNext, r.key, vp->carType);
+        }
     }
 
     void* simable = ((Fn)Addr::PVehicleConstruct)(p);
@@ -1014,8 +1069,18 @@ static void* __cdecl hk_VehicleConstruct(SimParam p) {
         vp->carType = hKey; vp->customization = hCustom; vp->matched = hMatched; hFrom = "the game's pick";
         simable = ((Fn)Addr::PVehicleConstruct)(p);
     }
-    if (helper) LOG("Race: rival race - helper racer built as model %08X, %s (%s)", vp->carType, hFrom, simable ? "ok" : "FAILED");
-    else if (boss && !replaced) LOG("Race: rival race - rival built as model %08X (%s)", vp->carType, simable ? "ok" : "FAILED");
+    if (helper) {
+        LOG("Race: rival race - helper racer built as model %08X, %s, parts %s (%s)", vp->carType, hFrom, vp->customization ? "yes" : "NONE", simable ? "ok" : "FAILED");
+        LogCarBody("helper racer", vp->carType, vp->customization);
+    }
+    else if (boss && !replaced) {
+        LOG("Race: rival race - rival built as model %08X, parts %s (%s)", vp->carType, vp->customization ? "yes" : "NONE", simable ? "ok" : "FAILED");
+        LogCarBody("rival", vp->carType, vp->customization);
+        if (simable && !g_bossRivalKey) {   // the first one: its record can dress a helper of the same model
+            g_bossRivalKey = vp->carType;
+            g_bossRivalHasRec = vp->customization && Mem::SafeRead(vp->customization, g_bossRivalRec, sizeof(g_bossRivalRec));
+        }
+    }
     if (fromRoster) {
         if (simable) LOG("Race: opponent %d built as the peer's opponent (key %08X)", g_peerRosterNext, vp->carType);
         else {
@@ -1031,6 +1096,7 @@ static void* __cdecl hk_VehicleConstruct(SimParam p) {
         r.hasCustom = vp->customization != nullptr;
         if (r.hasCustom) Mem::SafeRead(vp->customization, r.custom, sizeof(r.custom));
         r.name[0] = 0;
+        r.role = !boss ? CoopRace::kRoleNormal : helper ? CoopRace::kRoleHelper : CoopRace::kRoleRival;
     }
     if (replaced && !simable) {
         // Their model isn't loaded here (they started the event far away). Do not keep this AI racer's

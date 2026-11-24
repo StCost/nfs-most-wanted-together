@@ -198,7 +198,8 @@ struct EventPacket {
 struct RosterPacket {
     PacketHeader h;
     uint8_t  index, count;  // opponent index (construction order) / total AI opponents
-    uint8_t  hasCustom, pad;
+    uint8_t  hasCustom;
+    uint8_t  role;          // 0x80 | racer role (CoopRace::EncodeRosterRole); 0 from 1.7.9 and older (was padding)
     uint32_t carKey;        // model key the opponent was built with
     char     name[24];      // display name (may be empty)
     uint8_t  custom[CUSTOM_RECORD_SIZE];

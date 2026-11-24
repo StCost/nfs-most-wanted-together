@@ -22,7 +22,10 @@
 //   every racer in a rival race (IsBossRace 0x5FBD90 at 0x5FFA2E): for the helper that test says "no",
 //   so it paces itself like a racer in a normal career race.
 //  Both games add the helper when they are linked (or [Debug] BossHelperSolo), so the racer lists
-//  match. The client builds the host's helper car from the host's roster (entry = opponent count).
+//  match. The game that joins builds the starter's helper from its roster (the entry marked as the helper,
+//  else entry = opponent count). The helper always gets a full parts record of its model (with none it
+//  had only its wheels, no body): see CoopRace::ChooseHelperCar. The client's racers follow the host's
+//  by racer slot and role (traffic.inl), so a rival and a helper of the same model can't swap.
 // ---------------------------------------------------------------------------
 namespace {
     constexpr uintptr_t NumOppCall = 0x61DCB7, NumOppFn = 0x5FACD0;
@@ -46,11 +49,13 @@ namespace {
         int n = ((int(__thiscall*)(void*))NumOppFn)(parms);
         g_helperOn = false; g_helperOpp = -1; g_helperSlot = -1; g_bossRacerBuilds = 0; g_helperPeerRoster = false;
         g_partnerOn = false; g_partnerOpp = -1; g_partnerSlot = -1;
+        g_bossRaceOn = false; g_bossRivalKey = 0; g_bossRivalHasRec = false;
         __try {
+            if (parms) g_bossRaceOn = ((bool(__thiscall*)(void*))IsBossRaceFn)(parms);
             bool linked = Net::Stats().connected && g_coopLinked;
             bool helper = g_cfg.bossHelper, partner = g_cfg.partnerInRivalRaces && linked && g_cfg.ghostEnabled && Net::PeerCar();
             if (!(helper || partner) || !parms || n < 1 || !(linked || g_cfg.bossHelperSolo)) return n;
-            if (!((bool(__thiscall*)(void*))IsBossRaceFn)(parms)) return n;
+            if (!g_bossRaceOn) return n;
             {   // never in the prologue's scripted races
                 const char* id = ((const char*(__thiscall*)(void*))0x5FBA70)(parms);
                 if (id && Mem::IsReadable(id, 4) && Prologue::IsPrologueEvent(id)) return n;
