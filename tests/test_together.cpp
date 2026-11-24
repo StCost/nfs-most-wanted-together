@@ -333,3 +333,46 @@ TEST(together_player_name_is_the_profile_alias) {
     CHECK_STR(PlayerName("1234567890123456789", "", "").c_str(), "123456789012345");   // the hello's 15
     CHECK_STR(CleanPlayerName("12345678901234 6").c_str(), "12345678901234");           // no space left at the cut
 }
+
+// ---- the text entry's blinking caret keeps the value in place (NativeUtil::SteadyCaretText) ----
+namespace {
+    struct FakeFont {
+        float bar = 5, space = 4, eye = 8, ell = 6, one = 9, other = 10;
+        float operator()(const std::wstring& s) const {
+            float w = 0;
+            for (wchar_t c : s) w += c == L'|' ? bar : c == L' ' ? space : c == L'I' ? eye : c == L'l' ? ell : c == L'1' ? one : other;
+            return w;
+        }
+    };
+}
+
+TEST(caret_both_blink_states_same_width) {
+    FakeFont f;                                    // '|' 5, ' ' 4: the game's two states differ by 1
+    std::wstring on = NativeUtil::SteadyCaretText(L"192.168|", f), off = NativeUtil::SteadyCaretText(L"192.168 ", f);
+    CHECK(f(on) == f(off));                        // 'I' (8) against two spaces (8)
+    CHECK(on == L"192.168I");
+    CHECK(off == L"192.168  ");
+}
+
+TEST(caret_keeps_the_games_bar_when_it_fits) {
+    FakeFont f; f.bar = 8;                          // '|' is exactly two spaces wide
+    CHECK(NativeUtil::SteadyCaretText(L"10.0|", f) == L"10.0|");
+    CHECK(NativeUtil::SteadyCaretText(L"10.0 ", f) == L"10.0  ");
+    f.bar = 4;                                      // ... or one
+    CHECK(NativeUtil::SteadyCaretText(L"10.0 ", f) == L"10.0 ");
+}
+
+TEST(caret_bar_preferred_unless_clearly_worse) {
+    FakeFont f; f.bar = 8.1f;                       // '|' 0.1 off two spaces, 'I' exact: keep '|'
+    CHECK(NativeUtil::SteadyCaretText(L"a|", f) == L"a|");
+    f.bar = 9.0f; f.one = 50;                       // 1 off: 'I' (exact) wins
+    CHECK(NativeUtil::SteadyCaretText(L"a|", f) == L"aI");
+}
+
+TEST(caret_empty_text_and_other_strings_untouched) {
+    FakeFont f;
+    CHECK(NativeUtil::SteadyCaretText(L"", f) == L"");
+    CHECK(NativeUtil::SteadyCaretText(L"127.0.0.1", f) == L"127.0.0.1");   // no caret slot
+    std::wstring on = NativeUtil::SteadyCaretText(L"|", f), off = NativeUtil::SteadyCaretText(L" ", f);
+    CHECK(f(on) == f(off));                        // nothing typed yet
+}

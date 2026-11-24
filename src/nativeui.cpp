@@ -197,6 +197,7 @@ namespace {
     WORD     g_softPadPrev = 0;           // pad buttons at the last look while typing
     bool     g_padSwallow = false;        // the pad's buttons stay hidden from the game until let go
     std::string g_softOrig;               // the value before typing (Esc / pad B puts it back)
+    int      g_caretLogged = 0;           // the entry's caret: shown (1) / hidden (2) state logged
     bool     g_nativeEdit = false;        // the game's own text entry (as LAN Create Game > name) is open
     bool     g_nativeSeen = false;        // ... and it went live (it takes keys after two FE ticks)
     DWORD    g_nativeSince = 0;
@@ -331,7 +332,7 @@ namespace {
             begin(g_screen, objHash, 4u, start.c_str(), TitleOf(r), (uint32_t)MaxLen(FieldOf(r)));
             if (void** eo = (void**)EditObj()) {
                 eo[0] = data;
-                g_softEdit = false; g_nativeEdit = true; g_nativeSeen = false; g_nativeSince = GetTickCount();
+                g_softEdit = false; g_nativeEdit = true; g_nativeSeen = false; g_nativeSince = GetTickCount(); g_caretLogged = 0;
                 LOG("Native: typing %s (the game's text entry)", TitleOf(r));
                 return;
             }
@@ -1034,6 +1035,48 @@ namespace {
         return true;
     }
 
+    // The game's text entry sets its string every FE tick (0x58FB00) with a blinking caret at the end:
+    // '|' shown, ' ' hidden. On our centred value that made the text jump sideways each blink, so on our
+    // row the two states get a caret and spaces of the same width (NativeUtil::SteadyCaretText).
+    constexpr uintptr_t kCallEditSetString = 0x58FBDC;   // KeyboardEditString tick: FEngSetString(FEString*, wchar_t*)
+    using SetWide_t = void(__cdecl*)(void*, const wchar_t*);
+    const auto SetWideString = (SetWide_t)0x515CC0;
+    using FontOf_t = void*(__cdecl*)(uint32_t);
+    const auto FontOf = (FontOf_t)0x585B50;              // the font by its hash (FEString +0x24)
+    using TextWidth_t = float(__thiscall*)(void*, const wchar_t*, uint32_t, int, bool);
+    const auto TextWidth = (TextWidth_t)0x586130;        // the font's width of a string (FEString flags +0x1C)
+    bool SteadyCaret(void* str, const wchar_t* text, std::wstring& out) {
+        if (!g_nativeEdit || !str || !text || !g_screen) return false;
+        void** eo = (void**)EditObj();
+        if (!eo || eo[0] != str) return false;
+        void* font = FontOf(*(uint32_t*)((uint8_t*)str + 0x24));
+        if (!font) return false;
+        uint32_t flags = *(uint32_t*)((uint8_t*)str + 0x1C);
+        auto width = [&](const std::wstring& s) { return TextWidth(font, s.c_str(), flags, 0, false); };
+        out = NativeUtil::SteadyCaretText(text, width);
+        int state = (!out.empty() && out.back() == L' ') ? 2 : 1;
+        if (!(g_caretLogged & state)) {
+            g_caretLogged |= state;
+            size_t n = 0; while (n < out.size() && out[out.size() - 1 - n] == L' ') ++n;
+            LOG("Native: entry caret %s: '%c' + %u space(s), width %.2f (the game's: %.2f)", state == 1 ? "shown" : "hidden",
+                state == 1 && !out.empty() ? (char)out.back() : ' ', (unsigned)n, width(out), width(text));
+        }
+        return true;
+    }
+    bool SteadyCaretInto(void* str, const wchar_t* text, wchar_t* buf, size_t cap) {
+        std::wstring out;
+        if (!SteadyCaret(str, text, out) || out.size() + 1 > cap) return false;
+        wmemcpy(buf, out.c_str(), out.size() + 1);
+        return true;
+    }
+
+    void __cdecl hk_EditSetString(void* str, const wchar_t* text) {
+        wchar_t buf[256];
+        bool ok = false;
+        __try { ok = SteadyCaretInto(str, text, buf, 256); } __except (EXCEPTION_EXECUTE_HANDLER) { ok = false; }
+        SetWideString(str, ok ? buf : text);
+    }
+
     // Drop LEAVE_SCREEN while Enter on a Together row should stay on this screen.
     constexpr uintptr_t kQueueMessageAddr = 0x516BE0;
     const uint8_t kQueueMessageHead[6] = { 0x8B, 0x44, 0x24, 0x08, 0x85, 0xC0 };
@@ -1134,6 +1177,8 @@ bool NativeUI::Install() {
         LOG("Native: could not add Spectate to the race-over menu");
     if (!HookBeginTextInput())
         LOG("Native: could not hook the game's text entry (mouse clicks may still open a blank page)");
+    if (!PatchCallTo(kCallEditSetString, (uintptr_t)SetWideString, (void*)&hk_EditSetString))
+        LOG("Native: could not hook the text entry's caret (its value may move with the blink)");
     g_active = true;
     LOG("Native: Together in the main menu and in Options");
     return true;

@@ -188,4 +188,32 @@ inline ScrollView MoveScroll(int count, int slots, int scroll, int focus, int di
     return o;
 }
 
+// The game's text entry ends its string with a blinking caret: '|' while it shows, ' ' while it is
+// hidden. The two glyphs aren't the same width, so a centred value moved sideways every blink. Pick a
+// caret (the game's '|' first) and a run of spaces that measure the same in this font, and use them for
+// the two states: the text then stays put. width(s) is the game's own measure of the whole string (so
+// the last letter's kerning counts). Strings that don't end in the caret slot are left as they are.
+constexpr const wchar_t* kCaretGlyphs = L"|Il1";
+template <class Width>
+std::wstring SteadyCaretText(const std::wstring& shown, Width width) {
+    if (shown.empty()) return shown;
+    wchar_t last = shown.back();
+    if (last != L'|' && last != L' ') return shown;
+    std::wstring base = shown.substr(0, shown.size() - 1);
+    std::wstring bestCaret = L"|";
+    int bestSpaces = 1;
+    float bestErr = -1.0f;
+    for (const wchar_t* g = kCaretGlyphs; *g; ++g) {
+        float on = width(base + *g);
+        for (int k = 0; k <= 4; ++k) {
+            float off = width(base + std::wstring((size_t)k, L' '));
+            float err = on > off ? on - off : off - on;
+            // a later glyph only wins when it is clearly closer (the game's '|' looks right)
+            float margin = g == kCaretGlyphs ? 0.0f : 0.25f;
+            if (bestErr < 0.0f || err + margin < bestErr) { bestErr = err; bestCaret = std::wstring(1, *g); bestSpaces = k; }
+        }
+    }
+    return last == L'|' ? base + bestCaret : base + std::wstring((size_t)bestSpaces, L' ');
+}
+
 }  // namespace NativeUtil
