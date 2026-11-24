@@ -54,7 +54,6 @@ void Config::Load(const char* ini) {
     syncDamage = ReadInt(ini, "Ghost", "SyncDamage", 1) != 0;
     perf = ReadInt(ini, "Debug", "Perf", 0) != 0;
     bootTrace = ReadInt(ini, "Debug", "BootTrace", 0) != 0;
-    saveSync = ReadInt(ini, "Career", "SaveSync", 1) != 0;
     sharedWins = ReadInt(ini, "Career", "SharedWins", 1) != 0;
     sharedMilestones = ReadInt(ini, "Career", "SharedMilestones", 1) != 0;
     startTogether = ReadInt(ini, "Coop", "StartTogether", 1) != 0;
@@ -71,7 +70,6 @@ void Config::Load(const char* ini) {
     partnerInRivalRaces = ReadInt(ini, "Coop", "PartnerInRivalRaces", 1) != 0;
     syncWeather = ReadInt(ini, "Coop", "SyncWeather", 1) != 0;
     followToPursuits = ReadInt(ini, "Coop", "FollowToPursuits", 1) != 0;
-    restoreOnlyMissing = ReadInt(ini, "Career", "RestoreOnlyMissing", 1) != 0;
     sharedPursuits = ReadInt(ini, "Coop", "SharedPursuits", 1) != 0;
     syncStoryScenes = ReadInt(ini, "Coop", "SyncStoryScenes", 1);
     if (syncStoryScenes < 0 || syncStoryScenes > 2) syncStoryScenes = 1;

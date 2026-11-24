@@ -18,14 +18,15 @@ enum PacketType : uint16_t {
     PKT_RESTART = 11,   // "I restarted the current race" (EventPacket layout)
     PKT_NISSKIP = 12,   // "I want to skip this cutscene" (EventPacket layout, eventHash = scene hash); no longer
                         // sent by the game layer: votes travel in CarState::nisHash / nisVote
-    PKT_FILE    = 13,   // one chunk of a small file (career save backup / restore)
-    PKT_FILEACK = 14,   // "I have the whole file with this hash"
-    PKT_FILEREQ = 15,   // client -> host: "send me the save you keep for me"
+    // 13..16: the career save kept on the host, up to 1.7.5. Only answered now (net.cpp HandleFilePacket).
+    PKT_FILE    = 13,   // one chunk of a save (FileChunkPacket) - acknowledged, dropped
+    PKT_FILEACK = 14,   // "I have the whole file with this hash" - our answer to each chunk
+    PKT_FILEREQ = 15,   // "send me the save you keep for me" - answered with PKT_NOFILE
     PKT_NOFILE  = 16,
     PKT_CARPART = 19,
     PKT_WEATHER = 20,   // host -> client: rain / cloud targets (older builds ignore it)   // PKT_CAR in 4 small pieces (some VPNs drop the 436-byte packet); older builds ignore it
     PKT_CARHIT  = 18,   // "my car hit YOUR traffic car / cop / racer <id> and lost this much velocity"
-    PKT_HIT     = 17,   // "my car just lost this much velocity hitting yours" (momentum for the car that was hit)   // host -> client: "I keep no save for you"
+    PKT_HIT     = 17,   // "my car just lost this much velocity hitting yours" (momentum for the car that was hit)
     PKT_FOLLOW  = 22,   // "I was moved to a Blacklist pursuit (milestone / bounty) here - come along" (older builds ignore it)
     PKT_MILESTONE = 21, // "I completed this milestone / speed trap" ([Career] SharedMilestones; older builds ignore it)
     PKT_TRAILER = 23,   // the trailers of the trucks in the PKT_TRAFFIC sent just before (older builds ignore it)
@@ -196,7 +197,6 @@ struct RacerNamePacket {
     char     name[30];
 };
 constexpr int FILE_CHUNK = 1024;
-constexpr uint32_t FILE_MAX = 256 * 1024;
 struct FileChunkPacket {
     PacketHeader h;
     uint32_t fileHash;     // FNV-1a of the whole file
@@ -232,7 +232,7 @@ struct FileAckPacket {
     PacketHeader h;
     uint32_t fileHash;
 };
-struct FileReqPacket {
+struct FileReqPacket {     // (only received: see PKT_FILEREQ)
     PacketHeader h;
     char owner[32];
 };
@@ -341,18 +341,6 @@ namespace Net {
     // [Career] SharedMilestones: one completion (the game layer repeats it; copies share msgId)
     void SendMilestone(uint32_t msgId, uint8_t kind, uint32_t key, uint16_t bin, float value);
     extern void (*OnMilestone)(uint32_t msgId, uint8_t kind, uint32_t key, uint16_t bin, float value);
-    // Small reliable file transfer (resent until acknowledged, ~10 s). One outgoing file at a time.
-    // The receiver checks sizes, chunk numbers and the hash; the names are passed on as received
-    // (NUL-terminated, up to 32 characters) and are NOT safe as file names: see saveutil.h.
-    // A client takes file packets only from the host's address.
-    bool SendFile(const char* owner, const char* profile, const void* data, uint32_t size, uint64_t mtime);
-    bool SendingFile();
-    bool LastFileDelivered();                      // the last SendFile ended with the peer's acknowledgement
-    void RequestFile(const char* owner);           // client: ask the host for the save it keeps for us
-    void SendNoFile();
-    extern void (*OnFile)(const char* owner, const char* profile, const uint8_t* data, uint32_t size, uint64_t mtime);
-    extern void (*OnFileRequest)(const char* owner);
-    extern void (*OnNoFile)();
     extern void (*OnNisSkip)(uint32_t sceneHash);
     extern void (*OnRestart)(uint32_t eventHash, uint32_t seq);
     extern void (*OnRacerName)(uint16_t id, const char* name);

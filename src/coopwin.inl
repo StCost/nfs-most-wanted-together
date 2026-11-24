@@ -1,4 +1,4 @@
-// Included from game.cpp (after save.inl).
+// Included from game.cpp (after profile.inl).
 // ---------------------------------------------------------------------------
 // Shared wins: when either player finishes an event first, both games count it as won
 // (cash, unlocks, "event won" flag, winning post-race flow), each in its own career.

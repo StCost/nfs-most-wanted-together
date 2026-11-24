@@ -33,7 +33,6 @@ struct Config {
     bool        gamepadHotplug = true;    // [Input] GamepadHotplug - pick up pads connected while the game runs
     bool        keepPadBindings = true;   // [Input] KeepPadBindings - starting without the pad keeps its bindings
     bool        startInBackground = false; // [Window] StartInBackground - dev only: return focus, boot muted in the background
-    bool        restoreOnlyMissing = true; // [Career] RestoreOnlyMissing - the host restores our save only if it is gone
     bool        syncWeather = true;
     bool        followToPursuits = true; // [Coop] FollowToPursuits - come along when the other player starts a Blacklist pursuit      // [Coop] SyncWeather - the client shows the host's rain
     bool        sharedPursuits = true;   // [Coop] SharedPursuits - shared heat, busted together, cooldown / escape together,
@@ -52,7 +51,6 @@ struct Config {
     bool        sharedWins = true;       // [Career] SharedWins - a win by either player counts for both
     bool        sharedMilestones = true; // [Career] SharedMilestones - a milestone / speed trap one player completes is
                                          // completed for the other too (same rival, through the game's own award)
-    bool        saveSync = true;         // [Career] SaveSync - the host keeps a copy of the client's save
     bool        bootTrace = false;       // [Debug] BootTrace - log memory-card / controller state changes while booting
     bool        perf = false;            // [Debug] Perf - log fps / frame times / mod cost every 5 s
     bool        autoPilot = false;       // [Debug] AutoPilot - the AI drives the local car in free roam and races (F5 toggles)

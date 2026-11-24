@@ -49,7 +49,7 @@ namespace {
     };
 
     // ---- callbacks that use everything they are given -----------------------------------------
-    struct Counters { long long traffic = 0, entries = 0, event = 0, restart = 0, name = 0, roster = 0, file = 0, fileReq = 0, noFile = 0, nisSkip = 0, bad = 0; };
+    struct Counters { long long traffic = 0, entries = 0, event = 0, restart = 0, name = 0, roster = 0, nisSkip = 0, bad = 0; };
     Counters g_c;
     volatile uint32_t g_sink;
 
@@ -89,19 +89,6 @@ namespace {
             g_sink += r.custom[CUSTOM_RECORD_SIZE - 1] + (uint32_t)strlen(r.name);
         };
         Net::OnNisSkip = [](uint32_t h) { ++g_c.nisSkip; g_sink += h; };
-        Net::OnFile = [](const char* owner, const char* profile, const uint8_t* d, uint32_t n, uint64_t mtime) {
-            ++g_c.file;
-            if (strlen(owner) > 32 || strlen(profile) > 32 || n == 0 || n > FILE_MAX) { ++g_c.bad; return; }
-            uint32_t sum = (uint32_t)mtime;
-            for (uint32_t i = 0; i < n; ++i) sum += d[i];        // touch every byte we were given
-            g_sink += sum;
-        };
-        Net::OnFileRequest = [](const char* owner) {
-            ++g_c.fileReq;
-            if (strlen(owner) > 32) ++g_c.bad;
-            g_sink += (uint8_t)owner[0];
-        };
-        Net::OnNoFile = []() { ++g_c.noFile; };
     }
 
     constexpr uint16_t ALL_TYPES[] = { PKT_HELLO, PKT_STATE, PKT_PING, PKT_PONG, PKT_BYE, PKT_CAR, PKT_TRAFFIC,
@@ -270,11 +257,10 @@ namespace {
         CHECK_EQ(g_c.bad, 0);
         // the run must have reached the interesting code, not just bounced off the header check
         CHECK(g_c.traffic > 0 && g_c.event > 0 && g_c.restart > 0 && g_c.name > 0 && g_c.roster > 0);
-        CHECK(g_c.file > 0 && g_c.fileReq > 0 && g_c.noFile > 0 && g_c.nisSkip > 0);
+        CHECK(g_c.nisSkip > 0);
         CHECK(Net::Stats().packetsIn > (uint32_t)(iters / 20));
-        printf("    %s: %d datagrams, %u accepted; callbacks: traffic %lld (%lld cars), event %lld, restart %lld, name %lld, roster %lld, file %lld, file request %lld, no file %lld\n",
-               host ? "host" : "client", iters, Net::Stats().packetsIn, g_c.traffic, g_c.entries, g_c.event, g_c.restart, g_c.name, g_c.roster,
-               g_c.file, g_c.fileReq, g_c.noFile);
+        printf("    %s: %d datagrams, %u accepted; callbacks: traffic %lld (%lld cars), event %lld, restart %lld, name %lld, roster %lld\n",
+               host ? "host" : "client", iters, Net::Stats().packetsIn, g_c.traffic, g_c.entries, g_c.event, g_c.restart, g_c.name, g_c.roster);
     }
 }
 
@@ -321,7 +307,7 @@ TEST(fuzz_every_truncation_of_every_packet_type) {
             }
         }
         CHECK_EQ(g_c.bad, 0);
-        CHECK(g_c.event > 0 && g_c.roster > 0 && g_c.fileReq > 0 && g_c.noFile > 0);
+        CHECK(g_c.event > 0 && g_c.roster > 0);
     }
 }
 
@@ -371,21 +357,11 @@ TEST(fuzz_bit_flips_in_real_serializer_output) {
         RosterPacket rp{}; rp.count = 1; rp.carKey = 9;
         Net::SendRoster(rp);
         Net::SendNisSkip(0x4321);
-        uint8_t save[FILE_CHUNK + 300];
-        for (size_t i = 0; i < sizeof(save); ++i) save[i] = (uint8_t)(i * 7);
-        Net::SendFile("Client", "Career", save, sizeof(save), 0x01DB000000000000ull);
-        Net::RequestFile("Client");
-        Net::SendNoFile();
-        host.Advance(1500); Net::Tick();             // ping (+ hello if due), and the file's chunks
+        host.Advance(1500); Net::Tick();             // ping (+ hello if due)
         Net::SendBye();
         d = g_sent;
     }
     REQUIRE(d.size() >= 10);
-    {
-        int chunks = 0;
-        for (auto& pkt : d) if (((const PacketHeader*)pkt.data())->type == PKT_FILE) ++chunks;
-        REQUIRE(chunks == 2);
-    }
 
     NetFixture f(false);
     Net::Test_SetCapture([](const void*, int) {});

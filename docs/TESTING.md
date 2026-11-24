@@ -125,7 +125,6 @@ tools\coop-test.ps1 -Scenario solo -Solo
 | Check | How | Pass |
 |---|---|---|
 | Join from far away | one player drives > 500 m away, the other starts an event | the joining PC logs `keeping our copy of the other player's car until their racer is built`, then `AI racer built as peer car` (or, if the model still isn't loaded, `their racer keeps this AI car's model`) and `Ghost acquired: racer built as peer car`; on both PCs the other player is in the standings with their name from the countdown on |
-| Save backup | client plays until an autosave | H `Career: stored <name>'s save`, file in `scripts\MWTogether-saves\<name>\` |
 | Save restore | client: close the game, move its save away, start again | C `restored save '<profile>' from the host (we had none)` before `pressing START`; the career loads |
 | Background start | `StartInBackground=1`, keep another window focused | free roam reached, `Window: in the world - muted until clicked` |
 | Smoothness | one car parked, the other on autopilot | `Ghost stats ... jitter` mostly under 20 mm |
@@ -288,8 +287,7 @@ A pass looks like this (both PCs on fresh careers, linked):
 
 1. `tests\build_tests.bat` passes.
 2. `solo`, `smoke`, `race`, `results`, `boss`, `restart`, `cutscene`, `pursuit`, `ram`, `together`, `kinds` pass on two PCs.
-3. Save backup and restore pass.
-4. One real session by two people with `TestKeys=0`: free roam, a race started from the game's own menus
+3. One real session by two people with `TestKeys=0`: free roam, a race started from the game's own menus
    (not `event`), a pursuit, a rival race.
 5. Install the release zip into a copy of the game **without** the Widescreen Fix (and once with it). The
    zip does not include `dinput8.dll`: put Ultimate ASI Loader's x86 `dinput8.dll` next to `speed.exe`

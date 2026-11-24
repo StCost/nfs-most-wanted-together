@@ -65,7 +65,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - **Shared wins.** If one of you wins, you both win. Whoever is still driving gets finished as the winner right there. The winner's photo is for whoever crossed the line first; the partner gets the results list, with the win, cash and progress counted.
 - **Police.** In free roam you share the cops: same heat, you lose them together, you get busted together. Your partner's cops show on your minimap and set off your radar.
 - **One world.** Shared traffic when you're close, collisions between your cars, blips on the minimap and the map.
-- **Saves.** Each of you keeps your own career save. The host also keeps a backup of the partner's save and gives it back if theirs goes missing. It never overwrites a save that exists, so your settings stay yours.
+- **Saves.** Each of you keeps your own career save on your own PC, as in the plain game.
 
 
 </details>
@@ -151,7 +151,6 @@ You can play the prologue (the opening BMW races) together too: start a new care
 <details><summary><b>Career</b></summary>
 
 - [x] Each of you keeps your own career; wins are shared, so both move forward together
-- [x] The host keeps a copy of the partner's save, updated on every autosave, and restores it if theirs is missing. It never replaces a save that exists (`[Career] RestoreOnlyMissing`). The host keeps it in a folder named after the partner's profile; a folder from 1.7.5 or older (named after the old nickname) that keeps that profile's save is still used
 - [x] A cutscene you both watch is skipped only when both of you press skip
 - [x] Story movies and cutscenes outside events: the other player gets a notice and waits in free roam until it's done (`SyncStoryScenes`). The next Blacklist rival's intro and the marker picks after beating a rival are each player's own: nobody waits for them. With `SyncStoryScenes=2` the movie plays on their PC too if their career is that far
 - [x] Shared pursuits (`[Coop] SharedPursuits`): you get the same heat, the higher one counts
@@ -265,7 +264,7 @@ The code is in `src/`:
 | `follow.inl` | going along to a Blacklist pursuit |
 | `milestone.inl` | shared milestones and speed traps |
 | `nis.inl`, `story.inl` | cutscene skip voting, story movies and scenes |
-| `save.inl` | the host's copy of the partner's career save |
+| `profile.inl` | the name you go by: your career profile's alias |
 | `weather.inl` | the same rain on both PCs |
 | `stream.inl` | world streaming around the other player |
 | `minimap.inl`, `worldmap.inl` | player blips |
@@ -275,7 +274,7 @@ The code is in `src/`:
 | `boot.inl` | skip the load-complete screen, last profile, final pursuit load fix |
 | `input.*`, `pad.cpp` | DirectInput, gamepad hot-plug and bindings; AutoStart menu automation in dev builds only |
 | `overlay.*` | D3D9 hooks and the status overlay |
-| `*util.h` | the rules that don't need the game (pursuit, race, ground, milestones, prologue, profiles, notices, saves), covered by `tests\` |
+| `*util.h` | the rules that don't need the game (pursuit, race, ground, milestones, prologue, profiles, notices), covered by `tests\` |
 
 
 </details>

@@ -463,7 +463,6 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         if (g_gameOk) Game::AutopilotTick();
         if (g_netOk && g_gameOk) Game::NisTick(linked);
         if (g_netOk && g_gameOk) Game::StoryTick(linked);
-        if (g_netOk && g_gameOk) Game::SaveTick(linked);
         if (g_netOk && g_gameOk) Game::CoopWinTick(linked, Net::Latest());
         if (g_netOk && g_gameOk) Game::MilestoneTick(linked);
         Macro::Tick();
@@ -585,7 +584,6 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
             if (Game::NisStatus()[0]) s += std::string("Cutscene: ") + Game::NisStatus() + "\n";
             if (g_gameOk && Game::StoryStatus()[0]) s += std::string("Story: ") + Game::StoryStatus() + "\n";
             if (g_coopStatus[0]) s += std::string("Co-op: ") + g_coopStatus + "\n";
-            if (Game::SaveStatus()[0]) s += std::string("Career: ") + Game::SaveStatus() + "\n";
             if (Game::EventStatus()[0]) s += std::string("Event: ") + Game::EventStatus() + "\n";
             if (flow == 3 && FEScreens::Current()[0]) s += std::string("Screen: ") + FEScreens::Current() + "\n";
             if (!g_spawnMsg.empty()) s += "Spawn test (F10/F11): " + g_spawnMsg + "\n";

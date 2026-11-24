@@ -45,9 +45,7 @@ static_assert(sizeof(MilestonePacket) == 32 && offsetof(MilestonePacket, msgId) 
               "MilestonePacket layout changed");
 static_assert(sizeof(FileAckPacket) == 20 && offsetof(FileAckPacket, fileHash) == 16, "FileAckPacket layout changed");
 static_assert(sizeof(FileReqPacket) == 48 && offsetof(FileReqPacket, owner) == 16, "FileReqPacket layout changed");
-static_assert(FILE_CHUNK == 1024 && FILE_MAX == 256 * 1024, "file transfer limits changed");
-// the chunk number and count travel as 16 bits
-static_assert((FILE_MAX + FILE_CHUNK - 1) / FILE_CHUNK <= 0xFFFF, "a file of FILE_MAX bytes has too many chunks");
+static_assert(FILE_CHUNK == 1024, "file chunk size changed");
 
 // Net::Poll reads into a 1500-byte buffer, and a datagram should fit one Ethernet frame
 // (1500 MTU - 20 IP - 8 UDP) so it is never fragmented.
@@ -84,7 +82,6 @@ TEST(protocol_struct_sizes) {
     CHECK_EQ(sizeof(FileAckPacket), 20);
     CHECK_EQ(sizeof(FileReqPacket), 48);
     CHECK_EQ(FILE_CHUNK, 1024);
-    CHECK_EQ(FILE_MAX, 262144);
     CHECK_EQ(sizeof(MilestonePacket), 32);
     CHECK_EQ(sizeof(TrailerEntry), 60);
     CHECK_EQ(sizeof(TrailerPacket), 504);

@@ -1063,7 +1063,6 @@ bool Game::InstallVehicleFactoryHook() {
     InstallStreamHook();
     InstallNisHook();
     InstallStoryHooks();
-    InstallSaveSync();
     InstallBossHelper();
     Net::OnHit = [](const float* dv) {
         if (!g_coopLinked) return;
@@ -1167,13 +1166,12 @@ bool Game::ReadLocalCarInfo(CarInfo& out) {
 #include "hud.inl"
 #include "pursuit.inl"
 #include "stream.inl"
-static bool SaveSyncHoldsBoot();
 static char g_dataDir[MAX_PATH] = "";
 void Game::SetDataDir(const char* dir) { strncpy_s(g_dataDir, dir, _TRUNCATE); }
 #include "boot.inl"
 #include "nis.inl"
 #include "story.inl"
-#include "save.inl"
+#include "profile.inl"
 #include "coopwin.inl"
 #include "spectate.inl"
 #include "weather.inl"
