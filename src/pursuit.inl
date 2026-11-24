@@ -255,6 +255,7 @@ namespace {
         float    freezeSearch = 0.f, freezeSince = 0.f;
         DWORD    lastCopHit = 0;
         int      radarCops = -1, mapCops = -1;
+        bool     peerCopsShown = false;   // their cops on our minimap / radar detector: same place (free roam or same event)
         bool     sentEvaded = false;     // keep PURSUIT_EVADED on the wire after the pursuit object is gone
         bool     hideSafehouse = false;
         uint32_t lastEvent = 0;          // our event: a new one clears an old escape signal
@@ -527,6 +528,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         }
         if (resultsFreeze) openWorld = false;
     }
+    g_sp.peerCopsShown = here && !resultsFreeze;
     {
         static SharedPursuit::Place lastPlace = SharedPursuit::Place::None;
         if (place != lastPlace && on) {
@@ -576,6 +578,8 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
             const float* mp = RB_GetVec(myRb, RB_GetPosition);
             const float* mv = RB_GetVec(myRb, RB_GetLinearVelocity);
             float speed = sqrtf(mv[0] * mv[0] + mv[1] * mv[1] + mv[2] * mv[2]);
+            float heat = 0.f;
+            if (void* pp = Find(me, IPerpetratorHandle)) heat = VCall<float(__thiscall*)(void*)>(pp, 1)(pp);
             for (auto& m : g_mirrors) {
                 if (!IsPeerCop(m, false)) continue;
                 void* rb = RigidBodyOf(m.iv);
@@ -594,10 +598,10 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
                 VCall<void(__thiscall*)(void*, float*)>(rb, 13 /*GetForwardVector*/)(rb, fwd);
                 float to[3] = { mp[0] - cp[0], mp[1] - cp[1], mp[2] - cp[2] };
                 float facing = d > 0.01f ? (fwd[0] * to[0] + fwd[1] * to[1] + fwd[2] * to[2]) / d : 1.f;
-                if (SharedPursuit::PatrolCopSpotsPlayer(d, facing, speed)) {
+                if (SharedPursuit::PatrolCopSpotsPlayer(d, facing, speed, heat)) {
                     nextSpot = now + 15000;
                     bool ok = DebugForcePursuitImpl();
-                    LOG("Pursuit: the other player's patrol cop %u saw us speeding (%.0f m, %.0f km/h) - %s", (unsigned)m.id, d, speed * 3.6f,
+                    LOG("Pursuit: the other player's patrol cop %u saw us (%.0f m, %.0f km/h, heat %.1f) - %s", (unsigned)m.id, d, speed * 3.6f, heat,
                         ok ? "starting a pursuit on us" : "no cop manager");
                     break;
                 }
@@ -884,7 +888,7 @@ static void DrawPeerCopsImpl(void* mm, void* playerIv) {
     int drawn = 0;
     for (auto& m : g_mirrors) {
         if (slot >= 8) break;
-        if (!IsPeerCop(m, true) || !VehActive(m.iv) || VehIsHeli(m.iv)) continue;
+        if (!IsPeerCop(m, none) || !VehActive(m.iv) || VehIsHeli(m.iv)) continue;   // chased: all of them, as vanilla
         void* sim = VCall<void* (__thiscall*)(void*)>(m.iv, IV_GetSimable)(m.iv);
         void* icon = nullptr;
         if (!sim || !Mem::Read((uintptr_t)mm + 0xD0 + slot * 4, icon) || !icon) continue;
@@ -899,7 +903,7 @@ static void DrawPeerCopsImpl(void* mm, void* playerIv) {
 }
 void __fastcall hk_DrawCops(void* mm, void*, void* playerIv) {
     ((void(__thiscall*)(void*, void*))DrawCopsFn)(mm, playerIv);
-    if (!g_cfg.sharedPursuits || !g_coopLinked || !FreeRoamHere()) return;
+    if (!g_cfg.sharedPursuits || !g_coopLinked || !g_sp.peerCopsShown) return;
     __try { DrawPeerCopsImpl(mm, playerIv); } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
@@ -934,7 +938,7 @@ static void RemovePeerCopsFromList(uint32_t oldSize, int n, void** saved) {
 }
 void __fastcall hk_RadarDetector(void* self, void*, uint32_t a, uint32_t b) {
     uint32_t oldSize = 0; void* saved[8] = {};
-    int added = (g_cfg.sharedPursuits && g_coopLinked && FreeRoamHere()) ? AddPeerCopsToList(&oldSize, saved) : 0;
+    int added = (g_cfg.sharedPursuits && g_coopLinked && g_sp.peerCopsShown) ? AddPeerCopsToList(&oldSize, saved) : 0;
     ((void(__thiscall*)(void*, uint32_t, uint32_t))RadarFn)(self, a, b);
     if (added) RemovePeerCopsFromList(oldSize, added, saved);
     if (added != g_sp.radarCops && (added || g_sp.radarCops > 0)) {

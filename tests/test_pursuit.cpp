@@ -94,6 +94,10 @@ TEST(pursuit_patrol_cop_spots_speeding_player) {
     CHECK(!PatrolCopSpotsPlayer(nan, 1.f, 50.f));
     CHECK(!PatrolCopSpotsPlayer(10.f, 1.f, nan));
     CHECK(!PatrolCopSpotsPlayer(30.f, nan, 33.f));
+    CHECK(!PatrolCopSpotsPlayer(30.f, 0.8f, 28.f));           // 101 km/h: under the game's 65 mph
+    CHECK(PatrolCopSpotsPlayer(30.f, 0.8f, 5.f, 4.2f));       // heat 4: recognised, no speeding needed
+    CHECK(!PatrolCopSpotsPlayer(30.f, 0.8f, 5.f, 3.9f));
+    CHECK(!PatrolCopSpotsPlayer(30.f, -0.8f, 5.f, 5.f));      // behind it: not seen
 }
 
 TEST(pursuit_cop_goes_after_the_closer_player) {

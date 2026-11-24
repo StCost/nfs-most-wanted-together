@@ -26,14 +26,17 @@ namespace SharedPursuit {
     // Near the host the client spawns no patrol cops of its own (traffic.inl), so the patrol cops around
     // both players belong to one game, and only that game's player can draw their attention (the game's
     // own spotting knows only its own player). The other game decides for its player with the copy of
-    // that cop: close, in the cop's view (or right next to it) and speeding past it.
+    // that cop, by the game's own rule (AICopManager 0x429EF0): a perpetrator a cop sees starts a pursuit
+    // when faster than 29.06 m/s (the float at 0x891694, 65 mph) or at heat level 4 and up (recognised).
     constexpr float PATROL_SEES_M = 40.f;            // a patrol cop notices a car this close in front of it
     constexpr float PATROL_SEES_ANY_DIR_M = 15.f;    // ...or this close in any direction
-    constexpr float PATROL_SPEEDING_MS = 27.8f;      // 100 km/h past a patrol cop: speeding
+    constexpr float PATROL_SPEEDING_MS = 29.056772f; // 0x891694
+    constexpr int   PATROL_RECOGNISE_HEAT = 4;       // heat level (int of the heat) from which no speeding is needed
     // facing: cos of the angle between the cop's forward and the direction from the cop to the player
-    inline bool PatrolCopSpotsPlayer(float dist, float facing, float speedMs) {
-        if (!(dist >= 0.f) || dist > PATROL_SEES_M || !(speedMs >= PATROL_SPEEDING_MS)) return false;
-        return dist <= PATROL_SEES_ANY_DIR_M || facing >= 0.f;
+    inline bool PatrolCopSpotsPlayer(float dist, float facing, float speedMs, float heat = 0.f) {
+        if (!(dist >= 0.f) || dist > PATROL_SEES_M) return false;
+        if (!(dist <= PATROL_SEES_ANY_DIR_M || facing >= 0.f)) return false;
+        return speedMs > PATROL_SPEEDING_MS || (heat == heat && (int)heat >= PATROL_RECOGNISE_HEAT);
     }
 
     // ---- cops of our pursuit going after the other player ------------------------------------------
