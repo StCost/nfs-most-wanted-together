@@ -36,7 +36,7 @@ $asi = Join-Path $dist "MWTogether-$Version.asi"
 Copy-Item build\MWTogether.asi $asi -Force
 Write-Host "Packaged $asi"
 
-# Release notes: a download link first, what changed (-ChangesFile) and "both players should update";
+# Release notes: a download link first, then what changed (-ChangesFile);
 # --generate-notes adds the full changelog link. No install steps, SHA256 or license links here: those
 # are in the README, on the release asset and built into the ASI.
 $repo = 'https://github.com/StCost/nfs-most-wanted-together'
@@ -44,7 +44,6 @@ $notes = Join-Path $dist "MWTogether-$Version-notes.md"
 $lines = @("# [Click Me to Download NFS MW Together $Version]($repo/releases/download/v$Version/MWTogether.asi)", '')
 $lines += '### What changed', ''
 if ($ChangesFile) { $lines += Get-Content $ChangesFile } else { $lines += '- (fill in)' }
-$lines += '', "Both players should update to $Version."
 Write-Host "MWTogether.asi SHA256 $((Get-FileHash $asi -Algorithm SHA256).Hash.ToLower())"
 Set-Content $notes $lines -Encoding utf8
 Get-Content $notes | Write-Host
