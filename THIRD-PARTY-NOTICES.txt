@@ -1,6 +1,4 @@
-NFS MW Together does not include third-party binaries. The release is one file, MWTogether.asi;
-this notice and LICENSE are built into it (resources MWT_NOTICES and MWT_LICENSE) and are also at
-https://github.com/StCost/nfs-most-wanted-together
+NFS MW Together does not include third-party binaries.
 
 MWTogether.asi is statically linked with the Microsoft Visual C++ runtime (/MT), which Microsoft
 allows to be redistributed as part of an application built with Visual Studio.

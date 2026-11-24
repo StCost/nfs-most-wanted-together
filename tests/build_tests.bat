@@ -28,8 +28,7 @@ if /i "%1"=="analyze" goto :analyze
 
 rem ---- 1. run-time checks build ---------------------------------------------------------------
 if not exist build\tests mkdir build\tests
-rc /nologo /fo "build\tests\resources.res" src\version.rc || exit /b 1
-cl %COMMON% /Od /MTd /RTC1 /Zi /Fo"build\tests\\" /Fd"build\tests\tests.pdb" %SRC% build\tests\resources.res ^
+cl %COMMON% /Od /MTd /RTC1 /Zi /Fo"build\tests\\" /Fd"build\tests\tests.pdb" %SRC% ^
    /Fe"build\tests.exe" /link /INCREMENTAL:NO ws2_32.lib || exit /b 1
 echo Built build\tests.exe
 if /i "%1"=="build" goto :asan
@@ -40,7 +39,7 @@ rem ---- 2. AddressSanitizer build (optional) ----------------------------------
 if /i "%1"=="noasan" exit /b 0
 if /i "%2"=="noasan" exit /b 0
 if not exist build\tests_asan mkdir build\tests_asan
-cl %COMMON% /Od /MT /Zi /fsanitize=address /Fo"build\tests_asan\\" /Fd"build\tests_asan\tests_asan.pdb" %SRC% build\tests\resources.res ^
+cl %COMMON% /Od /MT /Zi /fsanitize=address /Fo"build\tests_asan\\" /Fd"build\tests_asan\tests_asan.pdb" %SRC% ^
    /Fe"build\tests_asan.exe" /link /INCREMENTAL:NO ws2_32.lib >build\tests_asan\build.log 2>&1
 if errorlevel 1 (
   echo AddressSanitizer build not available with this toolset - skipped. Details: build\tests_asan\build.log

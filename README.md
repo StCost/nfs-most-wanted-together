@@ -25,12 +25,12 @@ Wanted online free roam with a friend, Need for Speed Most Wanted two player mod
 
 
 1. Download [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases) — the x86/Win32 `dinput8.dll` build (e.g. [v10.0.4](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/tag/v10.0.4), which we tested) — and put `dinput8.dll` next to `speed.exe`.
-2. Download **[MWTogether.asi](https://github.com/StCost/nfs-most-wanted-together/releases/latest/download/MWTogether.asi)** (the latest release) and put it in the `scripts` folder next to `speed.exe` (make the folder if there is none).
+2. Download **[MWTogether.zip](https://github.com/StCost/nfs-most-wanted-together/releases/latest/download/MWTogether.zip)** (the latest release) and unpack it into your game folder, next to `speed.exe`.
 3. Run `speed.exe` as usual. The game stops at the main menu: pick the **Together** icon there,
    set **Connection** to **Host** or **Join**, and (if joining) enter the host's IP under
    **Connect to IP**. Press **Start Host** or **Connect**. **Stop Host** / **Disconnect** end the session.
 4. Do the same on the other PC. The game loads your career into free roam and connects you on its own.
-5. To update, replace `scripts\MWTogether.asi` with the new one. Your settings (`scripts\MWTogether.ini`) stay. Leave the existing `dinput8.dll` as is.
+5. To update, unpack the new zip over the old one. Your settings (`scripts\MWTogether.ini`) stay. Leave the existing `dinput8.dll` as is.
 
 You can play the prologue (the opening BMW races) together too: start a new career on both PCs.
 
@@ -81,7 +81,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Stays connected while paused, minimized or alt-tabbed, and the game keeps running in the background
 - [x] Status overlay on F8 (remembers if you hid it)
 - [x] **Together** in the game's own menus: one screen from Main menu > Together, the pause menu, and Options > Together (Connection, Connect to IP when joining, Reconnect on launch, Start Host / Connect); the main menu's profile box shows both profile names (yours and your partner's) while connected. If this `speed.exe` differs, the menus stay as they are and the page below is used
-- [x] Main menu Together logo, built into the plugin (no game files changed); the logo object is made taller so the original lettering stays the same size
+- [x] Main menu logo from `scripts\MWTogether-logo.dds` if it is there (no game files changed); the logo object is made taller so the original lettering stays the same size
 - [x] In-game **Together** overlay page (hold BACK on a pad): host or join, host IP, remaining menu options, your IP address and the connection state. Saving reconnects right away when needed
 - [x] Join / leave notices, even with the overlay hidden
 - [x] Notices use the game's own message line in the middle of the screen: joins and leaves in green, problems (connection, firewall, prologue) in orange. Long ones come in parts. In cutscenes and menus the EA Trax song banner shows them
@@ -211,12 +211,12 @@ All options are in `scripts\MWTogether.ini`, with a comment on each. Sections:
   That is a dev build with the test keys and commands (`docs/TESTING.md`); `set MWT_RELEASE=1` first for a
   release build without them (`tools\release.ps1` and the workflow do this).
 - Nothing builds automatically on GitHub. The **Build** workflow under **Actions** runs only when you start it
-  by hand: it builds the plugin, runs the tests and packages `MWTogether.asi` (the ASI loader is a separate
+  by hand: it builds the plugin, runs the tests and packages the zip (the ASI loader is a separate
   required download; see Install). Give it a version number and it also creates the GitHub release.
 - Local release, without Actions: `tools\release.ps1 -Version 0.2.0` publishes a pre-release; add `-Final` for a
-  normal release. `-DryRun` only builds `dist\MWTogether-<version>.asi`.
-- Every release lists the SHA256 of its files, and files built by the workflow carry a build provenance
-  attestation: `gh attestation verify MWTogether.asi --repo StCost/nfs-most-wanted-together`.
+  normal release. `-DryRun` only builds the zip in `dist\`.
+- GitHub shows the SHA256 of every release asset, and files built by the workflow carry a build provenance
+  attestation: `gh attestation verify MWTogether.zip --repo StCost/nfs-most-wanted-together`.
 
 
 </details>
@@ -272,8 +272,7 @@ The code is in `src/`:
 | `minimap.inl`, `worldmap.inl` | player blips |
 | `hud.inl` | F1: hide the minimap and the gauges |
 | `nativeui.cpp` | Together in the game's menus (Options and Main menu entries, the settings list, text entry, the profile box) |
-| `logo.cpp` | the main menu logo built in from `assets\MWTogether-logo.dds` (taller Together variant, original lettering size kept) |
-| `resutil.h` | the files built into the plugin (`src\version.rc`): logo, default `MWTogether.ini`, LICENSE, THIRD-PARTY-NOTICES |
+| `logo.cpp` | the main menu logo from `scripts\MWTogether-logo.dds` (taller Together variant, original lettering size kept) |
 | `boot.inl` | skip the load-complete screen, last profile, final pursuit load fix |
 | `input.*`, `pad.cpp` | DirectInput, gamepad hot-plug and bindings; AutoStart menu automation in dev builds only |
 | `overlay.*` | D3D9 hooks and the status overlay |
@@ -291,7 +290,7 @@ Pull requests welcome, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 <details><summary><h2>License</h2></summary>
 
-MIT - see [LICENSE](LICENSE). Ultimate ASI Loader is a separate required download (also MIT): [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt). Both texts are also built into `MWTogether.asi` and written to `scripts\MWTogether.log` on its first start.
+MIT - see [LICENSE](LICENSE). Ultimate ASI Loader is a separate required download (also MIT): [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
 
 
 </details>

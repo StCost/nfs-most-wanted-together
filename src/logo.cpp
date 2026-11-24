@@ -6,7 +6,6 @@
 #include <vector>
 #include "logo.h"
 #include "ddsutil.h"
-#include "resutil.h"
 #include "log.h"
 #include "mem.h"
 
@@ -93,7 +92,7 @@ namespace {
         typedef ULONG(__stdcall* AddRef_t)(void*);
         Slot<AddRef_t>(g_ours, 1)(g_ours);
         *(void**)(plat + 0x18) = g_ours;            // (the game's own texture is just left alone)
-        if (plat != g_plat) LOG("Logo: the built-in Together logo in use (%ux%u)", g_info.width, g_info.height);
+        if (plat != g_plat) LOG("Logo: MWTogether-logo.dds in use (%ux%u)", g_info.width, g_info.height);
         g_plat = plat;
         return true;
     }
@@ -138,17 +137,19 @@ namespace {
     void TickImpl(const char* dir) {
         if (g_state == S_CHECK) {
             g_state = S_OFF;
-            (void)dir;   // the logo is built into the plugin; a MWTogether-logo.dds file there is not read
-            const uint8_t* data = nullptr; size_t n = 0;
-            if (!ResUtil::Get(ResUtil::kLogo, data, n)) { LOG("Logo: the built-in logo is missing - the game's logo stays"); return; }
-            g_file.assign(data, data + n);
+            std::string path = std::string(dir) + "MWTogether-logo.dds";
+            FILE* f = nullptr;
+            if (fopen_s(&f, path.c_str(), "rb") != 0 || !f) return;     // no file: the game's logo
+            fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
+            if (n > 0 && n <= 32 * 1024 * 1024) { g_file.resize((size_t)n); if (fread(g_file.data(), 1, (size_t)n, f) != (size_t)n) g_file.clear(); }
+            fclose(f);
             std::string err;
-            if (!DdsUtil::Parse(g_file.data(), g_file.size(), g_info, err)) { LOG("Logo: the built-in logo not used: %s", err.c_str()); g_file.clear(); return; }
+            if (!DdsUtil::Parse(g_file.data(), g_file.size(), g_info, err)) { LOG("Logo: MWTogether-logo.dds not used: %s", err.c_str()); g_file.clear(); return; }
             g_contentH = ContentHeight();
             g_resizeOk = CheckResizeFns();
             if (!g_resizeOk) LOG("Logo: couldn't resize the menu logo object - a non-4:1 file may look stretched");
             else if (g_info.width * 128 != g_contentH * 512)
-                LOG("Logo: the built-in logo is %ux%u (content %u) - the menu logo's height will grow to keep the original width",
+                LOG("Logo: MWTogether-logo.dds is %ux%u (content %u) - the menu logo's height will grow to keep the original width",
                     g_info.width, g_info.height, g_contentH);
             g_state = S_WAIT;
         }

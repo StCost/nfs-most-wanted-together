@@ -80,7 +80,7 @@ Rules for new code:
 ## CI
 There is no automatic CI. The **Build** workflow (`.github/workflows/build.yml`) only runs when someone starts
 it by hand from the Actions tab. It builds the plugin, runs `tests\build_tests.bat`,
-prints the static-analysis report (never fails the run) and packages `MWTogether.asi`; with a version number it also
+prints the static-analysis report (never fails the run) and packages the zip; with a version number it also
 creates the release. Running it is optional: `build.bat` and `tests\build_tests.bat` on your PC check the same.
 
 ## Reporting bugs

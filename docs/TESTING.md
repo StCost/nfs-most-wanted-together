@@ -294,9 +294,8 @@ A pass looks like this (both PCs on fresh careers, linked):
 2. `solo`, `smoke`, `race`, `results`, `boss`, `restart`, `cutscene`, `pursuit`, `ram`, `together`, `kinds` pass on two PCs.
 3. One real session by two people with `TestKeys=0`: free roam, a race started from the game's own menus
    (not `event`), a pursuit, a rival race.
-5. Install the release `MWTogether.asi` into `scripts\` of a copy of the game **without** the Widescreen Fix
-   (and once with it), with no `MWTogether.ini` there: the first start must write it and show the Together
-   logo. Ultimate ASI Loader's x86 `dinput8.dll` is not included: put it next to `speed.exe`
+5. Install the release zip into a copy of the game **without** the Widescreen Fix (and once with it). The
+   zip does not include `dinput8.dll`: put Ultimate ASI Loader's x86 `dinput8.dll` next to `speed.exe`
    first (already there if the copy was a 1.7.2 or earlier install). Start
    `speed.exe` as usual: the plain game's title screen is `MW_LS_Splash.fng`, the fixed
    game's `WS_MW_LS_Splash.fng`. A release ASI does not honour `TestSkipIntro` / `TestPressStart`; press

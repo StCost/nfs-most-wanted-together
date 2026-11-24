@@ -46,5 +46,6 @@ rem renamed from CoopMod: remove the old plugin (both would load) and keep its s
 if exist "..\scripts\CoopMod.asi" del "..\scripts\CoopMod.asi"
 if not exist "..\scripts\MWTogether.ini" if exist "..\scripts\CoopMod.ini" copy /y "..\scripts\CoopMod.ini" "..\scripts\MWTogether.ini" >nul
 copy /y "build\MWTogether.asi" "..\scripts\MWTogether.asi" >nul || (echo copy failed - is the game running? & exit /b 1)
-rem the logo and the default MWTogether.ini are built into the plugin: it writes the ini on its first start
+if not exist "..\scripts\MWTogether.ini" copy /y "MWTogether.ini" "..\scripts\MWTogether.ini" >nul
+if exist "assets\MWTogether-logo.dds" copy /y "assets\MWTogether-logo.dds" "..\scripts\MWTogether-logo.dds" >nul
 echo Built and installed scripts\MWTogether.asi
