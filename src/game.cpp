@@ -618,7 +618,7 @@ static void ApplyCarControls(void* iv, const CarState& s) {
     }
     *(uint32_t*)((uint8_t*)iv + 0x9C) = s.glare;
 }
-// While the remote car is held (cutscene, spawn protection) it must not keep the last steering / NOS.
+// While the remote car is held during a cutscene it must not keep the last steering / NOS.
 static void ClearCarControls(void* iv) {
     void* in = Find(iv, 0x403F90 /*IInput*/);
     if (!in) return;
@@ -743,27 +743,6 @@ namespace {
         bool found = CoopRace::GridSlotFor(cars, n, along, side);
         out[0] = p[0] + fx * along + rx * side; out[1] = p[1]; out[2] = p[2] + fz * along + rz * side;
         return found;
-    }
-    // where the other player is shown when both games put the two cars on the same start spot: the host
-    // shows the client on the slot it gave them (HostGridSlotTick) until they move there; otherwise a free
-    // slot of the grid around us (FreeGridSlotNear)
-    void BehindUs(void* rb, float out[3]) {
-        __try {
-            const float* p = RB_GetVec(rb, RB_GetPosition);
-            if (g_cfg.isHost && g_clientSlotEvent && g_clientSlotEvent == Game::CurrentEventHash()) {
-                out[0] = g_clientSlot[0]; out[2] = g_clientSlot[2];
-                out[1] = fabsf(g_clientSlot[1] - p[1]) < 1.f ? p[1] : g_clientSlot[1];
-                return;
-            }
-            float along = 0.f, side = 0.f; int n = 0;
-            bool found = FreeGridSlotNear(rb, out, along, side, n);
-            static float lastA = 1e9f, lastS = 1e9f;
-            if (fabsf(along - lastA) > 0.5f || fabsf(side - lastS) > 0.5f) {   // (not every few cm the cars settle)
-                lastA = along; lastS = side;
-                LOG("Start: the other player shown on a grid slot %.1f m %s, %.1f m %s of us (%d car(s) around%s)",
-                    fabsf(along), along < 0 ? "behind" : "ahead", fabsf(side), side < 0 ? "left" : "right", n, found ? "" : ", all slots taken");
-            }
-        } __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
     uint32_t WorldIdOf(void* iv) {            // ISimable slot 28 (0x686AF0): unique per car, never reused
         // only a live car: calling into a deleted one ran whatever its freed memory held (an event start
@@ -1325,8 +1304,8 @@ static void PeerRacerInfoTick() {
 }
 
 // Race start: both games put their own player on the player's grid slot, so on each screen the other
-// player's car would stand inside ours (spawn protection then held it still until the two were 10 m
-// apart: their car stood on the grid for the first seconds of the race). The client moves off it.
+// player's car would stand inside ours. The client moves off it. Collisions stay off until the two
+// cars have been SafeDistance apart once; the remote car is still shown at its real position.
 // Where to: the client's AI racers follow the host's (traffic.inl), so the host's grid is the one both
 // screens show - the client belongs on the slot the HOST's race gave the client's racer (the replaced AI
 // racer: where the host's intro cutscene shows them). Up to 1.7.8 the client took the slot ITS OWN race
@@ -1409,7 +1388,7 @@ static void TakePeerSlotTick(const Net::Snapshot& latest, void* ghostRb) {
     if (pick == NetUtil::StartSlot::Wait) return;
     windowUntil = 0;
     if (pick == NetUtil::StartSlot::None) {
-        LOG("Start: no grid slot from the host and none of our own - the other player is shown on a free slot next to us");
+        LOG("Start: no grid slot from the host and none of our own - the other player is shown at their real position");
         return;
     }
     const float* slot = pick == NetUtil::StartSlot::Host ? hostSlot : g_peerSlot;
@@ -1540,8 +1519,6 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
             // booth): the new car's collisions are switched off below in the same frame, before any physics
             // step, and stay off until the two cars are apart - the cars just overlap for a moment
             float spawnPos[3] = { latest.s.pos[0], latest.s.pos[1], latest.s.pos[2] };
-            if (void* lrb0 = RigidBodyOf(LocalVehicle()))     // on our own start spot: one car length behind us
-                if (Game::CurrentEventHash() && Dist(RB_GetVec(lrb0, RB_GetPosition), spawnPos) < 3.f) BehindUs(lrb0, spawnPos);
             iv = SpawnVehicle(pc->carKey, pc->hasCustom ? pc->custom : nullptr, spawnPos, dir, DRV_REMOTE);
             if (!iv && pc->hasCustom) {
                 // Diagnose: is it the customization record that Construct rejects, or the model itself?
@@ -1624,9 +1601,9 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
     float err = Dist(cur, s.pos);
 
     // Spawn protection: when both games put their players on the same spot (shared safe-house spawn,
-    // shared grid slot at an event start), moving the remote car onto it overlaps the two cars and the
-    // physics flings them. Until the players have been SafeDistance apart once, keep the remote car
-    // where it is (nudged 5 m aside if it is inside the local car) instead of syncing it onto them.
+    // shared grid slot at an event start), the remote car is still synced to its real (interpolated)
+    // position and velocity. Its collisions stay off until the players have been SafeDistance apart
+    // once, so the overlap does not fling them.
     void* lrbP = RigidBodyOf(LocalVehicle());
     // Re-arm the protection whenever the peer teleports (event start, reset, respawn): its position
     // jumping > 30 m between frames means it may land right on top of us.
@@ -1665,9 +1642,6 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
             g_separated = true;
             LOG("Spawn protection off: players are %.0f m apart", Dist(lp, s.pos));
         }
-        // a race start with no grid slot for them (or the intro cutscene put both cars on one spot): their game
-        // has them where we are. Shown one car length behind us instead - a grid of our own - until one moves
-        if (Game::CurrentEventHash() && Dist(lp, s.pos) < 3.f) BehindUs(lrbP, s.pos);
     }
 
     // Hard-set the exact interpolated transform + velocities every frame. Because consecutive targets
