@@ -22,6 +22,34 @@ namespace SharedPursuit {
         return d2 <= maxDist * maxDist;
     }
 
+    // ---- the other player's patrol cops ----------------------------------------------------------
+    // Near the host the client spawns no patrol cops of its own (traffic.inl), so the patrol cops around
+    // both players belong to one game, and only that game's player can draw their attention (the game's
+    // own spotting knows only its own player). The other game decides for its player with the copy of
+    // that cop: close, in the cop's view (or right next to it) and speeding past it.
+    constexpr float PATROL_SEES_M = 40.f;            // a patrol cop notices a car this close in front of it
+    constexpr float PATROL_SEES_ANY_DIR_M = 15.f;    // ...or this close in any direction
+    constexpr float PATROL_SPEEDING_MS = 27.8f;      // 100 km/h past a patrol cop: speeding
+    // facing: cos of the angle between the cop's forward and the direction from the cop to the player
+    inline bool PatrolCopSpotsPlayer(float dist, float facing, float speedMs) {
+        if (!(dist >= 0.f) || dist > PATROL_SEES_M || !(speedMs >= PATROL_SPEEDING_MS)) return false;
+        return dist <= PATROL_SEES_ANY_DIR_M || facing >= 0.f;
+    }
+
+    // ---- cops of our pursuit going after the other player ------------------------------------------
+    // Each game's pursuit cops chase that game's player. When both are chased, a cop of ours that is
+    // clearly closer to the other player's car goes after it (AITarget::Aquire), and comes back to us
+    // once that player is far from it or we are clearly closer. At least one cop always stays on us.
+    constexpr float RETARGET_RANGE_M = 60.f;    // the other player this close to the cop...
+    constexpr float RETARGET_MARGIN_M = 10.f;   // ...and this much closer to it than we are
+    constexpr float RELEASE_RANGE_M = 90.f;     // back on us when the other player is farther than this
+    constexpr float RELEASE_MARGIN_M = 25.f;    // or when we are this much closer to the cop than they are
+    inline bool CopChasesPeer(bool chasingPeerNow, float dMe, float dPeer) {
+        if (!(dMe >= 0.f) || !(dPeer >= 0.f)) return false;   // unknown (NaN): stay on us
+        if (chasingPeerNow) return dPeer <= RELEASE_RANGE_M && !(dMe + RELEASE_MARGIN_M < dPeer);
+        return dPeer < RETARGET_RANGE_M && dPeer + RETARGET_MARGIN_M < dMe;
+    }
+
     // ---- heat ------------------------------------------------------------------------------------
     // Called with every state from the other player. Returns the heat our car should take, or 0 to
     // leave ours alone. A value is copied only when it is new on their side (first one after a gap, or

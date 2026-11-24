@@ -84,6 +84,30 @@ TEST(pursuit_peer_cop_sees_player_uses_local_positions) {
     CHECK(PeerCopSeesPlayer(true, true, farCop, me, 100.f));
 }
 
+TEST(pursuit_patrol_cop_spots_speeding_player) {
+    CHECK(PatrolCopSpotsPlayer(30.f, 0.8f, 33.f));            // in front, 120 km/h
+    CHECK(!PatrolCopSpotsPlayer(30.f, 0.8f, 20.f));           // 72 km/h: not speeding
+    CHECK(!PatrolCopSpotsPlayer(30.f, -0.5f, 33.f));          // behind the cop, not close
+    CHECK(PatrolCopSpotsPlayer(10.f, -0.9f, 33.f));           // right next to it: any direction
+    CHECK(!PatrolCopSpotsPlayer(45.f, 1.f, 50.f));            // too far
+    float nan = std::numeric_limits<float>::quiet_NaN();
+    CHECK(!PatrolCopSpotsPlayer(nan, 1.f, 50.f));
+    CHECK(!PatrolCopSpotsPlayer(10.f, 1.f, nan));
+    CHECK(!PatrolCopSpotsPlayer(30.f, nan, 33.f));
+}
+
+TEST(pursuit_cop_goes_after_the_closer_player) {
+    CHECK(CopChasesPeer(false, 50.f, 20.f));                  // the other player is clearly closer
+    CHECK(!CopChasesPeer(false, 25.f, 20.f));                 // only a little closer: stays on us
+    CHECK(!CopChasesPeer(false, 200.f, 70.f));                // the other player too far from the cop
+    CHECK(CopChasesPeer(true, 40.f, 50.f));                   // chasing them: keeps at it (hysteresis)
+    CHECK(!CopChasesPeer(true, 20.f, 50.f));                  // we are clearly closer now: back on us
+    CHECK(!CopChasesPeer(true, 200.f, 95.f));                 // they got away from it
+    float nan = std::numeric_limits<float>::quiet_NaN();
+    CHECK(!CopChasesPeer(false, nan, 10.f));
+    CHECK(!CopChasesPeer(true, 10.f, nan));
+}
+
 // ---- cooldown ------------------------------------------------------------------------------------
 namespace {
     View V(bool in, bool seen, bool cooling, float left, bool ready = false, bool busted = false) {

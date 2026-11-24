@@ -3,9 +3,14 @@
 // Pursuits
 //  Every player has their own heat and their own pursuit (the game runs it locally); the other
 //  player's pursuit cops are shown as mirrors (traffic.inl sends AICOPS both ways).
-//  When both players are in a pursuit and the other player's car is close, one cop of OUR pursuit
-//  switches its own target to the other player's car (AITarget::Aquire), so cops can go after
-//  either player. Heat, busting and evading still track the local player only.
+//  When both players are in a pursuit, every cop of OUR pursuit that is clearly closer to the other
+//  player's car than to ours switches its own target to that car (AITarget::Aquire) and rams it; at
+//  least one cop always stays on us. Heat, busting and evading still track the local player only: a
+//  cop chasing the other player does not count as seeing us (hook in AIPursuit::OnTask, below).
+//  Patrol cops: near the host the client spawns none of its own, so the patrol cops around both
+//  players belong to one game and the game's own spotting only knows that game's player. Each game
+//  therefore lets the other player's patrol cops (the copies shown here) spot its own player:
+//  speeding close past one of them starts a pursuit here (SharedPursuit::PatrolCopSpotsPlayer).
 //
 //  IVehicle vt+0xAC GetAIVehiclePtr -> IVehicleAI;  IVehicleAI vt+0xA0 GetPursuit -> IPursuit (or null)
 //  IVehicleAI vt+0x64 GetTarget -> AITarget (+0x1C ISimable*, +0x2C valid)
@@ -28,7 +33,13 @@
 // ---------------------------------------------------------------------------
 namespace {
     constexpr uintptr_t AquireFn = 0x423860, IPerpetratorHandle = 0x4037E0;
-    constexpr float RETARGET_RANGE = 60.f, RELEASE_RANGE = 90.f;
+    // AIPursuit::OnTask (0x443BA0) takes the smallest IPursuitAI "time since target seen" (slot 29) of its
+    // cops as the time since its perpetrator was seen: at 0x44416D `mov eax,[ebx]; mov ecx,ebx;
+    // call [eax+0x74]`, ebx = the cop's IPursuitAI, edi = the cop (IVehicle*). A cop of ours that went
+    // after the other player sees THEM: for those the hook answers "not seen", so a cop busy with the other
+    // player never keeps our own pursuit from cooling down (the evade bar stays personal).
+    constexpr uintptr_t PursuitSeenCall = 0x44416D;
+    constexpr int MAX_RETARGET = 8;
 
     void* AIOf(void* iv) { return IsVehicle(iv) ? VCall<void* (__thiscall*)(void*)>(iv, 0xAC / 4)(iv) : nullptr; }
     void* PursuitOf(void* iv) {
@@ -42,19 +53,52 @@ namespace {
     void* SimOf(void* iv) { return iv ? VCall<void* (__thiscall*)(void*)>(iv, IV_GetSimable)(iv) : nullptr; }
     void Aquire(void* target, void* sim) { ((void(__thiscall*)(void*, void*))AquireFn)(target, sim); }
 
-    void*  g_retargetCop = nullptr;    // the cop of our pursuit currently chasing the other player
+    void*  g_rtCops[MAX_RETARGET] = {};   // cops of our pursuit currently chasing the other player
+    int    g_rtN = 0;
     double g_nextPursuitCheck = 0;
+    float  g_notSeen = 1000.f;
 
-    void ReleaseRetarget(void* pursuit) {
-        if (!g_retargetCop) return;
-        if (ListContains(-1, g_retargetCop) && pursuit) {
-            void* pt = VCall<void* (__thiscall*)(void*)>(pursuit, 2)(pursuit);
-            void* sim = nullptr;
-            if (pt && Mem::Read((uintptr_t)pt + 0x1C, sim) && sim)
-                if (void* t = CopTarget(g_retargetCop)) Aquire(t, sim);
+    bool IsRetargeted(void* cop) {
+        for (int i = 0; i < g_rtN; ++i) if (g_rtCops[i] == cop) return true;
+        return false;
+    }
+    bool __stdcall RetargetedForSeen(void* cop) { return cop && IsRetargeted(cop); }
+    void __declspec(naked) hk_PursuitCopSeen() {
+        __asm {
+            push edi
+            call RetargetedForSeen
+            test al, al
+            jnz not_seen
+            mov eax, [ebx]
+            mov ecx, ebx
+            jmp dword ptr [eax + 0x74]     // the original call; it returns to the game
+        not_seen:
+            fld dword ptr [g_notSeen]
+            ret
         }
-        LOG("Pursuit: cop %p back on the local player", g_retargetCop);
-        g_retargetCop = nullptr;
+    }
+    bool PatchPursuitSeen() {
+        const uint8_t expect[7] = { 0x8B, 0x03, 0x8B, 0xCB, 0xFF, 0x50, 0x74 };   // mov eax,[ebx]; mov ecx,ebx; call [eax+0x74]
+        uint8_t bytes[7] = { 0xE8, 0, 0, 0, 0, 0x90, 0x90 };                    // call hook; nop; nop
+        int32_t rel = (int32_t)((uintptr_t)&hk_PursuitCopSeen - (PursuitSeenCall + 5));
+        memcpy(bytes + 1, &rel, 4);
+        return Mem::PatchBytes(PursuitSeenCall, expect, bytes, 7);
+    }
+
+    // that cop back on the pursuit's own target (our car)
+    void RetargetBack(void* pursuit, void* cop) {
+        if (!pursuit || !ListContains(-1, cop)) return;
+        void* pt = VCall<void* (__thiscall*)(void*)>(pursuit, 2)(pursuit);
+        void* sim = nullptr;
+        if (pt && Mem::Read((uintptr_t)pt + 0x1C, sim) && sim)
+            if (void* t = CopTarget(cop)) Aquire(t, sim);
+    }
+    void ReleaseRetargets(void* pursuit) {
+        if (!g_rtN) return;
+        int n = g_rtN;
+        for (int i = 0; i < n; ++i) RetargetBack(pursuit, g_rtCops[i]);
+        g_rtN = 0;
+        LOG("Pursuit: %d cop(s) back on the local player", n);
     }
 }
 
@@ -72,60 +116,7 @@ int16_t Game::LocalPursuitHeat() {
     } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
 }
 
-static void PursuitTickImpl(bool connected, const Net::Snapshot& peer) {
-    double now = Net::LocalClockMs();
-    if (g_nextPursuitCheck - now > 1000) g_nextPursuitCheck = now;   // sim clock restarted
-    if (now < g_nextPursuitCheck) return;
-    g_nextPursuitCheck = now + 400;
-    void* me = LocalVehicle();
-    void* pursuit = (connected && Game::GameFlowState() == 6) ? PursuitOf(me) : nullptr;
-    void* other = g_ghost;
-    {   // one status line every 5 s while either of us is being chased
-        static DWORD nextLog = 0;
-        int n0 = 0; if (pursuit) Mem::Read((uintptr_t)pursuit + 0x20, n0);
-        if ((pursuit || (peer.valid && peer.s.pursuitHeat > 0)) && (int)(GetTickCount() - nextLog) > 0) {
-            nextLog = GetTickCount() + 5000;
-            int mirrors = 0; for (auto& m : g_mirrors) if (m.used && m.iv && m.n && (m.s[m.n - 1].e.flags & 1)) ++mirrors;
-            LOG("Pursuit: mine %s (%d cops, heat %.1f) | theirs heat %.1f, %d of their cops shown here",
-                pursuit ? "yes" : "no", n0, Game::LocalPursuitHeat() / 10.f, peer.valid ? peer.s.pursuitHeat / 10.f : 0.f, mirrors);
-        }
-    }
-    bool peerInPursuit = peer.valid && peer.s.hasCar && peer.s.pursuitHeat > 0;
-    void* otherRb = RigidBodyOf(other);
-    if (!pursuit || !peerInPursuit || !otherRb) { ReleaseRetarget(pursuit); return; }
-
-    const float* op = RB_GetVec(otherRb, RB_GetPosition);
-    void** cops = nullptr; int n = 0;
-    Mem::Read((uintptr_t)pursuit + 0x18, cops);
-    Mem::Read((uintptr_t)pursuit + 0x20, n);
-    if (!cops || n <= 1) { ReleaseRetarget(pursuit); return; }    // keep a lone cop on us
-
-    // keep the current one while it is in our pursuit and close enough
-    if (g_retargetCop) {
-        bool still = false;
-        for (int i = 0; i < n; ++i) if (cops[i] == g_retargetCop) still = true;
-        void* rb = still ? RigidBodyOf(g_retargetCop) : nullptr;
-        if (!rb || Dist(RB_GetVec(rb, RB_GetPosition), op) > RELEASE_RANGE) ReleaseRetarget(pursuit);
-    }
-    if (!g_retargetCop) {
-        float best = RETARGET_RANGE; void* pick = nullptr;
-        for (int i = 0; i < n; ++i) {
-            void* rb = RigidBodyOf(cops[i]);
-            if (!rb) continue;
-            float d = Dist(RB_GetVec(rb, RB_GetPosition), op);
-            if (d < best) { best = d; pick = cops[i]; }
-        }
-        if (!pick) return;
-        g_retargetCop = pick;
-        LOG("Pursuit: cop %p (%.0f m away) goes after the other player", pick, best);
-    }
-    // re-apply every check: the pursuit logic may put the cop back on us
-    void* t = CopTarget(g_retargetCop);
-    void* sim = SimOf(other);
-    void* cur = nullptr;
-    if (t && sim && Mem::Read((uintptr_t)t + 0x1C, cur) && cur != sim) Aquire(t, sim);
-}
-
+static void PursuitTickImpl(bool connected, const Net::Snapshot& peer);
 static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer);
 
 void Game::PursuitTick(bool connected, const Net::Snapshot& peer) {
@@ -133,7 +124,7 @@ void Game::PursuitTick(bool connected, const Net::Snapshot& peer) {
     __try { SharedPursuitTickImpl(connected, peer); }
     __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Pursuit: exception in the shared pursuit"); }
     __try { PursuitTickImpl(connected, peer); }
-    __except (EXCEPTION_EXECUTE_HANDLER) { g_retargetCop = nullptr; LOG("Pursuit: exception"); }
+    __except (EXCEPTION_EXECUTE_HANDLER) { g_rtN = 0; LOG("Pursuit: exception"); }
 }
 
 // Test command 'uncop': remove every police car, so a pursuit can end in an escape (test of
@@ -328,6 +319,7 @@ namespace {
             void* c = nullptr;
             if (!Mem::Read((uintptr_t)&cops[i], c) || !IsVehicle(c) || !VehActive(c)) continue;
             if (VCall<bool(__thiscall*)(void*)>(c, 31)(c)) continue;                         // destroyed
+            if (IsRetargeted(c)) continue;                                                   // it sees the other player
             void* pai = Find(c, 0x4038E0);
             if (pai && VCall<float(__thiscall*)(void*)>(pai, 29)(pai) <= SharedPursuit::SEEN_LIMIT_S) return true;
         }
@@ -555,21 +547,37 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
             LOG("Pursuit: the other player is chased - %s", ok ? "starting the same pursuit on us" : "no cop manager, no pursuit");
         }
     }
-    // ---- the other player's chasing cops spot us too: one of them close to our car starts a pursuit ----
+    // ---- the other player's cops spot us too: a chasing one close to our car, or a patrol one we speed past ----
     if (me && !pursuit && openWorld) {
         static DWORD nextSpot = 0;
         void* myRb = RigidBodyOf(me);
         if (myRb && (int)(now - nextSpot) >= 0) {
             const float* mp = RB_GetVec(myRb, RB_GetPosition);
+            const float* mv = RB_GetVec(myRb, RB_GetLinearVelocity);
+            float speed = sqrtf(mv[0] * mv[0] + mv[1] * mv[1] + mv[2] * mv[2]);
             for (auto& m : g_mirrors) {
-                if (!m.used || !m.iv || !m.n || !(m.s[m.n - 1].e.flags & 4)) continue;   // a cop in a pursuit there
+                if (!IsPeerCop(m, false)) continue;
                 void* rb = RigidBodyOf(m.iv);
                 if (!rb) continue;
-                float d = Dist(RB_GetVec(rb, RB_GetPosition), mp);
-                if (d < 45.f) {
+                const float* cp = RB_GetVec(rb, RB_GetPosition);
+                float d = Dist(cp, mp);
+                if (m.s[m.n - 1].e.flags & 4) {          // a cop in a pursuit there
+                    if (d >= SharedPursuit::PEER_COP_SEES_PLAYER_M) continue;
                     nextSpot = now + 15000;
                     bool ok = DebugForcePursuitImpl();
                     LOG("Pursuit: the other player's cop %u spotted us (%.0f m) - %s", (unsigned)m.id, d, ok ? "starting a pursuit on us" : "no cop manager");
+                    break;
+                }
+                // a patrol cop there: it sees us speeding past it (the game's own spotting only knows its own player)
+                float fwd[3] = {};
+                VCall<void(__thiscall*)(void*, float*)>(rb, 13 /*GetForwardVector*/)(rb, fwd);
+                float to[3] = { mp[0] - cp[0], mp[1] - cp[1], mp[2] - cp[2] };
+                float facing = d > 0.01f ? (fwd[0] * to[0] + fwd[1] * to[1] + fwd[2] * to[2]) / d : 1.f;
+                if (SharedPursuit::PatrolCopSpotsPlayer(d, facing, speed)) {
+                    nextSpot = now + 15000;
+                    bool ok = DebugForcePursuitImpl();
+                    LOG("Pursuit: the other player's patrol cop %u saw us speeding (%.0f m, %.0f km/h) - %s", (unsigned)m.id, d, speed * 3.6f,
+                        ok ? "starting a pursuit on us" : "no cop manager");
                     break;
                 }
             }
@@ -739,6 +747,84 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     }
 }
 
+// ---- cops of our pursuit go after whichever player is closer (SharedPursuit::CopChasesPeer) ----
+static void PursuitTickImpl(bool connected, const Net::Snapshot& peer) {
+    double now = Net::LocalClockMs();
+    if (g_nextPursuitCheck - now > 1000) g_nextPursuitCheck = now;   // sim clock restarted
+    if (now < g_nextPursuitCheck) return;
+    g_nextPursuitCheck = now + 400;
+    void* me = LocalVehicle();
+    void* pursuit = (connected && Game::GameFlowState() == 6) ? PursuitOf(me) : nullptr;
+    void* other = g_ghost;
+    {   // one status line every 5 s while either of us is being chased
+        static DWORD nextLog = 0;
+        int n0 = 0; if (pursuit) Mem::Read((uintptr_t)pursuit + 0x20, n0);
+        if ((pursuit || (peer.valid && peer.s.pursuitHeat > 0)) && (int)(GetTickCount() - nextLog) > 0) {
+            nextLog = GetTickCount() + 5000;
+            int mirrors = 0; for (auto& m : g_mirrors) if (m.used && m.iv && m.n && (m.s[m.n - 1].e.flags & 1)) ++mirrors;
+            LOG("Pursuit: mine %s (%d cops, %d on the other player, heat %.1f) | theirs heat %.1f, %d of their cops shown here",
+                pursuit ? "yes" : "no", n0, g_rtN, Game::LocalPursuitHeat() / 10.f, peer.valid ? peer.s.pursuitHeat / 10.f : 0.f, mirrors);
+        }
+    }
+    bool peerInPursuit = peer.valid && peer.s.hasCar && peer.s.pursuitHeat > 0;
+    void* otherRb = RigidBodyOf(other);
+    void* myRb = RigidBodyOf(me);
+    void* sim = SimOf(other);
+    if (!pursuit || !peerInPursuit || !otherRb || !myRb || !sim) { ReleaseRetargets(pursuit); return; }
+
+    void** cops = nullptr; int n = 0;
+    Mem::Read((uintptr_t)pursuit + 0x18, cops);
+    Mem::Read((uintptr_t)pursuit + 0x20, n);
+    if (!cops || n <= 0 || n > 64) { ReleaseRetargets(pursuit); return; }
+    const float* op = RB_GetVec(otherRb, RB_GetPosition);
+    const float* mp = RB_GetVec(myRb, RB_GetPosition);
+
+    // decide per cop (helicopters stay on us); ground cops only
+    struct C { void* cop; float dMe; bool want; } c[64]; int nc = 0;
+    for (int i = 0; i < n && nc < 64; ++i) {
+        void* cop = nullptr;
+        if (!Mem::Read((uintptr_t)&cops[i], cop) || !IsVehicle(cop) || !VehActive(cop) || VehIsHeli(cop)) continue;
+        if (VCall<bool(__thiscall*)(void*)>(cop, 31)(cop)) continue;                 // destroyed
+        void* rb = RigidBodyOf(cop);
+        if (!rb) continue;
+        const float* p = RB_GetVec(rb, RB_GetPosition);
+        float dMe = Dist(p, mp), dPeer = Dist(p, op);
+        c[nc].cop = cop; c[nc].dMe = dMe;
+        c[nc].want = SharedPursuit::CopChasesPeer(IsRetargeted(cop), dMe, dPeer);
+        ++nc;
+    }
+    // at least one cop stays on us: the one closest to us
+    int onUs = 0, closest = -1;
+    for (int i = 0; i < nc; ++i) {
+        if (!c[i].want) ++onUs;
+        if (closest < 0 || c[i].dMe < c[closest].dMe) closest = i;
+    }
+    if (!onUs && closest >= 0) c[closest].want = false;
+
+    // apply: back on us first, then the new ones (up to MAX_RETARGET)
+    void* keep[MAX_RETARGET]; int nk = 0;
+    for (int i = 0; i < g_rtN; ++i) {
+        void* cop = g_rtCops[i];
+        bool stays = false;
+        for (int j = 0; j < nc; ++j) if (c[j].cop == cop) { stays = c[j].want; break; }
+        if (stays && nk < MAX_RETARGET) keep[nk++] = cop;
+        else { RetargetBack(pursuit, cop); LOG("Pursuit: cop %p back on the local player", cop); }
+    }
+    for (int i = 0; i < nk; ++i) g_rtCops[i] = keep[i];
+    g_rtN = nk;
+    for (int i = 0; i < nc && g_rtN < MAX_RETARGET; ++i) {
+        if (!c[i].want || IsRetargeted(c[i].cop)) continue;
+        g_rtCops[g_rtN++] = c[i].cop;
+        LOG("Pursuit: cop %p goes after the other player (%.0f m from us, closer to them)", c[i].cop, c[i].dMe);
+    }
+    // re-apply every check: the pursuit logic may put a cop back on us
+    for (int i = 0; i < g_rtN; ++i) {
+        void* t = CopTarget(g_rtCops[i]);
+        void* cur = nullptr;
+        if (t && Mem::Read((uintptr_t)t + 0x1C, cur) && cur != sim) Aquire(t, sim);
+    }
+}
+
 // ---- 3. we rammed one of the other player's cops (traffic.inl MirrorHitTick) ----
 static void SharedPursuitCopHit(uint16_t mirrorId) {
     if (!g_cfg.sharedPursuits || !g_coopLinked || !FreeRoamHere()) return;
@@ -837,6 +923,8 @@ void __fastcall hk_RadarDetector(void* self, void*, uint32_t a, uint32_t b) {
 }
 
 bool Game::InstallPursuitHooks() {
+    bool seen = PatchPursuitSeen();
+    LOG("Pursuit: cops chasing the other player %s count as seeing us", seen ? "no longer" : "STILL (seen hook failed)");
     if (!g_cfg.sharedPursuits) { LOG("Pursuit: SharedPursuits=0 - each player has their own heat and pursuit"); return false; }
     bool m = PatchCallChecked(DrawCopsCall, DrawCopsFn, (void*)&hk_DrawCops);
     bool r = PatchCallChecked(RadarCall, RadarFn, (void*)&hk_RadarDetector);

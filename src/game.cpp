@@ -1192,7 +1192,7 @@ void Game::ReleaseGhost() {
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
         __try {
             if (g_ghostKind == GK_RACER) RestoreAI(g_ghost);          // give the racer its AI back
-            ReleaseRetarget(PursuitOf(LocalVehicle()));               // no cop may keep chasing a dead car
+            ReleaseRetargets(PursuitOf(LocalVehicle()));               // no cop may keep chasing a dead car
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
         g_ghostKind = GK_NONE;
         g_spawnedKey = g_spawnedHash = 0;
