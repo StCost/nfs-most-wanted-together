@@ -147,6 +147,40 @@ uint8_t Game::LocalFinishRank(void* localRi) {
     return CoopRace::FinishRankToReport(fin, rank, pct, RaceTypeOfCurrent(), BustedThisEventRun());
 }
 
+// ---- the winner's screen goes to whoever really won ----
+//  ShowPostRace 0x60AC20(won) (EnterPostRaceFlow 0x611F9C and ShowWinningPostRaceScreen 0x60E242 call it
+//  with true): a race (GRaceParameters flag 0x5FBE70 clear, racing mode) won shows the winner's photo
+//  (InGamePhotoMaster.fng, flag 0x91CF41); lost, it posts EShowResults (0x10 bytes, ctor 0x642140(0, 0)),
+//  the standings / results list. Milestone events (flag set) show their rewards / race-over screen, no photo.
+//  A win we only have because the other player won (shared wins: finished as the winner for them, or
+//  given place 1 by the race script, spectating, knocked out, the Restart / Quit screen) skips the photo:
+//  the results list instead - the win, cash and progress are counted as before (NotifyRaceFinished).
+namespace { uint32_t g_teamWinEvent = 0; }   // event whose win came from the other player
+static void MarkTeamWin() { g_teamWinEvent = Game::CurrentEventHash(); }
+static bool ShowTeamResultsImpl() {
+    void* rs = nullptr; void* parms = nullptr; int mode = 0;
+    if (!Mem::Read(0x91E000, rs) || !rs || !Mem::Read((uintptr_t)rs + 0x1968, parms) || !parms) return false;
+    if (!Mem::Read((uintptr_t)rs + 0x1960, mode) || mode != 1) return false;
+    if (((bool(__thiscall*)(void*))0x5FBE70)(parms)) return false;     // a milestone event: no photo there
+    ((void(__thiscall*)(void*))0x6021B0)(rs);                          // as ShowPostRace starts
+    if (((bool(__cdecl*)())0x605690)()) return true;                    // (it posted the results itself)
+    void* ev = ((void*(__cdecl*)(uint32_t))0x627400)(0x10);
+    if (!ev) return true;
+    ((void(__thiscall*)(void*, int, int))0x642140)(ev, 0, 0);          // EShowResults: the standings
+    return true;
+}
+static void __cdecl ShowPostRaceCoop(bool won) {
+    bool done = false;
+    __try {
+        uint32_t ev = Game::CurrentEventHash();
+        if (CoopRace::TeamWinResults(won, ev, g_teamWinEvent) && ShowTeamResultsImpl()) {
+            done = true;
+            LOG("Race: the other player won - the results list here, the winner's photo is theirs");
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { done = false; }
+    if (!done) ((void(__cdecl*)(bool))0x60AC20)(won);                  // ShowPostRace
+}
+
 // Forget the other player's win when the event changes, the race is restarted (here or there: their
 // "finished" drops back to 0) or we leave to the menus. Runs in every flow state.
 static void CoopWinLatchTick(bool connected, const Net::Snapshot& peer) {
@@ -156,7 +190,7 @@ static void CoopWinLatchTick(bool connected, const Net::Snapshot& peer) {
     bool sameEvent = peer.valid && peer.s.eventHash && peer.s.eventHash == ev;
     uint8_t pfin = sameEvent ? peer.s.finished : 0;
     if (ev != lastEvent || (restart && !lastRestart) || (lastPeerFin && !pfin && sameEvent && peer.s.inRace)) {
-        g_coopWinLogged = false; g_peerWonEvent = 0; g_peerRacedHere = false;
+        g_coopWinLogged = false; g_peerWonEvent = 0; g_peerRacedHere = false; g_teamWinEvent = 0;
         g_bustedEvent = 0;   // a new run: not busted in it (yet)
     }
     lastEvent = ev; lastRestart = restart; lastPeerFin = pfin;
@@ -236,7 +270,7 @@ namespace {
         __try {
             bool local = IsLocalRacerSim(element);
             int placing = CoopRace::PlacingForScript(local, local && PeerWonThisEvent(), r);
-            if (placing != r) { LOG("Race: we crossed the line %d. - the other player won, so the race script gets place 1", r); r = placing; }
+            if (placing != r) { LOG("Race: we crossed the line %d. - the other player won, so the race script gets place 1", r); r = placing; MarkTeamWin(); }
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
         return r;
     }
@@ -275,6 +309,7 @@ static void CoopFinishTickImpl() {
     void* sim = LocalSimable();
     if (!sim) return;
     LOG("Race: the other player won while we still drive - finishing our racer as the winner (race type %d)", in.raceType);
+    MarkTeamWin();
     ((void(__cdecl*)(void*))0x6119F0)(sim);                      // NotifyRaceFinished: finished, paid, car to the AI
     int rank = 0; fin = 0;
     Mem::Read((uintptr_t)ri + 0x21, fin); Mem::Read((uintptr_t)ri + 0x10, rank);
@@ -370,8 +405,9 @@ static void KnockoutReleaseTickImpl() {
         }
     }
     bool won = PeerWonThisEvent() && CoopWonImpl(RacerInfoOfLocal());
-    LOG("Race: the other player is done - our %s now", won ? "winner's screen" : "results screen");
-    ((void(__cdecl*)(bool))0x60AC20)(won);                       // the screen the game held back (the winner's, if they won)
+    if (won) MarkTeamWin();
+    LOG("Race: the other player is done - our results screen now%s", won ? " (their win counts for us)" : "");
+    ShowPostRaceCoop(won);                                       // the screen the game held back
 }
 
 // Out of the event (busted, totaled, beaten) with the race-over Restart / Quit screen up, not spectating,
@@ -389,8 +425,9 @@ static void LoseScreenWinTickImpl() {
             ((void(__cdecl*)(void*))0x6119F0)(sim);               // NotifyRaceFinished: the win gate counts their win
         }
         bool won = CoopWonImpl(RacerInfoOfLocal());
-        LOG("Race: the other player won while our Restart / Quit screen was up - %s", won ? "the winner's screen" : "not counted (shared wins off / scripted loss)");
-        ((void(__cdecl*)(bool))0x60AC20)(won);                    // ShowPostRace
+        if (won) MarkTeamWin();
+        LOG("Race: the other player won while our Restart / Quit screen was up - %s", won ? "counted for us too" : "not counted (shared wins off / scripted loss)");
+        ShowPostRaceCoop(won);
         return;
     }
     if (!ev || !PeerWonThisEvent()) return;
@@ -457,6 +494,9 @@ bool Game::InstallCoopWin() {
     const uint8_t koStart[7] = { 0x8B, 0x44, 0x24, 0x04, 0x83, 0xEC, 0x14 };   // mov eax, [esp+4]; sub esp, 0x14
     bool e2 = PatchJmp(0x611440, koStart, 7, (void*)&hk_KnockoutRacer);
     bool e = e1 && e2;
+    bool f = PatchCallChecked(0x611F9C, 0x60AC20, (void*)&ShowPostRaceCoop) &&     // EnterPostRaceFlow
+             PatchCallChecked(0x60E242, 0x60AC20, (void*)&ShowPostRaceCoop);      // ShowWinningPostRaceScreen
+    LOG("Career: the winner's photo only for whoever really won %s", f ? "ok" : "FAIL (code differs)");
     LOG("Career: shared wins %s/%s/%s, winner's place for the race script %s, knockout waits for the other player %s", a ? "ok" : "FAIL", b ? "ok" : "FAIL", c ? "ok" : "FAIL", d ? "ok" : "FAIL (code differs)", e ? "ok" : "FAIL (code differs)");
     return a && b && c;
 }

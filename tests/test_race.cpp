@@ -385,3 +385,12 @@ TEST(race_grid_slot_all_taken_falls_back) {
     CHECK(!GridSlotFor(cars, 7, a, s));
     CHECK(a == -kGridDefaultRow && s == 0.f);
 }
+
+// ---- the winner's photo only for whoever really won (1.7.6) ---------------------------------------
+TEST(race_team_win_shows_the_results_list) {
+    CHECK(TeamWinResults(true, 0x1234, 0x1234));      // our win came from the other player: results list
+    CHECK(!TeamWinResults(true, 0x1234, 0));          // we won ourselves: the photo
+    CHECK(!TeamWinResults(true, 0x1234, 0x999));      // their win in an earlier event
+    CHECK(!TeamWinResults(false, 0x1234, 0x1234));    // lost: the game's losing screen as always
+    CHECK(!TeamWinResults(true, 0, 0));
+}

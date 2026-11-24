@@ -62,7 +62,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 
 - **Your own cars.** You both drive your own car with your tuning and visuals, damage and brake lights included.
 - **Events together.** Start any career event and your partner comes along: same opponents, same start, and you see each other.
-- **Shared wins.** If one of you wins, you both win. Whoever is still driving gets finished as the winner right there.
+- **Shared wins.** If one of you wins, you both win. Whoever is still driving gets finished as the winner right there. The winner's photo is for whoever crossed the line first; the partner gets the results list, with the win, cash and progress counted.
 - **Police.** In free roam you share the cops: same heat, you lose them together, you get busted together. Your partner's cops show on your minimap and set off your radar.
 - **One world.** Shared traffic when you're close, collisions between your cars, blips on the minimap and the map.
 - **Saves.** Each of you keeps your own career save. The host also keeps a backup of the partner's save and gives it back if theirs goes missing. It never overwrites a save that exists, so your settings stay yours.
@@ -132,7 +132,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Restart restarts the race for both of you, from the results screen too
 - [x] AI catch-up (rubber banding) follows whoever of you is ahead, Blacklist rivals included (`CatchUpLeader`)
 - [x] Race intro cutscenes play for both
-- [x] A win by either of you counts for both: cash, unlocks and progress in each own career. The one still driving is finished as the winner on the spot, with the winner's screen, the payout and the rival's progress (`SharedWins`)
+- [x] A win by either of you counts for both: cash, unlocks and progress in each own career. The one still driving is finished as the winner on the spot, with the payout and the rival's progress; the winner's photo stays with whoever really won, the partner gets the results list (`SharedWins`)
 - [x] You see the other player's finish in your standings
 - [x] Blacklist rival races: you both race the rival, the client's rival follows the host's (second race of the series too), and you each get the normal rival flow after winning
 - [x] In rival races your partner has their own racer slot: a grid slot and a row in the standings (`[Coop] PartnerInRivalRaces`)
@@ -144,7 +144,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Bounty goes to each player's own career
 - [x] Shared milestones and speed traps: when one of you completes one for your current rival, the other gets it too, with the bounty, if they're at the same rival (`[Career] SharedMilestones`)
 - [x] Starting an event together: when either of you starts a career race, a Blacklist race, a milestone or pursuit event, a quick race or a Challenge Series event, the other player is pulled into the same one, from free roam, the world map, any menu, the results screens or the main menu. Open menus are closed first. For a Challenge Series event or a quick race, a partner who's roaming quits to the main menu first and then loads the same event (Challenge Series: with its car). A partner who's driving another event isn't pulled out. You both get a notice and they finish their own event
-- [x] Spectate: when you're out of an event (busted, totaled, knocked out or beaten) while your partner still races, the Restart / Quit screen also has Spectate. The camera then follows your partner's car, your camera-change key (C, or the pad's camera button) switches views, and pause still works. If your partner wins, the win counts for you too and you get the winner's screen. If they lose too, your Restart / Quit screen comes back
+- [x] Spectate: when you're out of an event (busted, totaled, knocked out or beaten) while your partner still races, the Restart / Quit screen also has Spectate. The camera then follows your partner's car, your camera-change key (C, or the pad's camera button) switches views, and pause still works. If your partner wins, the win counts for you too and you get the results list. If they lose too, your Restart / Quit screen comes back
 
 
 </details>

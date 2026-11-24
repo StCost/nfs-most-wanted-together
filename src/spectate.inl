@@ -160,8 +160,9 @@ static void SpectateTickImpl() {
             ((void(__cdecl*)(void*))0x6119F0)(sim);                   // NotifyRaceFinished: the win gate counts their win
         }
         bool won = CoopWonImpl(RacerInfoOfLocal());
-        LOG("Spectate: their win counts for us too - %s", won ? "the winner's screen" : "not counted (shared wins off / scripted loss)");
-        ((void(__cdecl*)(bool))0x60AC20)(won);                       // ShowPostRace
+        if (won) MarkTeamWin();
+        LOG("Spectate: their win counts for us too - %s", won ? "the results list" : "not counted (shared wins off / scripted loss)");
+        ShowPostRaceCoop(won);
         return;
     }
     StopSpectating("the other player is out too");

@@ -224,4 +224,10 @@ namespace CoopRace {
         along = -kGridDefaultRow; side = 0.f;      // all taken: behind us as before
         return false;
     }
+
+    // The winner's photo is for whoever really won: a win we only have because the other player won
+    // (event `teamWinEvent`) shows the results list instead (coopwin.inl ShowPostRaceCoop).
+    inline bool TeamWinResults(bool won, uint32_t event, uint32_t teamWinEvent) {
+        return won && event && event == teamWinEvent;
+    }
 }
