@@ -70,6 +70,15 @@ You can play the prologue (the opening BMW races) together too: start a new care
 
 </details>
 
+<details open><summary><h2>Community</h2></summary>
+
+
+- **[YouTube](https://www.youtube.com/@StCost)** — gameplay videos of the mod.
+- **[Discord](https://discord.com/invite/xQwWSFDC8Y)** — the Dreaming Saints server.
+
+
+</details>
+
 <details><summary><h2>Features and progress (100%)</h2></summary>
 
 <details><summary><b>Connecting</b></summary>
