@@ -298,16 +298,31 @@ namespace NetUtil {
     // the host's racer on (where the host's game has the client's racer), so the two cars are apart
     // on both screens from the first frame. True when that move is due: both cars stand still on the
     // same spot (< 3 m) and the other player's slot is a nearby, different one (2..40 m away).
-    inline bool ShouldTakePeerSlot(const float* myPos, float mySpeed, const float* peerPos, float peerSpeed, const float* slotPos) {
-        auto d = [](const float* a, const float* b) {
-            float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
-            return sqrtf(dx * dx + dy * dy + dz * dz);
-        };
-        auto ok = [](const float* v) { for (int i = 0; i < 3; ++i) if (!(fabsf(v[i]) <= 1.0e6f)) return false; return true; };
-        if (!ok(myPos) || !ok(peerPos) || !ok(slotPos)) return false;
+    inline bool Finite3(const float* v) { for (int i = 0; i < 3; ++i) if (!(fabsf(v[i]) <= 1.0e6f)) return false; return true; }
+    // both players stand still on one spot (< 3 m): the player's slot both games gave their own player
+    inline bool SharingStartSpot(const float* myPos, float mySpeed, const float* peerPos, float peerSpeed) {
+        if (!Finite3(myPos) || !Finite3(peerPos)) return false;
         if (!(mySpeed < 1.f) || !(peerSpeed < 1.f)) return false;      // the countdown: nobody is moving yet
-        float slot = d(myPos, slotPos);
-        return d(myPos, peerPos) < 3.f && slot > 2.f && slot < 40.f;
+        return Dist3(myPos, peerPos) < 3.f;
+    }
+    inline bool ShouldTakePeerSlot(const float* myPos, float mySpeed, const float* peerPos, float peerSpeed, const float* slotPos) {
+        if (!Finite3(slotPos) || !SharingStartSpot(myPos, mySpeed, peerPos, peerSpeed)) return false;
+        float slot = Dist3(myPos, slotPos);
+        return slot > 2.f && slot < 40.f;
+    }
+    // Which slot the client moves to while both stand on the player's slot. The client's AI racers follow
+    // the host's (traffic.inl), so the host's grid is the one both screens show:
+    //  Host - the slot the host's game gives us (PKT_GRIDSLOT: its race built our racer there, or a free
+    //         slot of its grid) - where the host and its intro cutscene have us
+    //  Own  - no word from the host for a moment (an older host): the slot our game built the host's racer
+    //         on, as before - right only when both races put the two swapped racers on the same slot
+    //  None - neither: the other player is shown on a free slot read from the cars around (BehindUs)
+    enum class StartSlot { Wait, Host, Own, None };
+    constexpr int kHostSlotWaitMs = 2500;
+    inline StartSlot PickStartSlot(bool hostSlot, bool ownSlot, int sharingMs) {
+        if (hostSlot) return StartSlot::Host;
+        if (sharingMs < kHostSlotWaitMs) return StartSlot::Wait;
+        return ownSlot ? StartSlot::Own : StartSlot::None;
     }
 
     // ---- validation of what the network hands us ----------------------------------------------

@@ -484,6 +484,25 @@ TEST(util_race_order_switches_within_metres) {
 }
 
 // ---- race start: the client leaves the grid slot both games give their own player ----
+TEST(util_start_slot_is_the_hosts) {
+    float me[3] = { 100, 5, 200 }, peerSame[3] = { 100.5f, 5, 200.4f }, peerApart[3] = { 110, 5, 200 };
+    CHECK(SharingStartSpot(me, 0.f, peerSame, 0.f));
+    CHECK(SharingStartSpot(me, 0.9f, peerSame, 0.5f));
+    CHECK(!SharingStartSpot(me, 0.f, peerApart, 0.f));
+    CHECK(!SharingStartSpot(me, 5.f, peerSame, 0.f));                          // racing
+    float nan = std::numeric_limits<float>::quiet_NaN(), bad[3] = { nan, 5, 200 };
+    CHECK(!SharingStartSpot(bad, 0.f, peerSame, 0.f));
+    // the host's slot wins at once; it is the host's grid both screens show
+    CHECK(PickStartSlot(true, true, 0) == StartSlot::Host);
+    CHECK(PickStartSlot(true, false, 0) == StartSlot::Host);
+    // no word yet: wait a moment (the host reads a free slot only once its intro is over)
+    CHECK(PickStartSlot(false, true, 0) == StartSlot::Wait);
+    CHECK(PickStartSlot(false, true, kHostSlotWaitMs - 1) == StartSlot::Wait);
+    // an older host: the slot of their racer here, as before; without one the display-only fallback
+    CHECK(PickStartSlot(false, true, kHostSlotWaitMs) == StartSlot::Own);
+    CHECK(PickStartSlot(false, false, kHostSlotWaitMs) == StartSlot::None);
+    CHECK(PickStartSlot(true, false, kHostSlotWaitMs * 4) == StartSlot::Host);
+}
 TEST(util_take_peer_slot_only_when_sharing_a_slot) {
     float me[3] = { 100, 5, 200 }, peerSame[3] = { 100.5f, 5, 200.4f }, slot[3] = { 104, 5, 196 };
     CHECK(ShouldTakePeerSlot(me, 0.f, peerSame, 0.f, slot));

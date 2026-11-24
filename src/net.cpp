@@ -37,6 +37,7 @@ namespace {
     char        g_peerCarFile[MAX_PATH] = "";
     bool        g_haveLocalCar = false, g_havePeerCar = false;
     float       g_peerRain = 0, g_peerCloud = 0; uint32_t g_peerWeatherTick = 0;
+    uint32_t    g_gridSlotEvent = 0, g_gridSlotTick = 0; float g_gridSlot[3] = {}; bool g_gridSlotRacer = false;
     uint32_t    g_peerPStatsId = 0, g_peerPStatsCount = 0; int32_t g_peerPStats[PSTATS_COUNT] = {};
     uint32_t    g_lastMilestoneId = 0;        // PKT_MILESTONE copies share an id
     uint32_t    g_lastCarSend = 0;
@@ -456,6 +457,19 @@ namespace {
             ++g_peerPStatsCount;
             break;
         }
+        case PKT_GRIDSLOT: {
+            if (len < (int)sizeof(GridSlotPacket) || g_cfg.isHost) return;
+            const GridSlotPacket* p = (const GridSlotPacket*)buf;
+            float pos[3]; memcpy(pos, p->pos, sizeof(pos));
+            if (!p->eventHash || !NetUtil::FiniteWithin(pos, 3, NetUtil::MAX_POS)) return;
+            if (fabsf(pos[0]) + fabsf(pos[1]) + fabsf(pos[2]) <= 1.f) return;      // 0,0,0: never placed
+            if (p->eventHash != g_gridSlotEvent || memcmp(pos, g_gridSlot, sizeof(pos)))
+                LOG("Net: the host's grid slot for us in event %08X: %.1f %.1f %.1f (%s)", p->eventHash, pos[0], pos[1], pos[2],
+                    p->fromRacer ? "the slot its race gave our racer" : "a free slot of its grid");
+            g_gridSlotEvent = p->eventHash; memcpy(g_gridSlot, pos, sizeof(pos)); g_gridSlotRacer = p->fromRacer != 0;
+            g_gridSlotTick = Tick32() ? Tick32() : 1;
+            break;
+        }
         case PKT_WEATHER: {
             if (len < (int)sizeof(WeatherPacket) || g_cfg.isHost) return;
             const WeatherPacket* w = (const WeatherPacket*)buf;
@@ -802,6 +816,20 @@ bool Net::PeerPursuitStats(uint32_t& pursuitId, int32_t* v, uint32_t& recvCount)
     memcpy(v, g_peerPStats, sizeof(g_peerPStats));
     return true;
 }
+void Net::SendGridSlot(uint32_t eventHash, const float* pos, bool fromRacer) {
+    if (!g_stats.connected || !eventHash || !pos) return;
+    GridSlotPacket p{};
+    FillHeader(p.h, PKT_GRIDSLOT);
+    p.eventHash = eventHash; memcpy(p.pos, pos, sizeof(p.pos)); p.fromRacer = fromRacer ? 1 : 0;
+    SendRaw(&p, sizeof(p));
+}
+bool Net::PeerGridSlot(uint32_t eventHash, float* pos, bool* fromRacer) {
+    if (!g_stats.connected || !g_gridSlotTick || !eventHash || eventHash != g_gridSlotEvent ||
+        Tick32() - g_gridSlotTick > 180000) return false;
+    if (pos) memcpy(pos, g_gridSlot, sizeof(g_gridSlot));
+    if (fromRacer) *fromRacer = g_gridSlotRacer;
+    return true;
+}
 bool Net::PeerWeather(float& rain, float& cloud) {
     if (!g_stats.connected || !g_peerWeatherTick || Tick32() - g_peerWeatherTick > 3000) return false;
     rain = g_peerRain; cloud = g_peerCloud;
@@ -1021,6 +1049,7 @@ void Net::Test_Reset() {
     Net::OnTraffic = nullptr; Net::OnTrailers = nullptr; Net::OnEvent = nullptr; Net::OnRoster = nullptr;
     Net::OnRacerName = nullptr; Net::OnRestart = nullptr; Net::OnNisSkip = nullptr;
     Net::OnMilestone = nullptr; g_lastMilestoneId = 0;
+    g_gridSlotEvent = g_gridSlotTick = 0; memset(g_gridSlot, 0, sizeof(g_gridSlot)); g_gridSlotRacer = false;
     Net::LocalClockMs = &Net::NowMs;
 }
 

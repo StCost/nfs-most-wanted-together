@@ -484,3 +484,49 @@ TEST(packets_pursuit_stats_round_trip_and_bad_values) {
     CHECK_EQ(n, n0 + 1);
     CHECK_EQ(id, 3u);
 }
+
+// ---- the client's grid slot at an event start (PKT_GRIDSLOT, host -> client) --------------------
+TEST(packets_grid_slot_round_trip_and_bad_values) {
+    Datagrams d = SerializeOnHost([] {
+        float pos[3] = { 330.2f, 22.3f, 3697.8f };
+        Net::SendGridSlot(0xC306E179u, pos, true);
+    });
+    REQUIRE(d.size() == 1);
+    CHECK_EQ(d[0].size(), sizeof(GridSlotPacket));
+    NetFixture client(false);
+    Connect("Host");
+    float got[3] = {}; bool racer = false;
+    CHECK(!Net::PeerGridSlot(0xC306E179u, got, &racer));                      // nothing yet
+    DeliverToClient(d);
+    REQUIRE(Net::PeerGridSlot(0xC306E179u, got, &racer));
+    CHECK_NEAR(got[0], 330.2f, 0.001); CHECK_NEAR(got[2], 3697.8f, 0.001);
+    CHECK(racer);
+    CHECK(!Net::PeerGridSlot(0x12345678u, got));                              // for another event: not ours
+    CHECK(!Net::PeerGridSlot(0, got));
+    GridSlotPacket bad{};
+    bad.h = Hdr(PKT_GRIDSLOT, 50); bad.eventHash = 0x11111111u;
+    bad.pos[0] = std::numeric_limits<float>::quiet_NaN(); bad.pos[1] = 1; bad.pos[2] = 1;
+    Inject(bad);                                                               // NaN: refused
+    bad.h = Hdr(PKT_GRIDSLOT, 51); bad.pos[0] = 0; bad.pos[1] = 0; bad.pos[2] = 0;
+    Inject(bad);                                                               // never placed: refused
+    bad.h = Hdr(PKT_GRIDSLOT, 52); bad.pos[0] = 5e7f;
+    Inject(bad);                                                               // absurd: refused
+    CHECK(!Net::PeerGridSlot(0x11111111u, got));
+    GridSlotPacket ok{};
+    ok.h = Hdr(PKT_GRIDSLOT, 53); ok.eventHash = 0x22222222u; ok.pos[0] = 10; ok.pos[1] = 2; ok.pos[2] = -30;
+    InjectRaw(&ok, (int)sizeof(ok) - 1);                                       // short: refused
+    CHECK(!Net::PeerGridSlot(0x22222222u, got));
+    Inject(ok);
+    REQUIRE(Net::PeerGridSlot(0x22222222u, got, &racer));                     // the newest event's slot
+    CHECK(!racer);
+    CHECK(!Net::PeerGridSlot(0xC306E179u, got));
+}
+TEST(packets_grid_slot_ignored_by_the_host) {
+    NetFixture host(true);
+    Connect("Client");
+    GridSlotPacket p{};
+    p.h = Hdr(PKT_GRIDSLOT, 60); p.eventHash = 0x33333333u; p.pos[0] = 10; p.pos[1] = 2; p.pos[2] = -30;
+    Inject(p);
+    float got[3];
+    CHECK(!Net::PeerGridSlot(0x33333333u, got));                              // only the host decides
+}

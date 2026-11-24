@@ -61,6 +61,8 @@ static_assert(PKT_TRAILER != PKT_FOLLOW && PKT_TRAILER != PKT_MILESTONE && PKT_T
               PKT_TRAILER != PKT_CARPART && PKT_TRAILER > PKT_FOLLOW, "PKT_TRAILER collides with another packet type");
 
 static_assert(PKT_PSTATS > PKT_RACEPROG && sizeof(PursuitStatsPacket) == 16 + 4 + 13 * 4, "PursuitStatsPacket layout changed");
+static_assert(PKT_GRIDSLOT > PKT_PSTATS && sizeof(GridSlotPacket) == 16 + 4 + 12 + 4 && offsetof(GridSlotPacket, pos) == 20,
+              "GridSlotPacket layout changed");
 
 TEST(protocol_struct_sizes) {
     // the same numbers at run time, so a failure shows up in the test report too

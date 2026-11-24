@@ -93,7 +93,7 @@ namespace {
 
     constexpr uint16_t ALL_TYPES[] = { PKT_HELLO, PKT_STATE, PKT_PING, PKT_PONG, PKT_BYE, PKT_CAR, PKT_TRAFFIC,
                                        PKT_EVENT, PKT_ROSTER, PKT_RACERNAME, PKT_RESTART, PKT_NISSKIP,
-                                       PKT_FILE, PKT_FILEACK, PKT_FILEREQ, PKT_NOFILE, PKT_RACEPROG, PKT_PSTATS };
+                                       PKT_FILE, PKT_FILEACK, PKT_FILEREQ, PKT_NOFILE, PKT_RACEPROG, PKT_PSTATS, PKT_GRIDSLOT };
     // any packet type; a bye only now and then, or the run would sit in the 2 s "ignore after bye"
     // window most of the time
     uint16_t PickType(Rng& r) {
@@ -118,6 +118,7 @@ namespace {
         case PKT_NOFILE: return sizeof(PacketHeader);
         case PKT_RACEPROG: return sizeof(RaceProgPacket);
         case PKT_PSTATS: return sizeof(PursuitStatsPacket);
+        case PKT_GRIDSLOT: return sizeof(GridSlotPacket);
         }
         return sizeof(PacketHeader);
     }
@@ -171,6 +172,12 @@ namespace {
             return offsetof(FileChunkPacket, data) + len;
         }
         case PKT_FILEACK: ((FileAckPacket*)out)->fileHash = r.Below(4); break;
+        case PKT_GRIDSLOT: {
+            GridSlotPacket* p = (GridSlotPacket*)out;
+            p->eventHash = r.Next(); p->fromRacer = (uint8_t)r.Below(2);
+            for (int i = 0; i < 3; ++i) p->pos[i] = r.Float(-5000, 5000);
+            break;
+        }
         case PKT_FILEREQ: sprintf_s(((FileReqPacket*)out)->owner, "Player%u", r.Below(99)); break;
         }
         return FullSize(type);

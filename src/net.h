@@ -32,6 +32,7 @@ enum PacketType : uint16_t {
     PKT_TRAILER = 23,   // the trailers of the trucks in the PKT_TRAFFIC sent just before (older builds ignore it)
     PKT_RACEPROG = 24,  // host -> client: race progress of the host's AI opponents (older builds ignore it)
     PKT_PSTATS  = 25,   // what the sender earned itself in its current pursuit (cost to state, bounty; older builds ignore it)
+    PKT_GRIDSLOT = 26,  // host -> client: the grid slot the client starts on at this event start (older builds ignore it)
 };
 
 struct PacketHeader {
@@ -150,6 +151,16 @@ struct PursuitStatsPacket {
     PacketHeader h;
     uint32_t pursuitId;
     int32_t  v[PSTATS_COUNT];
+};
+// The grid slot the host's game gives the client at an event start: where its race built the client's
+// racer (the replaced AI racer, the slot the intro shows them on), or - no racer for them there - a free
+// slot of the host's grid. The client's AI racers follow the host's, so only the host's grid counts.
+struct GridSlotPacket {
+    PacketHeader h;
+    uint32_t eventHash;
+    float    pos[3];
+    uint8_t  fromRacer;     // 1: the slot of the client's racer, 0: a free slot read from the host's grid
+    uint8_t  pad[3];
 };
 struct WeatherPacket {
     PacketHeader h;
@@ -329,6 +340,8 @@ namespace Net {
     void SendPursuitStats(uint32_t pursuitId, const int32_t* v);   // PSTATS_COUNT values
     // the latest one from the peer; recvCount goes up by one for every packet taken
     bool PeerPursuitStats(uint32_t& pursuitId, int32_t* v, uint32_t& recvCount);
+    void SendGridSlot(uint32_t eventHash, const float* pos, bool fromRacer);   // host
+    bool PeerGridSlot(uint32_t eventHash, float* pos, bool* fromRacer = nullptr);   // client: the host's slot for us in this event
     bool PeerWeather(float& rain, float& cloud);              // the host's, if one came in the last 3 s      // a repeat carries the same seq
     void SendNisSkip(uint32_t sceneHash);
     void SendCarHit(uint16_t id, const float* dv);
