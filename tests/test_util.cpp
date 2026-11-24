@@ -647,3 +647,105 @@ TEST(util_hit_push_scale_and_sustain) {
     CHECK_NEAR(out[1], 0.f, 1e-4);
     CHECK_NEAR(out[2], 1.f, 1e-4);                                       // Y/Z other axis kept (Y is unused, Z kept)
 }
+
+
+TEST(util_obb_overlap_aabb_and_clearance_scale) {
+    CHECK_NEAR(HitUtil::COLLIDE_EXTENT_SCALE, 1.25f, 1e-6);
+    const float ident[4] = { 0, 0, 0, 1 };
+    const float half[3] = { 1.f, 0.5f, 2.f };
+    const float origin[3] = { 0, 0, 0 };
+    HitUtil::Obb a, b;
+    HitUtil::ObbFromPose(origin, ident, half, a);
+
+    // same pose: overlap both with and without the 25% scale
+    HitUtil::ObbFromPose(origin, ident, half, b);
+    CHECK(HitUtil::ObbsOverlap(a, b));
+    CHECK(HitUtil::ObbsOverlapWithClearance(a, b));
+
+    // centres 2.0 m apart on X, half-width 1: faces touch -> overlap
+    const float touch[3] = { 2.f, 0, 0 };
+    HitUtil::ObbFromPose(touch, ident, half, b);
+    CHECK(HitUtil::ObbsOverlap(a, b));
+    CHECK(HitUtil::ObbsOverlapWithClearance(a, b));
+
+    // 2.4 m: unscaled gap is 0.4 m, no overlap; scaled half is 1.25, 2.4 < 2.5, still overlap
+    const float mid[3] = { 2.4f, 0, 0 };
+    HitUtil::ObbFromPose(mid, ident, half, b);
+    CHECK(!HitUtil::ObbsOverlap(a, b));
+    CHECK(HitUtil::ObbsOverlapWithClearance(a, b));
+    CHECK(HitUtil::ObbsOverlapWithClearance(a, b, HitUtil::COLLIDE_EXTENT_SCALE));
+
+    // 2.6 m: 2.6 > 2.5, clear even with the 25% scale
+    const float clearX[3] = { 2.6f, 0, 0 };
+    HitUtil::ObbFromPose(clearX, ident, half, b);
+    CHECK(!HitUtil::ObbsOverlap(a, b));
+    CHECK(!HitUtil::ObbsOverlapWithClearance(a, b));
+
+    // along Z (length 2+2): 4.4 m is a 0.4 m gap unscaled, overlap only with scale
+    const float zmid[3] = { 0, 0, 4.4f };
+    HitUtil::ObbFromPose(zmid, ident, half, b);
+    CHECK(!HitUtil::ObbsOverlap(a, b));
+    CHECK(HitUtil::ObbsOverlapWithClearance(a, b));
+    const float zfar[3] = { 0, 0, 5.1f };
+    HitUtil::ObbFromPose(zfar, ident, half, b);
+    CHECK(!HitUtil::ObbsOverlapWithClearance(a, b));
+}
+
+TEST(util_obb_overlap_rotated) {
+    const float ident[4] = { 0, 0, 0, 1 };
+    const float yaw90[4] = { 0, 0.70710678f, 0, 0.70710678f };  // 90 deg about Y
+    const float half[3] = { 1.f, 0.5f, 2.f };                   // width 2, length 4
+    const float origin[3] = { 0, 0, 0 };
+    HitUtil::Obb a, b;
+    HitUtil::ObbFromPose(origin, ident, half, a);
+
+    // B rotated 90 deg: its length lies on X. Centres 3.1 m apart:
+    // unscaled radii 1+2=3, gap 0.1, no overlap; scaled 1.25+2.5=3.75, overlap.
+    const float px[3] = { 3.1f, 0, 0 };
+    HitUtil::ObbFromPose(px, yaw90, half, b);
+    CHECK(!HitUtil::ObbsOverlap(a, b));
+    CHECK(HitUtil::ObbsOverlapWithClearance(a, b));
+
+    const float pxFar[3] = { 3.9f, 0, 0 };                      // 3.9 > 3.75
+    HitUtil::ObbFromPose(pxFar, yaw90, half, b);
+    CHECK(!HitUtil::ObbsOverlapWithClearance(a, b));
+
+    // a broken quat is treated as identity (same as an aligned box at that pose)
+    const float bad[4] = { 0, 0, 0, 0 };
+    const float beside[3] = { 5.f, 0, 0 };
+    HitUtil::Obb c, d;
+    HitUtil::ObbFromPose(origin, bad, half, c);
+    HitUtil::ObbFromPose(beside, ident, half, d);
+    CHECK(!HitUtil::ObbsOverlap(c, d));
+}
+
+TEST(util_obb_valid_half_extents) {
+    const float ok[3] = { 1.05f, 0.7f, 2.2f };
+    CHECK(HitUtil::ValidHalfExtents(ok));
+    CHECK(HitUtil::ValidHalfExtents(HitUtil::kDefaultHalfExtent));
+    const float tiny[3] = { 0.01f, 0.7f, 2.2f };
+    CHECK(!HitUtil::ValidHalfExtents(tiny));
+    const float huge[3] = { 1.f, 0.7f, 40.f };
+    CHECK(!HitUtil::ValidHalfExtents(huge));
+    const float nanv[3] = { 1.f, 0.7f, std::numeric_limits<float>::quiet_NaN() };
+    CHECK(!HitUtil::ValidHalfExtents(nanv));
+    CHECK(!HitUtil::ValidHalfExtents(nullptr));
+}
+
+TEST(util_collide_gate_and_hitch) {
+    CHECK(!HitUtil::StateHitch(true, 0));
+    CHECK(!HitUtil::StateHitch(true, HitUtil::STATE_HITCH_MS - 1));
+    CHECK(HitUtil::StateHitch(true, HitUtil::STATE_HITCH_MS));
+    CHECK(HitUtil::StateHitch(true, 1000));
+    CHECK(HitUtil::StateHitch(false, 0));
+    CHECK(HitUtil::StateHitch(false, 10));
+
+    CHECK(HitUtil::WantPlayerCollide(true, false, false, false));
+    CHECK(!HitUtil::WantPlayerCollide(false, false, false, false));  // setting off
+    CHECK(!HitUtil::WantPlayerCollide(true, true, false, false));    // hitch: off, even if boxes are clear
+    CHECK(!HitUtil::WantPlayerCollide(true, false, true, false));    // teleport / start hold
+    CHECK(!HitUtil::WantPlayerCollide(true, false, false, true));    // still overlapping
+    CHECK(!HitUtil::WantPlayerCollide(true, true, true, true));
+    // hitch just cleared, hold over, boxes no longer overlap: back on
+    CHECK(HitUtil::WantPlayerCollide(true, false, false, false));
+}

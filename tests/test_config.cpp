@@ -36,7 +36,6 @@ TEST(config_defaults_when_file_is_missing) {
     CHECK(c.ghostEnabled);
     CHECK_EQ(c.interpDelayMs, 100);
     CHECK(c.ghostCollisions);
-    CHECK_EQ(c.safeDistance, 10);
     CHECK(c.trafficSync);
     CHECK_EQ(c.trafficMirrorClass, 4);
     CHECK(c.trafficSharedInRaces);
@@ -84,7 +83,6 @@ TEST(config_parses_values) {
     CHECK(!c.ghostEnabled);
     CHECK_EQ(c.interpDelayMs, 150);
     CHECK(!c.ghostCollisions);
-    CHECK_EQ(c.safeDistance, 25);
     CHECK(!c.trafficSync);
     CHECK_EQ(c.trafficMirrorClass, 6);
     CHECK(!c.trafficSharedInRaces);
@@ -182,8 +180,7 @@ TEST(config_ghost_values_are_clamped) {
     CHECK_EQ(LoadText("[Ghost]\nInterpDelayMs=0\n").interpDelayMs, 0);
     CHECK_EQ(LoadText("[Ghost]\nInterpDelayMs=1000\n").interpDelayMs, 1000);
     CHECK_EQ(LoadText("[Ghost]\nInterpDelayMs=99999\n").interpDelayMs, 1000);
-    CHECK_EQ(LoadText("[Ghost]\nSafeDistance=-5\n").safeDistance, 0);
-    CHECK_EQ(LoadText("[Ghost]\nSafeDistance=40\n").safeDistance, 40);
+    CHECK_EQ(LoadText("[Ghost]\nSafeDistance=40\n").interpDelayMs, 100);  // SafeDistance is ignored (older inis)
 }
 
 TEST(config_long_and_odd_strings) {
@@ -230,7 +227,6 @@ TEST(config_shipped_ini_matches_built_in_defaults) {
     CHECK_EQ(shipped.ghostEnabled, def.ghostEnabled);
     CHECK_EQ(shipped.interpDelayMs, def.interpDelayMs);
     CHECK_EQ(shipped.ghostCollisions, def.ghostCollisions);
-    CHECK_EQ(shipped.safeDistance, def.safeDistance);
     CHECK_EQ(shipped.trafficSync, def.trafficSync);
     CHECK_EQ(shipped.trafficMirrorClass, def.trafficMirrorClass);
     CHECK_EQ(shipped.trafficSharedInRaces, def.trafficSharedInRaces);

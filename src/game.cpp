@@ -79,6 +79,7 @@ enum VehicleList { VL_ALL = 0, VL_PLAYERS = 1, VL_AI = 2, VL_AIRACERS = 3, VL_AI
 enum RB {
     RB_GetPosition = 8, RB_GetLinearVelocity = 9, RB_GetAngularVelocity = 10,
     RB_GetOrientation = 17, // quaternion, Vector4
+    RB_GetDimension = 18,   // half extents, local X/Y/Z (IRigidBody::GetDimension)
     RB_SetPosition = 23, RB_SetLinearVelocity = 24, RB_SetAngularVelocity = 25,
     RB_SetOrientationQuat = 29,
 };
@@ -207,6 +208,20 @@ namespace {
         VCall<Fn>(r, IRBV_EnableObjectCollisions)(r, on);
     }
 
+    // IRigidBody::GetDimension (slot 18): the collision box's half-extents in local X/Y/Z.
+    // If the call fails, a typical car-sized box is used (HitUtil::kDefaultHalfExtent).
+    void ReadHalfExtents(void* rb, float out[3]) {
+        out[0] = HitUtil::kDefaultHalfExtent[0];
+        out[1] = HitUtil::kDefaultHalfExtent[1];
+        out[2] = HitUtil::kDefaultHalfExtent[2];
+        if (!rb) return;
+        __try {
+            float d[3] = {};
+            VCall<void(__thiscall*)(void*, float*)>(rb, RB_GetDimension)(rb, d);
+            if (HitUtil::ValidHalfExtents(d)) { out[0] = d[0]; out[1] = d[1]; out[2] = d[2]; }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+
     // IRBVehicle slot 4 SetInvulnerability(type, seconds) (0x6B7CB0 on RBVehicle: stores +0x44/+0x48).
     // INVULNERABLE_FROM_RESET (2) is the game's post-reset state: the car blinks and ghosts through
     // other cars. On the remote-player body class this slot is an empty stub (harmless).
@@ -274,12 +289,11 @@ namespace {
     DWORD    g_joinStartedAt = 0;
     bool   g_aiPatched = false;
     bool   g_ghostCollide = false;  // collisions currently enabled on the ghost
-    bool   g_separated = false;     // has the pair ever been far enough apart?
     DWORD  g_hitContactAt = 0;      // last time the ghost was next to us (local contact for applying a received hit)
     char   g_ghostName[48] = "";
     float  g_jitterMm = 0, g_extrapMs = 0;
-    bool   g_protectHoldReset = false;  // set when a new ghost is acquired: start a hold period
-    bool   g_protectHolding = false;
+    bool   g_protectHoldReset = false;  // set when a new ghost is acquired, a cutscene runs, or a race starts: start a 3 s hold
+    bool   g_protectHolding = false;    // collisions stay off during the hold so a late start-teleport can still land
     LARGE_INTEGER g_qpf{}, g_lastQpc{};
 
     // Switch off the racing AI of ONE car (the ones we drive from the network), leaving every other
@@ -1266,7 +1280,6 @@ void Game::ReleaseGhost() {
     }
     PatchRacerAI(false);
     g_ghostCollide = false;
-    g_separated = false;
 }
 
 // Race standings: the other player's name (GRacerInfo::mName, +0x08) and progress on their racer.
@@ -1305,7 +1318,7 @@ static void PeerRacerInfoTick() {
 
 // Race start: both games put their own player on the player's grid slot, so on each screen the other
 // player's car would stand inside ours. The client moves off it. Collisions stay off until the two
-// cars have been SafeDistance apart once; the remote car is still shown at its real position.
+// cars' collision boxes (enlarged by 25%) no longer overlap; the remote car is still shown at its real position.
 // Where to: the client's AI racers follow the host's (traffic.inl), so the host's grid is the one both
 // screens show - the client belongs on the slot the HOST's race gave the client's racer (the replaced AI
 // racer: where the host's intro cutscene shows them). Up to 1.7.8 the client took the slot ITS OWN race
@@ -1517,7 +1530,7 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
             if (vlen > 1.f) { dir[0] = latest.s.linVel[0] / vlen; dir[2] = latest.s.linVel[2] / vlen; }
             // where they really are, also on our own spot (an event with no start slot for them, e.g. a toll
             // booth): the new car's collisions are switched off below in the same frame, before any physics
-            // step, and stay off until the two cars are apart - the cars just overlap for a moment
+            // step, and stay off until the two collision boxes (enlarged by 25%) no longer overlap
             float spawnPos[3] = { latest.s.pos[0], latest.s.pos[1], latest.s.pos[2] };
             iv = SpawnVehicle(pc->carKey, pc->hasCustom ? pc->custom : nullptr, spawnPos, dir, DRV_REMOTE);
             if (!iv && pc->hasCustom) {
@@ -1564,7 +1577,6 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
         strncpy_s(g_ghostName, VehName(iv), _TRUNCATE);
         SetCollisions(iv, false);
         g_ghostCollide = false;
-        g_separated = false;
         g_protectHoldReset = true;
         LOG("Ghost acquired: %s %p (%s)", g_ghostKind == GK_RACER ? (iv == g_replacedRacer ? "racer built as peer car" : "AI racer")
                                           : g_ghostKind == GK_SPAWNED ? "spawned peer car" : "traffic car", iv, g_ghostName);
@@ -1600,21 +1612,28 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
     const float* cur = RB_GetVec(rb, RB_GetPosition);
     float err = Dist(cur, s.pos);
 
-    // Spawn protection: when both games put their players on the same spot (shared safe-house spawn,
-    // shared grid slot at an event start), the remote car is still synced to its real (interpolated)
-    // position and velocity. Its collisions stay off until the players have been SafeDistance apart
-    // once, so the overlap does not fling them.
+    // Collisions stay off at a race start, after a teleport, and during a network hitch, so a
+    // remote car landing on ours is not flung. The car is always synced to its real (interpolated)
+    // pose; only EnableObjectCollisions is switched. They come back on once packets are flowing,
+    // the 3 s start-teleport hold has ended, and the two collision boxes (enlarged by 25%) no
+    // longer overlap.
     void* lrbP = RigidBodyOf(LocalVehicle());
-    // Re-arm the protection whenever the peer teleports (event start, reset, respawn): its position
-    // jumping > 30 m between frames means it may land right on top of us.
-    // Either car may teleport first (the two games reach the grid ~0.4 s apart), so watch both and
-    // hold the protection for at least 3 s after any teleport before distance may switch it off.
+    // Re-arm the 3 s hold whenever either car teleports (event start, reset, respawn: a jump of
+    // more than 30 m), a new ghost is acquired, a cutscene runs, or the event / restart changes.
+    // The two games reach the grid ~0.4 s apart: without the hold, overlap would see the partner
+    // still far away and turn collisions back on before their start teleport lands.
     {
         static float lastTarget[3], lastLocal[3]; static bool haveLast = false;
         static DWORD holdUntil = 0;
+        static uint32_t lastEv = 0; static uint8_t lastRestart = 0;
         const float* lpos = lrbP ? RB_GetVec(lrbP, RB_GetPosition) : nullptr;
         bool peerJump  = haveLast && Dist(lastTarget, s.pos) > 30.f;
         bool localJump = haveLast && lpos && Dist(lastLocal, lpos) > 30.f;
+        uint32_t ev = Game::CurrentEventHash();
+        uint8_t restart = 0; Mem::Read(0x91CF28, restart);
+        bool eventStart = ev && ev != lastEv;
+        bool raceRestart = restart && !lastRestart;
+        lastEv = ev; lastRestart = restart;
         // a long jump of the other player (teleported to an event, a milestone pursuit, the safe house):
         // build their car again at the new place once the world there has streamed in, instead of moving
         // the old one there (it came out without a model)
@@ -1625,23 +1644,17 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
             g_nextSpawnTry = GetTickCount() + 1500;
             return;
         }
-        if (peerJump || localJump || g_protectHoldReset) {
+        if (peerJump || localJump || g_protectHoldReset || eventStart || raceRestart) {
             holdUntil = GetTickCount() + 3000;
             g_protectHoldReset = false;
-            if (g_separated) LOG("Spawn protection re-armed: %s jumped", peerJump ? "peer" : localJump ? "local car" : "new ghost");
-            g_separated = false;
+            const char* why = peerJump ? "peer jumped" : localJump ? "local car jumped"
+                             : eventStart ? "event start" : raceRestart ? "restart" : "new ghost / cutscene";
+            LOG("Collisions held off for 3 s: %s", why);
         }
         memcpy(lastTarget, s.pos, 12);
         if (lpos) memcpy(lastLocal, lpos, 12);
         haveLast = true;
         g_protectHolding = GetTickCount() < holdUntil;
-    }
-    if (lrbP && !g_separated) {
-        const float* lp = RB_GetVec(lrbP, RB_GetPosition);
-        if (!g_protectHolding && Dist(lp, s.pos) > (float)g_cfg.safeDistance) {
-            g_separated = true;
-            LOG("Spawn protection off: players are %.0f m apart", Dist(lp, s.pos));
-        }
     }
 
     // Hard-set the exact interpolated transform + velocities every frame. Because consecutive targets
@@ -1673,11 +1686,25 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
         g_extrapMs = (float)extrapMs;
     }
 
-    // --- collisions: off until both cars have been apart once (prevents spawn-overlap soft locks) ---
+    // --- collisions: off at start / teleport / hitch; on once the enlarged boxes no longer overlap ---
+    DWORD nowTick = GetTickCount();
+    bool hitch = HitUtil::StateHitch(latest.valid && latest.s.hasCar, nowTick - latest.recvTick);
     float sep = -1.f;
+    bool tooClose = false;
     if (void* lrb = RigidBodyOf(LocalVehicle())) {
-        sep = Dist(RB_GetVec(lrb, RB_GetPosition), newPos);
-        if (sep > (float)g_cfg.safeDistance && !g_protectHolding) g_separated = true;
+        const float* lp = RB_GetVec(lrb, RB_GetPosition);
+        sep = Dist(lp, newPos);
+        const float* lq = RB_GetVec(lrb, RB_GetOrientation);
+        const float* gq = RB_GetVec(rb, RB_GetOrientation);
+        if (lp && newPos) {
+            float lh[3], gh[3];
+            ReadHalfExtents(lrb, lh);
+            ReadHalfExtents(rb, gh);
+            HitUtil::Obb a, b;
+            HitUtil::ObbFromPose(lp, lq, lh, a);
+            HitUtil::ObbFromPose(newPos, gq, gh, b);
+            tooClose = HitUtil::ObbsOverlapWithClearance(a, b);
+        }
         if (sep >= 0.f && sep < 8.f) g_hitContactAt = GetTickCount();   // local contact: apply a received hit even if the ghost later lags
         // Momentum for the car we hit: their car is moved by the network here, so our impact only
         // stops US. When our velocity changes abruptly right next to their car (far more than braking
@@ -1707,22 +1734,24 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
         }
         memcpy(prevV, lv, 12); prevT = tnow;
     }
-    bool wantCollide = g_cfg.ghostCollisions && g_separated;
+    bool wantCollide = HitUtil::WantPlayerCollide(g_cfg.ghostCollisions, hitch, g_protectHolding, tooClose);
     if (wantCollide != g_ghostCollide) {
         SetCollisions(g_ghost, wantCollide);
         g_ghostCollide = wantCollide;
-        LOG("Ghost collisions %s", wantCollide ? "ON" : "OFF");
+        const char* why = wantCollide ? "" : hitch ? " (hitch)" : g_protectHolding ? " (teleport)" : tooClose ? " (overlap)" : "";
+        LOG("Ghost collisions %s%s", wantCollide ? "ON" : "OFF", why);
     } else if (!g_ghostCollide) {
         // keep them off: a race's start (grid placement, reset to the start positions, the countdown)
         // resets its racers' bodies and turns their object collisions back on - the two cars on one grid
-        // spot then pushed each other up into a pile. Said again every 200 ms until they are apart.
+        // spot then pushed each other up into a pile. Said again every 200 ms until they may come on.
         static DWORD lastOff = 0;
         if (GetTickCount() - lastOff > 200) { lastOff = GetTickCount(); SetCollisions(g_ghost, false); }
     }
 
+    const char* offWhy = !g_cfg.ghostCollisions ? "" : hitch ? " (hitch)" : g_protectHolding ? " (teleport)" : tooClose ? " (overlap)" : "";
     sprintf_s(out, outLen, "%s  jitter %.1fmm  extrap %.0fms  dist %.0fm  err %.1fm  coll %s%s", g_ghostName, g_jitterMm, g_extrapMs, sep, err,
               g_ghostCollide ? "on" : "off",
-              (g_cfg.ghostCollisions && !g_separated) ? " (until apart)" : "");
+              g_ghostCollide ? "" : offWhy);
     (void)prev;
 #undef RET
 }

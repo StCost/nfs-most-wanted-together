@@ -77,7 +77,6 @@ struct Config {
     bool        ghostEnabled = true;  // [Ghost] Enabled
     int         interpDelayMs = 100;  // [Ghost] InterpDelayMs - show the remote car this far in the past
     bool        ghostCollisions = false; // [Ghost] Collisions
-    int         safeDistance = 10;    // [Ghost] SafeDistance - metres apart before collisions turn on
 
     void Load(const char* iniPath);
 };

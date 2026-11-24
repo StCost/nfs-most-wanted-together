@@ -73,4 +73,104 @@ namespace HitUtil {
         outVel[2] = curVel[2] + uz * (want - along);
         return Finite3(outVel);
     }
+
+    // Player-vs-partner collisions stay off at a race start, after a teleport, and during a
+    // network hitch, and come back on only once the two collision boxes no longer overlap.
+    // Each box is scaled by this factor on every axis (25% of its half-extents on each side).
+    constexpr float COLLIDE_EXTENT_SCALE = 1.25f;
+    constexpr unsigned STATE_HITCH_MS = 400;   // no state packet for this long: a hitch (same as a stale NOS pose)
+    // Fallback if IRigidBody::GetDimension fails: a typical car, half-extents in metres (X width, Y height, Z length).
+    constexpr float kDefaultHalfExtent[3] = { 1.05f, 0.70f, 2.20f };
+
+    inline bool ValidHalfExtents(const float* h) {
+        if (!h) return false;
+        for (int i = 0; i < 3; ++i)
+            if (!(h[i] == h[i]) || !(h[i] > 0.05f) || !(h[i] < 15.f)) return false;
+        return true;
+    }
+
+    inline bool StateHitch(bool stateValid, unsigned ageMs, unsigned hitchMs = STATE_HITCH_MS) {
+        return !stateValid || ageMs >= hitchMs;
+    }
+
+    inline bool WantPlayerCollide(bool collisionsEnabled, bool hitch, bool teleportHold, bool boxesTooClose) {
+        return collisionsEnabled && !hitch && !teleportHold && !boxesTooClose;
+    }
+
+    // Oriented box: pos is the centre, axis[i] is the unit local axis i, half[i] is the half-extent on it.
+    struct Obb {
+        float pos[3];
+        float axis[3][3];
+        float half[3];
+    };
+
+    inline void Norm3(float* v) {
+        float len = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        if (len > 1e-6f) { v[0] /= len; v[1] /= len; v[2] /= len; }
+        else { v[0] = 1.f; v[1] = 0.f; v[2] = 0.f; }
+    }
+
+    inline float Dot3h(const float* a, const float* b) {
+        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    }
+
+    // quat is (x,y,z,w). Local X/Y/Z become the three world axes. A broken quat becomes identity.
+    inline void ObbFromPose(const float* pos, const float* quat, const float* half, Obb& out) {
+        for (int i = 0; i < 3; ++i) {
+            out.pos[i] = pos ? pos[i] : 0.f;
+            out.half[i] = (half && half[i] == half[i] && half[i] > 0.f) ? half[i] : kDefaultHalfExtent[i];
+        }
+        float x = 0, y = 0, z = 0, w = 1.f;
+        if (quat) { x = quat[0]; y = quat[1]; z = quat[2]; w = quat[3]; }
+        float n = x * x + y * y + z * z + w * w;
+        if (!(n > 0.25f) || !(n < 4.f)) { x = y = z = 0; w = 1.f; n = 1.f; }
+        float s = 2.f / n;
+        out.axis[0][0] = 1.f - s * (y * y + z * z);
+        out.axis[0][1] = s * (x * y + w * z);
+        out.axis[0][2] = s * (x * z - w * y);
+        out.axis[1][0] = s * (x * y - w * z);
+        out.axis[1][1] = 1.f - s * (x * x + z * z);
+        out.axis[1][2] = s * (y * z + w * x);
+        out.axis[2][0] = s * (x * z + w * y);
+        out.axis[2][1] = s * (y * z - w * x);
+        out.axis[2][2] = 1.f - s * (x * x + y * y);
+        for (int i = 0; i < 3; ++i) Norm3(out.axis[i]);
+    }
+
+    inline bool AxisSeparated(const float* n, const Obb& a, const Obb& b) {
+        float n2 = Dot3h(n, n);
+        if (!(n2 > 1e-12f)) return false;
+        float d[3] = { b.pos[0] - a.pos[0], b.pos[1] - a.pos[1], b.pos[2] - a.pos[2] };
+        float dist = fabsf(Dot3h(d, n));
+        float ra = fabsf(Dot3h(a.axis[0], n)) * a.half[0] + fabsf(Dot3h(a.axis[1], n)) * a.half[1] + fabsf(Dot3h(a.axis[2], n)) * a.half[2];
+        float rb = fabsf(Dot3h(b.axis[0], n)) * b.half[0] + fabsf(Dot3h(b.axis[1], n)) * b.half[1] + fabsf(Dot3h(b.axis[2], n)) * b.half[2];
+        return dist > ra + rb;
+    }
+
+    // True if the two boxes overlap or touch (no clearance). Touching faces count as overlap.
+    inline bool ObbsOverlap(const Obb& a, const Obb& b) {
+        for (int i = 0; i < 3; ++i) {
+            if (AxisSeparated(a.axis[i], a, b)) return false;
+            if (AxisSeparated(b.axis[i], a, b)) return false;
+        }
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                float n[3] = {
+                    a.axis[i][1] * b.axis[j][2] - a.axis[i][2] * b.axis[j][1],
+                    a.axis[i][2] * b.axis[j][0] - a.axis[i][0] * b.axis[j][2],
+                    a.axis[i][0] * b.axis[j][1] - a.axis[i][1] * b.axis[j][0]
+                };
+                if (AxisSeparated(n, a, b)) return false;
+            }
+        }
+        return true;
+    }
+
+    // Overlap test used to re-enable collisions: both boxes are enlarged by COLLIDE_EXTENT_SCALE.
+    inline bool ObbsOverlapWithClearance(const Obb& a, const Obb& b, float scale = COLLIDE_EXTENT_SCALE) {
+        Obb aa = a, bb = b;
+        if (!(scale > 0.f)) scale = 1.f;
+        for (int i = 0; i < 3; ++i) { aa.half[i] *= scale; bb.half[i] *= scale; }
+        return ObbsOverlap(aa, bb);
+    }
 }
