@@ -1,7 +1,7 @@
 # Local release (same result as the GitHub "Build" workflow, without Actions):
 #   tools\release.ps1 -Version 0.2.0            build, package, publish a pre-release on GitHub
 #   tools\release.ps1 -Version 0.2.0 -Final     publish as a normal (latest) release
-#   tools\release.ps1 -Version 0.2.0 -DryRun    only build and package (dist\MWTogether-0.2.0.zip)
+#   tools\release.ps1 -Version 0.2.0 -DryRun    only build and package (dist\MWTogether-0.2.0.asi)
 # Needs: Visual Studio 2022 C++ (x86), and the GitHub CLI (gh) logged in for publishing.
 param(
     [Parameter(Mandatory = $true)][string]$Version,
@@ -24,51 +24,34 @@ $env:MWT_RELEASE = '1'
 if ($LASTEXITCODE -ne 0) { throw "build failed" }
 Remove-Item Env:MWT_VERSION, Env:MWT_RELEASE
 
-# 2. package: scripts\MWTogether.asi / default.ini / logo + README (no dinput8.dll)
+# 2. package: the release is the one file MWTogether.asi (no zip, no dinput8.dll). The menu logo, the
+# default MWTogether.ini (written on the first start, never over an existing one), LICENSE and
+# THIRD-PARTY-NOTICES are built into it as resources (src\version.rc).
 # Ultimate ASI Loader is a required separate download: see README Install.
 $dist = Join-Path $root 'dist'
-$pkg = Join-Path $dist "MWTogether-$Version"
-Remove-Item $pkg -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force (Join-Path $pkg 'scripts') | Out-Null
-Copy-Item build\MWTogether.asi (Join-Path $pkg 'scripts')
-# settings ship as a default only: unpacking an update over an install never overwrites the player's MWTogether.ini
-Copy-Item MWTogether.ini (Join-Path $pkg 'scripts\MWTogether.default.ini')
-# main menu Together logo (optional at runtime: the plugin uses it if this file is present)
-Copy-Item assets\MWTogether-logo.dds (Join-Path $pkg 'scripts\MWTogether-logo.dds')
-Copy-Item README.md, LICENSE, THIRD-PARTY-NOTICES.txt $pkg
+New-Item -ItemType Directory -Force $dist | Out-Null
+$asi = Join-Path $dist "MWTogether-$Version.asi"
+Copy-Item build\MWTogether.asi $asi -Force
+Write-Host "Packaged $asi"
 
-$zip = Join-Path $dist "MWTogether-$Version.zip"
-Remove-Item $zip -ErrorAction SilentlyContinue
-Compress-Archive -Path "$pkg\*" -DestinationPath $zip
-Write-Host "Packaged $zip"
-
-# SHA256 of the zip and of every file in it, for the release notes (anyone can check a download against them)
+# SHA256 for the release notes (anyone can check a download against it), and links to the texts in the repository
+$repo = 'https://github.com/StCost/nfs-most-wanted-together'
 $notes = Join-Path $dist "MWTogether-$Version-notes.md"
 $lines = @('### SHA256', '', '| File | SHA256 |', '|---|---|')
-$lines += "| MWTogether.zip | ``$((Get-FileHash $zip -Algorithm SHA256).Hash.ToLower())`` |"
-Get-ChildItem $pkg -Recurse -File | Sort-Object FullName | % {
-    $rel = $_.FullName.Substring($pkg.Length + 1)
-    $lines += "| $rel | ``$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())`` |"
-}
-$lines += '', 'Ultimate ASI Loader is not included. Install the x86/Win32 dinput8.dll next to speed.exe (see README).'
+$lines += "| MWTogether.asi | ``$((Get-FileHash $asi -Algorithm SHA256).Hash.ToLower())`` |"
+$lines += '', 'Put `MWTogether.asi` in `scripts\` next to `speed.exe`. Ultimate ASI Loader is not included: install the x86/Win32 dinput8.dll next to speed.exe (see README).'
+$lines += '', "[README]($repo/blob/v$Version/README.md) - [LICENSE]($repo/blob/v$Version/LICENSE) (also built into MWTogether.asi) - [THIRD-PARTY-NOTICES]($repo/blob/v$Version/THIRD-PARTY-NOTICES.txt)"
 Set-Content $notes $lines -Encoding utf8
 Get-Content $notes | Write-Host
 # unversioned name (README / CI); DryRun also writes it, so a local package is ready without tagging
-Copy-Item $zip (Join-Path $dist 'MWTogether.zip') -Force
-$assets = @($zip)
+$named = Join-Path $dist 'MWTogether.asi'
+Copy-Item $asi $named -Force
 if ($DryRun) { return }
 
-# 3. tag + GitHub release
+# 3. tag + GitHub release: one asset with a fixed name, so README can link releases/latest/download/MWTogether.asi
 git tag "v$Version"
 git push origin "v$Version"
 $flags = @('--notes-file', $notes, '--generate-notes', '--title', "NFS MW Together $Version")
 if (-not $Final) { $flags += '--prerelease' }
-# the release assets always have the same names, so README can link releases/latest/download/MWTogether.zip
-$named = @()
-foreach ($a in $assets) {
-    $fixed = Join-Path $dist ((Split-Path $a -Leaf) -replace "-$([regex]::Escape($Version))", "")
-    Copy-Item $a $fixed -Force
-    $named += $fixed
-}
-gh release create "v$Version" @named @flags
+gh release create "v$Version" $named @flags
 Write-Host "Released v$Version"

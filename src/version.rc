@@ -41,3 +41,10 @@ END
 
 // asInvoker, uiAccess=false. Embedded here so the linker does not add a second manifest.
 1 24 "MWTogether.manifest"
+
+// The files the release used to ship next to the plugin, built in as they are (no packing or
+// encryption, see resutil.h): the menu logo, the default settings, and the license texts.
+MWT_LOGO        RCDATA "..\\assets\\MWTogether-logo.dds"
+MWT_DEFAULT_INI RCDATA "..\\MWTogether.ini"
+MWT_LICENSE     RCDATA "..\\LICENSE"
+MWT_NOTICES     RCDATA "..\\THIRD-PARTY-NOTICES.txt"

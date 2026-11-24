@@ -55,3 +55,53 @@ TEST(old_save_chunks_are_acknowledged_and_dropped) {
     CHECK(Take(PKT_FILEACK).empty());
     CHECK(Take(PKT_NOFILE).empty());
 }
+
+#include "../src/resutil.h"
+#include "../src/ddsutil.h"
+
+TEST(resources_logo_is_valid_and_license_texts_are_present) {
+    const uint8_t* p = nullptr; size_t n = 0;
+    CHECK(ResUtil::Get(ResUtil::kLogo, p, n));
+    DdsUtil::Info info; std::string err;
+    CHECK(DdsUtil::Parse(p, n, info, err));
+    CHECK_EQ(info.width, 512u); CHECK(info.height >= 128);   // the 4:1 menu logo, taller for the Together line
+    CHECK(ResUtil::Get(ResUtil::kLicense, p, n));
+    std::string license((const char*)p, n);
+    CHECK(license.find("Copyright (c) 2026 StCost") != std::string::npos);
+    CHECK(license.find("Permission is hereby granted") != std::string::npos);
+    CHECK(license.find("THE SOFTWARE IS PROVIDED") != std::string::npos);
+    CHECK(ResUtil::Get(ResUtil::kNotices, p, n));
+    std::string notices((const char*)p, n);
+    CHECK(notices.find("Ultimate ASI Loader") != std::string::npos);
+    CHECK(notices.find("Microsoft Visual C++ runtime") != std::string::npos);
+    CHECK(!ResUtil::Get("NO_SUCH_RESOURCE", p, n)); CHECK(p == nullptr); CHECK_EQ(n, 0);
+}
+
+TEST(resources_default_ini_is_written_on_clean_install_only) {
+    const uint8_t* p = nullptr; size_t n = 0;
+    CHECK(ResUtil::Get(ResUtil::kDefaultIni, p, n));
+    std::string dir = th::TempDir(), ini = dir + "res_MWTogether.ini";
+    CHECK(ResUtil::WriteIfMissing(ini.c_str(), p, n));
+    FILE* f = fopen(ini.c_str(), "rb"); CHECK(f != nullptr);
+    if (f) {
+        std::vector<uint8_t> actual(n + 1); size_t got = fread(actual.data(), 1, actual.size(), f); fclose(f);
+        CHECK_EQ(got, n); CHECK(memcmp(actual.data(), p, n) == 0);
+    }
+    CHECK(!ResUtil::WriteIfMissing(ini.c_str(), "not your settings", 17));
+    // Even an empty settings file is the player's file: never replace it.
+    f = fopen(ini.c_str(), "wb"); if (f) fclose(f);
+    CHECK(!ResUtil::WriteIfMissing(ini.c_str(), p, n));
+    WIN32_FILE_ATTRIBUTE_DATA a = {}; CHECK(GetFileAttributesExA(ini.c_str(), GetFileExInfoStandard, &a));
+    CHECK_EQ(a.nFileSizeLow, 0);
+    CHECK(!ResUtil::WriteIfMissing(nullptr, p, n));
+    CHECK(!ResUtil::WriteIfMissing((dir + "missing\\MWTogether.ini").c_str(), p, n));
+    DeleteFileA(ini.c_str()); RemoveDirectoryA(dir.c_str());
+}
+
+TEST(resources_license_log_keeps_complete_lines) {
+    const char text[] = "MIT License\r\n\r\nCopyright (c) StCost\nlast";
+    auto lines = ResUtil::Lines((const uint8_t*)text, sizeof(text) - 1);
+    CHECK_EQ(lines.size(), 4); CHECK_STR(lines[0], "MIT License"); CHECK_STR(lines[1], "");
+    CHECK_STR(lines[2], "Copyright (c) StCost"); CHECK_STR(lines[3], "last");
+    CHECK(ResUtil::Lines(nullptr, 0).empty());
+}

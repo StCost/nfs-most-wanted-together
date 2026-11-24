@@ -15,6 +15,7 @@
 #include "prologueutil.h"
 #include "noticeutil.h"
 #include "exitutil.h"
+#include "resutil.h"
 #include "overlay.h"
 #include "together.h"
 #include "nativeui.h"
@@ -616,11 +617,27 @@ BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
         // renamed from CoopMod: carry the old settings over once
         if (GetFileAttributesA(iniPath.c_str()) == INVALID_FILE_ATTRIBUTES)
             CopyFileA((std::string(g_dir) + "CoopMod.ini").c_str(), iniPath.c_str(), TRUE);
-        // first start: the release ships MWTogether.default.ini, so an update never overwrites your settings
-        if (GetFileAttributesA(iniPath.c_str()) == INVALID_FILE_ATTRIBUTES)
-            CopyFileA((std::string(g_dir) + "MWTogether.default.ini").c_str(), iniPath.c_str(), TRUE);
+        // first start: the default settings built into the plugin (MWTogether.ini of the release).
+        // An existing MWTogether.ini is never touched; an old MWTogether.default.ini is not read.
+        bool iniCreated = false;
+        if (GetFileAttributesA(iniPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+            const uint8_t* def = nullptr; size_t defSize = 0;
+            if (ResUtil::Get(ResUtil::kDefaultIni, def, defSize))
+                iniCreated = ResUtil::WriteIfMissing(iniPath.c_str(), def, defSize);
+        }
         Log::Init(logPath.c_str());
         LOG("NFS MW Together %s loading (dir %s)", MWT_VERSION, g_dir);
+        if (iniCreated) LOG("Settings: created MWTogether.ini from the built-in defaults");
+        // the license texts travel inside the plugin (no files next to it): in full on the first start
+        LOG("Licenses: MIT License, Copyright (c) 2026 StCost - the full LICENSE and THIRD-PARTY-NOTICES are built into MWTogether.asi and at %s", ResUtil::kRepoUrl);
+        if (iniCreated) {   // a clean install: the full texts once (the short line above every start)
+            const char* names[] = { ResUtil::kLicense, ResUtil::kNotices };
+            for (const char* name : names) {
+                const uint8_t* text = nullptr; size_t textSize = 0;
+                if (!ResUtil::Get(name, text, textSize)) continue;
+                for (const std::string& line : ResUtil::Lines(text, textSize)) LOG("License | %s", line.c_str());
+            }
+        }
 
         g_cfg.Load(iniPath.c_str());
         Together::Init(iniPath.c_str());
