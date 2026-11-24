@@ -94,3 +94,76 @@ TEST(hook_vtables_unknown_null_and_full) {
     CHECK(!h.Has(&c));
     CHECK(h.Has(&a) && h.Has(&b));
 }
+
+#include "../src/exitutil.h"
+
+TEST(exit_message_pump_never_treats_empty_queue_as_quit) {
+    using namespace ExitUtil;
+    CHECK(IsStaleQuit(false, WmQuit, PumpPeekReturn));
+    CHECK(!IsStaleQuit(true, WmQuit, PumpPeekReturn));    // a real WM_QUIT must still quit
+    CHECK(!IsStaleQuit(false, 0x100, PumpPeekReturn));
+    CHECK(!IsStaleQuit(false, WmQuit, PumpPeekReturn + 1)); // no change to another caller's MSG
+    for (uint32_t m = 0; m < 0x500; ++m)
+        CHECK_EQ(IsStaleQuit(false, m, PumpPeekReturn), m == WmQuit);
+}
+
+TEST(exit_remote_event_does_not_drive_boot_screens) {
+    using namespace ExitUtil;
+    CHECK(!RemoteEventCanAct(0, false, false));
+    CHECK(!RemoteEventCanAct(1, false, false));
+    CHECK(!RemoteEventCanAct(3, true, true));       // title / splash / profile screen: no event, no Accept/Back
+    CHECK(!RemoteEventCanAct(3, false, false));
+    CHECK(RemoteEventCanAct(3, false, true));       // actual main menu: quick-race/Challenge Series joining stays supported
+    CHECK(RemoteEventCanAct(6, false, true));       // ordinary shared event in free roam unchanged
+    CHECK(RemoteEventCanAct(4, false, true));       // in-progress world load unchanged
+}
+
+TEST(exit_partner_already_in_event_notice_once_and_again_after_disconnect) {
+    using namespace ExitUtil;
+    BusyNotice b;
+    CHECK(!PeerBusyInMenuTick(b, false, 3, true, 6, 123, true));
+    CHECK(!PeerBusyInMenuTick(b, true, 1, true, 6, 123, true));
+    CHECK(!PeerBusyInMenuTick(b, true, 3, false, 6, 123, true));
+    CHECK(!PeerBusyInMenuTick(b, true, 3, true, 3, 123, true));
+    CHECK(!PeerBusyInMenuTick(b, true, 3, true, 6, 0, true));
+    CHECK(!PeerBusyInMenuTick(b, true, 3, true, 6, 123, false));
+    CHECK(PeerBusyInMenuTick(b, true, 3, true, 6, 123, true));
+    CHECK(!PeerBusyInMenuTick(b, true, 3, true, 6, 123, true));
+    CHECK(PeerBusyInMenuTick(b, true, 3, true, 6, 124, true));
+    CHECK(!PeerBusyInMenuTick(b, false, 3, false, 0, 0, false));
+    CHECK(PeerBusyInMenuTick(b, true, 3, true, 6, 124, true));
+    CHECK(!PeerBusyInMenuTick(b, true, 3, true, 6, 0, false));
+    CHECK(PeerBusyInMenuTick(b, true, 3, true, 6, 124, true));
+}
+
+TEST(exit_all_five_flag_writers_and_formatting) {
+    using namespace ExitUtil;
+    int n; const Site* s = Sites(&n);
+    CHECK_EQ(n, 5);
+    CHECK_EQ(s[0].at, 0x5A4C87); CHECK_EQ(s[1].at, 0x55BE9B);
+    CHECK_EQ(s[2].at, 0x57E667); CHECK_EQ(s[3].at, 0x6C2206); CHECK_EQ(s[4].at, 0x6DB7D4);
+    CHECK_EQ(SetFlagBytes()[0], 0xC7); CHECK_EQ(SetFlagBytes()[1], 5);
+    uint32_t dst = 0, val = 0;
+    memcpy(&dst, SetFlagBytes() + 2, 4); memcpy(&val, SetFlagBytes() + 6, 4);
+    CHECK_EQ(dst, ExitFlag); CHECK_EQ(val, 1);
+    CHECK_STR(SiteName(-1), "an unknown place"); CHECK_STR(SiteName(5), "an unknown place");
+    char a[80];
+    FormatAddress(a, sizeof(a), "MWTogether.asi", 0x10000000, 0x10002345, false); CHECK_STR(a, "MWTogether.asi+2345");
+    FormatAddress(a, sizeof(a), "speed.exe", 0x400000, 0x6C2206, true); CHECK_STR(a, "006C2206");
+    CHECK_STR(BaseName("E:\\Game\\scripts\\other.asi"), "other.asi");
+    CHECK_STR(BaseName("other.asi"), "other.asi"); CHECK_STR(BaseName(nullptr), "");
+}
+
+TEST(exit_stack_call_recognition) {
+    using namespace ExitUtil;
+    const uint8_t a[][7] = {
+        {0x90,0x90,0xE8,0,0,0,0},                      // rel32
+        {0x90,0x90,0x90,0x90,0x90,0xFF,0xD0},         // eax
+        {0x90,0xFF,0x15,0x34,0x03,0x89,0x00},         // [IAT]
+        {0x90,0x90,0x90,0x90,0xFF,0x50,0x10},         // [eax+10]
+        {0x90,0xFF,0x90,0x24,0x01,0,0},              // [eax+124]
+    };
+    for (auto& x : a) CHECK(LooksAfterCall(x));
+    uint8_t none[7] = {}; CHECK(!LooksAfterCall(none));
+    uint8_t jump[7] = {0x90,0x90,0x90,0x90,0x90,0xFF,0xE0}; CHECK(!LooksAfterCall(jump));
+}

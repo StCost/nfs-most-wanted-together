@@ -13,6 +13,7 @@
 #include "noticeutil.h"
 #include "paintutil.h"
 #include "feutil.h"
+#include "exitutil.h"
 #include "storyutil.h"
 #include "togetherutil.h"
 #include "mem.h"
@@ -1252,6 +1253,7 @@ bool Game::ReadLocalCarInfo(CarInfo& out) {
 static char g_dataDir[MAX_PATH] = "";
 void Game::SetDataDir(const char* dir) { strncpy_s(g_dataDir, dir, _TRUNCATE); }
 #include "boot.inl"
+#include "exitwatch.inl"
 #include "nis.inl"
 #include "story.inl"
 #include "profile.inl"

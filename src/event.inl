@@ -106,6 +106,18 @@ namespace {
         // the sender repeats an invitation for a few seconds (UDP may lose it): act on it once
         if (fromPeer && g_handledHash == eventHash && GetTickCount() - g_handledAt < 30000) return false;
         int flow = Game::GameFlowState();
+        // Connecting while the partner is in an event, or their invitation arriving while our game still
+        // boots (title, "Press START", profile load): nothing here may load a race or press anything in
+        // those screens. The invitation is dropped (not kept); we join their next event.
+        void* bootFlow = nullptr; uint8_t* fedb = nullptr;
+        bool bootUp = !Mem::Read(0x91CF48, bootFlow) || bootFlow != nullptr;          // BootFlowManager::mInstance
+        bool profile = Mem::Read(0x91CF90, fedb) && fedb && Mem::IsReadable(fedb + 3, 1) && fedb[3];   // FEDatabase: profile loaded
+        if (fromPeer && !ExitUtil::RemoteEventCanAct(flow, bootUp, profile)) {
+            static DWORD lastLog = 0;
+            if (GetTickCount() - lastLog > 10000) { lastLog = GetTickCount(); LOG("Event: %s from the other player ignored in game flow %d - no front-end input; waiting for the next event", eventId, flow); }
+            if (flow == 3) strcpy_s(g_eventStatus, "partner in an event - waiting");
+            return false;
+        }
         int mode = 0;
         void* cur = CurrentParms(&mode);
         const char* resultsScreen = FEScreens::IsPushed("PostRace_Results.fng") ? "PostRace_Results.fng"
@@ -271,6 +283,7 @@ namespace {
 // so a stacked menu (Options over Pause, SMS over the world) peels cleanly. Movies, the HUD,
 // loading screens and post-race results are left alone (see feutil.h).
 bool Game::CloseInGameOverlays() {
+    if (Game::GameFlowState() != 6) return false;   // a stale close timer must never Back out of the front end
     __try {
         const char* open = FEScreens::NextCloseableOverlay();
         if (!open) return false;
@@ -290,6 +303,7 @@ bool Game::CloseInGameOverlays() {
 static void CloseEventMenusSafe() { Game::CloseInGameOverlays(); }
 
 static void EventTickImpl(bool connected) {
+    if (!connected) g_closeMenusUntil = 0;   // a menu-closing timer never outlives the session it was for
     int mode = 0, ctx = 0;
     void* parms = CurrentParms(&mode, &ctx);
     if (parms != g_lastParms) {

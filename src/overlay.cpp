@@ -5,6 +5,7 @@
 #include "config.h"
 #include "input.h"
 #include "together.h"
+#include "game.h"
 #include <cstdint>
 #include <algorithm>
 
@@ -331,8 +332,13 @@ namespace {
         if ((msg == WM_CLOSE || msg == WM_DESTROY || msg == WM_ENDSESSION || (msg == WM_SYSCOMMAND && (w & 0xFFF0) == SC_CLOSE)) && g_onClose) {
             static int logged = 0;
             if (logged++ < 4) LOG("Window: closing message %04X (w %08X l %08X) from %p", msg, (unsigned)w, (unsigned)l, _ReturnAddress());
+            if (msg == WM_DESTROY) Game::LogStack("Window: WM_DESTROY");   // who destroyed it (the exe: its exit flag was set)
             g_onClose();
         }
+        // Our Together page reads the keyboard itself. Its typed characters must not reach the game as
+        // well: in the main menu a 'q' / 'Q' opens the game's "Quit?" dialog (0x62799A4C, exitutil.h),
+        // which the next Enter on our page would answer.
+        if (msg == WM_CHAR && Together::IsOpen()) return 0;
         // A device was plugged in / removed (USB or Bluetooth pad): the hot-plug check runs on the next frames.
         if (msg == WM_DEVICECHANGE) Pad::OnDeviceChange();
         // Hide only while the game is the active window; a background game window can still get

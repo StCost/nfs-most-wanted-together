@@ -76,6 +76,8 @@ namespace Game {
     bool InstallRestartSync();
     bool InstallStreamHook();
     void InstallBootPatches();          // call from DllMain (before the front end starts)
+    void InstallExitWatch(bool plugins);   // why the game quit (exitwatch.inl): DllMain (false), and at the first frame (true: the other plugins too)
+    void LogStack(const char* tag);     // the return addresses on the stack, as one log line
     void BootTick();                  // profile-load confirm / TestPressStart (dev builds)
     void PursuitResultTick();
     bool InstallNisHook();              // cutscene skip voting

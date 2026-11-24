@@ -14,6 +14,7 @@
 #include "net.h"
 #include "prologueutil.h"
 #include "noticeutil.h"
+#include "exitutil.h"
 #include "overlay.h"
 #include "together.h"
 #include "nativeui.h"
@@ -102,6 +103,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
             firstFrame = false;
             LOG("First frame rendered");
             g_gameOk = Game::Init();
+            Game::InstallExitWatch(true);  // again, now with the other plugins in the game folder
             // Host / Join and the Together settings in the game's own menus (all patches checked first;
             // if they can't be made, the overlay page is the way in)
             NativeUI::SpectateOffered = &Game::SpectateOffered;
@@ -482,6 +484,15 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                 wasConnected = st.connected;
             }
         }
+        {   // connected from the menus while the partner is racing: say so - nothing here joins or presses anything
+            static ExitUtil::BusyNotice busy;
+            const Net::Snapshot& p = Net::Latest();
+            if (g_gameOk && ExitUtil::PeerBusyInMenuTick(busy, st.connected, Game::GameFlowState(), p.valid,
+                    p.valid ? p.s.gameFlowState : 0, p.valid ? p.s.eventHash : 0, p.valid && p.s.inRace && !p.s.finished)) {
+                Toast((st.peerName.empty() ? std::string("The other player") : st.peerName) + " is in an event - you'll go together in the next one");
+                LOG("Co-op: connected in the menus while the other player is in an event (%08X) - waiting", p.s.eventHash);
+            }
+        }
         // --- the other player is in an event while we roam (or back): say so ---
         // Debounced: the new state must hold for 3 s while we have been roaming for 3 s, so the
         // start and end of a shared event (both switch within moments) say nothing.
@@ -632,6 +643,7 @@ BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
         Perf::Enable(g_cfg.perf);
         g_prevForeground = GetForegroundWindow();
         Game::InstallBootPatches();
+        Game::InstallExitWatch(false);     // log why the game quits (and keep a stale WM_QUIT from quitting it)
         InstallCrashDialog();
         Pad::InstallHooks();               // controller bindings guard (before the game creates its input devices)
         SetUnhandledExceptionFilter([](EXCEPTION_POINTERS* e) -> LONG {
