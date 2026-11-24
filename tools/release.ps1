@@ -2,11 +2,13 @@
 #   tools\release.ps1 -Version 0.2.0            build, package, publish a pre-release on GitHub
 #   tools\release.ps1 -Version 0.2.0 -Final     publish as a normal (latest) release
 #   tools\release.ps1 -Version 0.2.0 -DryRun    only build and package (dist\MWTogether-0.2.0.asi)
+#   -ChangesFile notes.md                       the "What changed" part of the release notes (markdown)
 # Needs: Visual Studio 2022 C++ (x86), and the GitHub CLI (gh) logged in for publishing.
 param(
     [Parameter(Mandatory = $true)][string]$Version,
     [switch]$Final,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [string]$ChangesFile
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -34,13 +36,16 @@ $asi = Join-Path $dist "MWTogether-$Version.asi"
 Copy-Item build\MWTogether.asi $asi -Force
 Write-Host "Packaged $asi"
 
-# SHA256 for the release notes (anyone can check a download against it), and links to the texts in the repository
+# Release notes: a download link first, what changed (-ChangesFile) and "both players should update";
+# --generate-notes adds the full changelog link. No install steps, SHA256 or license links here: those
+# are in the README, on the release asset and built into the ASI.
 $repo = 'https://github.com/StCost/nfs-most-wanted-together'
 $notes = Join-Path $dist "MWTogether-$Version-notes.md"
-$lines = @('### SHA256', '', '| File | SHA256 |', '|---|---|')
-$lines += "| MWTogether.asi | ``$((Get-FileHash $asi -Algorithm SHA256).Hash.ToLower())`` |"
-$lines += '', 'Put `MWTogether.asi` in `scripts\` next to `speed.exe`. Ultimate ASI Loader is not included: install the x86/Win32 dinput8.dll next to speed.exe (see README).'
-$lines += '', "[README]($repo/blob/v$Version/README.md) - [LICENSE]($repo/blob/v$Version/LICENSE) (also built into MWTogether.asi) - [THIRD-PARTY-NOTICES]($repo/blob/v$Version/THIRD-PARTY-NOTICES.txt)"
+$lines = @("# [Click Me to Download NFS MW Together $Version]($repo/releases/download/v$Version/MWTogether.asi)", '')
+$lines += '### What changed', ''
+if ($ChangesFile) { $lines += Get-Content $ChangesFile } else { $lines += '- (fill in)' }
+$lines += '', "Both players should update to $Version."
+Write-Host "MWTogether.asi SHA256 $((Get-FileHash $asi -Algorithm SHA256).Hash.ToLower())"
 Set-Content $notes $lines -Encoding utf8
 Get-Content $notes | Write-Host
 # unversioned name (README / CI); DryRun also writes it, so a local package is ready without tagging
@@ -52,6 +57,6 @@ if ($DryRun) { return }
 git tag "v$Version"
 git push origin "v$Version"
 $flags = @('--notes-file', $notes, '--generate-notes', '--title', "NFS MW Together $Version")
-if (-not $Final) { $flags += '--prerelease' }
+if ($Final) { $flags += '--latest' } else { $flags += '--prerelease' }
 gh release create "v$Version" $named @flags
 Write-Host "Released v$Version"
