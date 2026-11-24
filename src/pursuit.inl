@@ -77,6 +77,27 @@ namespace {
             ret
         }
     }
+    // AICopManager's new-pursuit check (0x42F570, every tick of its OnTask) walks the players list (vehicle
+    // list 1), then the AI racers, and starts a pursuit on the first car for which 0x429EF0 (thiscall,
+    // IVehicle* -> bool) says so: a perpetrator that a cop sees speeding (over 29.06 m/s, the float at
+    // 0x891694), with a recent infraction, or at heat level 4+. The racer loop skips driver classes 0
+    // (human) and 6 (remote); the players loop does not. The other player's car here is a DRIVER_REMOTE
+    // car in the players list, and class 6 gets the human AI (AIVehicleHuman, a perpetrator; driver class
+    // table at 0x887610). So a cop here could start THE pursuit on that copy instead of on us: cops chase
+    // the copy, we get no pursuit (no heat mode, no pursuit HUD), and ours only starts when the copy is
+    // removed - at the end of an event. Their own game runs their pursuit; here the copy is never a perp.
+    constexpr uintptr_t NewPursuitCall1 = 0x42F5A5, NewPursuitCall2 = 0x42F605, NewPursuitFn = 0x429EF0;
+    void* g_noPerpLogged = nullptr;
+    bool __fastcall hk_NewPursuitFor(void* self, void*, void* iv) {
+        if (iv && (iv == g_ghost || (IsVehicle(iv) && DriverClass(iv) == DRV_REMOTE))) {
+            if (iv != g_noPerpLogged) {
+                g_noPerpLogged = iv;
+                LOG("Pursuit: the other player's car here (%p) is never a pursuit target here - their own game chases them", iv);
+            }
+            return false;
+        }
+        return ((bool(__thiscall*)(void*, void*))NewPursuitFn)(self, iv);
+    }
     bool PatchPursuitSeen() {
         const uint8_t expect[7] = { 0x8B, 0x03, 0x8B, 0xCB, 0xFF, 0x50, 0x74 };   // mov eax,[ebx]; mov ecx,ebx; call [eax+0x74]
         uint8_t bytes[7] = { 0xE8, 0, 0, 0, 0, 0x90, 0x90 };                    // call hook; nop; nop
@@ -925,6 +946,10 @@ void __fastcall hk_RadarDetector(void* self, void*, uint32_t a, uint32_t b) {
 bool Game::InstallPursuitHooks() {
     bool seen = PatchPursuitSeen();
     LOG("Pursuit: cops chasing the other player %s count as seeing us", seen ? "no longer" : "STILL (seen hook failed)");
+    bool np1 = PatchCallChecked(NewPursuitCall1, NewPursuitFn, (void*)&hk_NewPursuitFor);
+    bool np2 = PatchCallChecked(NewPursuitCall2, NewPursuitFn, (void*)&hk_NewPursuitFor);
+    LOG("Pursuit: the other player's car %s a pursuit target here (new-pursuit check %s/%s)",
+        np1 && np2 ? "is never" : "may still be", np1 ? "ok" : "FAIL", np2 ? "ok" : "FAIL");
     if (!g_cfg.sharedPursuits) { LOG("Pursuit: SharedPursuits=0 - each player has their own heat and pursuit"); return false; }
     bool m = PatchCallChecked(DrawCopsCall, DrawCopsFn, (void*)&hk_DrawCops);
     bool r = PatchCallChecked(RadarCall, RadarFn, (void*)&hk_RadarDetector);
