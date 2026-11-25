@@ -345,4 +345,23 @@ namespace CoopRace {
         if (msg == kFeAccept) return kResultsNoDialog;        // Continue: no "you did not win" dialog for a counted win
         return kResultsAsIs;
     }
+
+    // Out of the event ("raceover": totaled, knocked out, beaten), not waiting for a knockout, the race still
+    // running here, and then the other player wins (once per run): what happens to the screen up.
+    //  ViaPauseScreen - the race-over Restart / Quit screen: it goes, the win is counted, the results list
+    //  CreditHere     - the losing results list: the win is counted, the list stays (its Continue ends the race)
+    //  None           - nothing yet (the "race over" message: ShowLosingPostRaceScreen decides), or we left
+    enum class OutWin { None, CreditHere, ViaPauseScreen };
+    inline OutWin OutOfRaceWin(bool knockoutHeld, bool peerWon, bool racing, bool localOut,
+                               bool localWon, bool doneThisRun, bool pauseScreenUp, bool resultsUp, bool photoUp) {
+        if (knockoutHeld || !peerWon || !racing || !localOut || localWon || doneThisRun) return OutWin::None;
+        if (pauseScreenUp) return OutWin::ViaPauseScreen;
+        if (resultsUp && !photoUp) return OutWin::CreditHere;
+        return OutWin::None;
+    }
+    // ShowLosingPostRaceScreen with their win already in (they won while "race over" was shown): the win is
+    // counted and the results list comes instead of the losing screen
+    inline bool CreditBeforeLoseScreen(bool peerWon, bool racing, bool localOut, bool localWon, bool doneThisRun) {
+        return peerWon && racing && localOut && !localWon && !doneThisRun;
+    }
 }

@@ -146,7 +146,6 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] Bounty goes to each player's own career
 - [x] Shared milestones and speed traps: when one of you completes one for your current rival, the other gets it too, with the bounty, if they're at the same rival (`[Career] SharedMilestones`)
 - [x] Starting an event together: when either of you starts a career race, a Blacklist race, a milestone or pursuit event, a quick race or a Challenge Series event, the other player is pulled into the same one, from free roam, the world map, any menu, the results screens or the main menu. Open menus are closed first. For a Challenge Series event or a quick race, a partner who's roaming quits to the main menu first and then loads the same event (Challenge Series: with its car). A partner who's driving another event isn't pulled out. You both get a notice and they finish their own event
-- [x] Spectate: when you're out of an event (busted, totaled, knocked out or beaten) while your partner still races, the Restart / Quit screen also has Spectate. The camera then follows your partner's car, your camera-change key (C, or the pad's camera button) switches views, and pause still works. If your partner wins, the win counts for you too and you get the results list. If they lose too, your Restart / Quit screen comes back
 
 
 </details>

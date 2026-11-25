@@ -153,7 +153,7 @@ uint8_t Game::LocalFinishRank(void* localRi) {
 //  (InGamePhotoMaster.fng, flag 0x91CF41); lost, it posts EShowResults (0x10 bytes, ctor 0x642140(0, 0)),
 //  the standings / results list. Milestone events (flag set) show their rewards / race-over screen, no photo.
 //  A win we only have because the other player won (shared wins: finished as the winner for them, or
-//  given place 1 by the race script, spectating, knocked out, the Restart / Quit screen) skips the photo:
+//  given place 1 by the race script, knocked out, the Restart / Quit screen) skips the photo:
 //  the results list instead - the win, cash and progress are counted as before (NotifyRaceFinished).
 namespace {
     uint32_t g_teamWinEvent = 0;       // event whose win came from the other player
@@ -209,7 +209,7 @@ static void __cdecl ShowPostRaceFromFlow(bool won) {
 //  with the AI (NotifyRaceFinished), no control, no pause menu. There its exit now does what the photo's
 //  Continue does - the photo's own handler with mode 0 (it reads only +0x10, the package, null = no button
 //  check, and +0x34 of its screen) - and Continue skips the dialog (as the dialog's OK, 0x30ED2368). The
-//  list shown in "raceover" (knocked out, Restart / Quit screen, spectating) is left as the game does it.
+//  list shown in "raceover" (knocked out, Restart / Quit screen) is left as the game does it.
 namespace {
     using FeNotifyFn = void(__thiscall*)(void*, uint32_t, void*, uint32_t, uint32_t);
     constexpr uintptr_t kResultsNotifySlot = 0x8A170C, kResultsNotifyFn = 0x5A7120, kPhotoNotifyFn = 0x5A7EA0;
@@ -386,7 +386,7 @@ static void CoopFinishTickImpl() {
 // ---- out of the race, and then the other player wins ----
 //  Totaled / knocked out / beaten: the race script is in "raceover" (it showed "race over", then the losing
 //  screen). Their win counts for us too (shared wins), once per run of the event, while we are still in it -
-//  the losing screen (results list or Restart / Quit), spectating or the knockout wait. A player who left
+//  the losing screen (results list or Restart / Quit) or the knockout wait. A player who left
 //  with Quit / Continue before they won gave the race up: not counted (the race is no longer running here).
 //   - NotifyRaceFinished (0x6119F0): finished, the win gate pays the win and records the race result.
 //   - MNotifyRacePlacement(placing 1): the career counts a won event only from that message - the Blacklist
@@ -482,7 +482,7 @@ namespace {
             // they won while "race over" was shown: the winner's flow (results list) instead of the losing one
             void* ri = RacerInfoOfLocal(); int rank = 0; uint8_t fin = 0;
             if (ri) { Mem::Read((uintptr_t)ri + 0x10, rank); Mem::Read((uintptr_t)ri + 0x21, fin); }
-            if (Spectate::CreditBeforeLoseScreen(Game::Spectating(), PeerWonThisEvent(), RacingMode(), LocalRacerOut(),
+            if (CoopRace::CreditBeforeLoseScreen(PeerWonThisEvent(), RacingMode(), LocalRacerOut(),
                                                  fin && rank == 1, g_outWinEvent == Game::CurrentEventHash())
                 && CreditTeamWinOut("before the losing screen")) {
                 ShowPostRaceOut(true);
@@ -532,10 +532,9 @@ static void KnockoutReleaseTickImpl() {
     ShowPostRaceOut(won);                                        // the screen the game held back
 }
 
-// Out of the event (busted, totaled, beaten), not spectating, and then the other player wins: the win counts
-// for us too (CreditTeamWinOut). The race-over Restart / Quit screen (Pause_Main) gives way to the results
-// list (the same steps as the end of spectating); the losing results list stays and is now a won race's.
-// Once per run of the event.
+// Out of the event (busted, totaled, beaten), and then the other player wins: the win counts for us too
+// (CreditTeamWinOut). The race-over Restart / Quit screen (Pause_Main) gives way to the results list; the
+// losing results list stays and is now a won race's. Once per run of the event.
 namespace { uint32_t g_loseToWinEvent = 0; DWORD g_loseToWinAt = 0; }
 static void LoseScreenWinTickImpl() {
     uint32_t ev = Game::CurrentEventHash();
@@ -550,13 +549,13 @@ static void LoseScreenWinTickImpl() {
     if (!ev || !PeerWonThisEvent()) return;
     void* ri = RacerInfoOfLocal(); int rank = 0; uint8_t fin = 0;
     if (ri) { Mem::Read((uintptr_t)ri + 0x10, rank); Mem::Read((uintptr_t)ri + 0x21, fin); }
-    Spectate::OutWin step = Spectate::OutOfRaceWin(Game::Spectating(), g_koHeld, true, RacingMode(), LocalRacerOut(),
+    CoopRace::OutWin step = CoopRace::OutOfRaceWin(g_koHeld, true, RacingMode(), LocalRacerOut(),
                                                    fin && rank == 1, g_loseToWinEvent == ev || g_outWinEvent == ev,
                                                    FEScreens::IsPushed("Pause_Main.fng"),
                                                    FEScreens::IsPushed("PostRace_Results.fng"), FEScreens::IsPushed("InGamePhotoMaster.fng"));
-    if (step == Spectate::OutWin::None) return;
+    if (step == CoopRace::OutWin::None) return;
     g_loseToWinEvent = ev;
-    if (step == Spectate::OutWin::CreditHere) {                   // the losing results list: it stays, now a won race
+    if (step == CoopRace::OutWin::CreditHere) {                   // the losing results list: it stays, now a won race
         CreditTeamWinOut("the results list");
         return;
     }
@@ -590,7 +589,6 @@ void Game::CoopWinTick(bool connected, const Net::Snapshot& peer) {
     __try { CoopWinTickImpl(connected, peer); } __except (EXCEPTION_EXECUTE_HANDLER) {}
     __try { KnockoutReleaseTickImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) { g_koHeld = false; }
     __try { LoseScreenWinTickImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) {}
-    Game::SpectateTick();
 }
 
 bool Game::InstallCoopWin() {

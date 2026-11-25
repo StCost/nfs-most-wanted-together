@@ -3,7 +3,6 @@
 #include "mwt_test.h"
 #include "../src/raceutil.h"
 #include "../src/joinutil.h"
-#include "../src/spectateutil.h"
 #include <cstring>
 
 using namespace CoopRace;
@@ -394,65 +393,33 @@ TEST(join_context_travels_and_old_builds_keep_the_old_rule) {
     CHECK(InviteContext(0) && InviteContext(2) && !InviteContext(1));
 }
 
-// Spectate (src/spectateutil.h)
-static Spectate::Peer Racing() { Spectate::Peer p{}; p.connected = p.sameEvent = p.inRace = p.racedHere = true; return p; }
-
-TEST(spectate_offered_only_while_partner_races_and_we_are_out) {
-    using namespace Spectate;
-    CHECK(Offer(true, true, Racing()));
-    CHECK(!Offer(true, false, Racing()));         // we still race
-    CHECK(!Offer(false, true, Racing()));         // co-op off (prologue)
-    Peer p = Racing(); p.finished = 1;  CHECK(!Offer(true, true, p));   // they already won: the winner's flow instead
-    p = Racing(); p.out = true;         CHECK(!Offer(true, true, p));   // they're out too
-    p = Racing(); p.sameEvent = false;  CHECK(!Offer(true, true, p));
-    p = Racing(); p.racedHere = false;  CHECK(!Offer(true, true, p));   // a leftover from their previous run
-    p = Racing(); p.connected = false;  CHECK(!Offer(true, true, p));
-}
-
-TEST(spectate_ends_with_their_result) {
-    using namespace Spectate;
-    CHECK(Tick(Racing(), false, false, false) == Next::Keep);
-    Peer p = Racing(); p.finished = 1;
-    CHECK(Tick(p, false, false, false) == Next::EndWon);           // their win counts for both
-    CHECK(Tick(Racing(), false, false, true) == Next::EndWon);     // latched win (they left the race since)
-    p = Racing(); p.finished = 2;  CHECK(Tick(p, false, false, false) == Next::EndLost);   // they lost: our Restart / Quit
-    p = Racing(); p.out = true;    CHECK(Tick(p, false, false, false) == Next::EndLost);   // busted / totaled too
-    p = Racing(); p.connected = false; CHECK(Tick(p, false, false, false) == Next::EndLost);
-    CHECK(Tick(Racing(), true, false, false) == Next::EndQuiet);   // restarted
-    CHECK(Tick(Racing(), false, true, false) == Next::EndQuiet);   // left the event
-}
-
-TEST(spectate_lose_screen_gives_way_to_the_winners_screen) {
-    using namespace Spectate;
-    // (spectating, koHeld, peerWon, racing, localOut, localWon, doneThisRun, pauseUp, resultsUp, photoUp)
-    CHECK(OutOfRaceWin(false, false, true, true, true, false, false, true, false, false) == OutWin::ViaPauseScreen);
-    CHECK(OutOfRaceWin(true, false, true, true, true, false, false, true, false, false) == OutWin::None);    // spectating: its own ending
-    CHECK(OutOfRaceWin(false, true, true, true, true, false, false, true, false, false) == OutWin::None);    // knockout hold: its own release
-    CHECK(OutOfRaceWin(false, false, false, true, true, false, false, true, false, false) == OutWin::None);  // they haven't won
-    CHECK(OutOfRaceWin(false, false, true, true, true, false, false, false, false, false) == OutWin::None);  // "race over" message / left
-    CHECK(OutOfRaceWin(false, false, true, true, false, false, false, true, false, false) == OutWin::None);  // we still race (a plain pause)
-    CHECK(OutOfRaceWin(false, false, true, true, true, true, false, true, false, false) == OutWin::None);    // we won ourselves
-    CHECK(OutOfRaceWin(false, false, true, true, true, false, true, true, false, false) == OutWin::None);    // once per run
+TEST(race_lose_screen_gives_way_to_the_results_list) {
+    // (koHeld, peerWon, racing, localOut, localWon, doneThisRun, pauseUp, resultsUp, photoUp)
+    CHECK(OutOfRaceWin(false, true, true, true, false, false, true, false, false) == OutWin::ViaPauseScreen);
+    CHECK(OutOfRaceWin(true, true, true, true, false, false, true, false, false) == OutWin::None);    // knockout hold: its own release
+    CHECK(OutOfRaceWin(false, false, true, true, false, false, true, false, false) == OutWin::None);  // they haven't won
+    CHECK(OutOfRaceWin(false, true, true, true, false, false, false, false, false) == OutWin::None);  // "race over" message / left
+    CHECK(OutOfRaceWin(false, true, true, false, false, false, true, false, false) == OutWin::None);  // we still race (a plain pause)
+    CHECK(OutOfRaceWin(false, true, true, true, true, false, true, false, false) == OutWin::None);    // we won ourselves
+    CHECK(OutOfRaceWin(false, true, true, true, false, true, true, false, false) == OutWin::None);    // once per run
 }
 
 TEST(race_out_player_gets_the_team_win) {
-    using namespace Spectate;
     // totaled / knocked out with the losing results list up, then they win: counted, the list stays
-    CHECK(OutOfRaceWin(false, false, true, true, true, false, false, false, true, false) == OutWin::CreditHere);
-    CHECK(OutOfRaceWin(false, false, true, true, true, false, false, false, true, true) == OutWin::None);    // the photo, not ours
-    CHECK(OutOfRaceWin(false, false, true, true, true, false, true, false, true, false) == OutWin::None);    // already counted
+    CHECK(OutOfRaceWin(false, true, true, true, false, false, false, true, false) == OutWin::CreditHere);
+    CHECK(OutOfRaceWin(false, true, true, true, false, false, false, true, true) == OutWin::None);    // the photo, not ours
+    CHECK(OutOfRaceWin(false, true, true, true, false, true, false, true, false) == OutWin::None);    // already counted
     // quit / continued off the losing screen before they won: the race is over here - not counted
-    CHECK(OutOfRaceWin(false, false, true, false, true, false, false, false, false, false) == OutWin::None);
-    CHECK(OutOfRaceWin(false, false, true, false, true, false, false, false, true, false) == OutWin::None);
-    CHECK(OutOfRaceWin(false, false, true, false, true, false, false, true, false, false) == OutWin::None);
+    CHECK(OutOfRaceWin(false, true, false, true, false, false, false, false, false) == OutWin::None);
+    CHECK(OutOfRaceWin(false, true, false, true, false, false, false, true, false) == OutWin::None);
+    CHECK(OutOfRaceWin(false, true, false, true, false, false, true, false, false) == OutWin::None);
     // they won while "race over" was shown: the results list instead of the losing screen
-    CHECK(CreditBeforeLoseScreen(false, true, true, true, false, false));
-    CHECK(!CreditBeforeLoseScreen(true, true, true, true, false, false));    // spectating
-    CHECK(!CreditBeforeLoseScreen(false, false, true, true, false, false));  // they haven't won (yet)
-    CHECK(!CreditBeforeLoseScreen(false, true, false, true, false, false));  // the race is over here
-    CHECK(!CreditBeforeLoseScreen(false, true, true, false, false, false));  // we still race
-    CHECK(!CreditBeforeLoseScreen(false, true, true, true, true, false));    // we won ourselves
-    CHECK(!CreditBeforeLoseScreen(false, true, true, true, false, true));    // already counted
+    CHECK(CreditBeforeLoseScreen(true, true, true, false, false));
+    CHECK(!CreditBeforeLoseScreen(false, true, true, false, false));  // they haven't won (yet)
+    CHECK(!CreditBeforeLoseScreen(true, false, true, false, false));  // the race is over here
+    CHECK(!CreditBeforeLoseScreen(true, true, false, false, false));  // we still race
+    CHECK(!CreditBeforeLoseScreen(true, true, true, true, false));    // we won ourselves
+    CHECK(!CreditBeforeLoseScreen(true, true, true, false, true));    // already counted
 }
 
 // ---- start together at the loading screen (1.7.5) ------------------------------------------------

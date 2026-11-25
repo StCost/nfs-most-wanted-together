@@ -103,7 +103,7 @@ namespace {
 
     // ---- strings ----
     constexpr uint32_t kStrBase = 0x6D775400;            // our string hashes ("mwT" + n)
-    enum : uint32_t { S_OPT_NAME = kStrBase, S_OPT_DESC, S_MAIN_NAME, S_MAIN_DESC, S_HEADER, S_HEADER_CONNECT, S_SPEC_NAME, S_SPEC_DESC,
+    enum : uint32_t { S_OPT_NAME = kStrBase, S_OPT_DESC, S_MAIN_NAME, S_MAIN_DESC, S_HEADER, S_HEADER_CONNECT,
                       S_TITLE = kStrBase + 0x20, S_VALUE = kStrBase + 0x40 };
     using NativeUtil::W_MODE; using NativeUtil::W_HOSTIP;
     using NativeUtil::W_AUTO; using NativeUtil::W_START;
@@ -118,7 +118,6 @@ namespace {
             { S_OPT_NAME, "Together" }, { S_OPT_DESC, "MW Together co-op: host or join, start options" },
             { S_MAIN_NAME, "Together" }, { S_MAIN_DESC, "Play together: host or join" },
             { S_HEADER, "Together" }, { S_HEADER_CONNECT, "Together" },
-            { S_SPEC_NAME, "Spectate" }, { S_SPEC_DESC, "Watch your partner until their race is over" },
         };
         for (int r = 0; r < W_COUNT; ++r) {
             g_title[r][0] = g_value[r][0] = 0;
@@ -915,25 +914,6 @@ namespace {
     }
     void __fastcall hk_OptionsAdd(void* menu, void*, void* opt) { AddOption(menu, opt); AddIcon(menu, false); }
 
-    // the race-over menu (Pause_Main.fng opened by ShowPostRace(false), screen +0x148): Spectate after
-    // the game's Restart / Quit while the other player still races (spectate.inl)
-    constexpr uintptr_t kCallPauseIcons = 0x5463AD, kOrigPauseIcons = 0x52B4D0;   // UIPauseMain::Setup -> its icons
-    void* g_specIconVt[2];
-    void __fastcall SpecIconReact(void*, void*, const char*, uint32_t data, void*, uint32_t, uint32_t) {
-        if (data == BUTTON_PRESSED && NativeUI::SpectatePicked) NativeUI::SpectatePicked();
-    }
-    void __fastcall hk_PauseIcons(uint8_t* s, void*) {
-        ((Setup_t)kOrigPauseIcons)(s);
-        __try {
-            if (!*(s + 0x148) || !NativeUI::SpectateOffered || !NativeUI::SpectateOffered()) return;
-            void* o = GameAlloc(0x4C);
-            if (!o) return;
-            IconOptionCtor(o, TEX_PLAYER, S_SPEC_NAME, S_SPEC_DESC);
-            *(void**)o = g_specIconVt;
-            AddOption(s, o);
-            LOG("Native: Spectate on the race-over menu");
-        } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Native: exception adding Spectate"); }
-    }
     void __fastcall hk_MainAdd(void* menu, void*, void* opt) { g_mainPicked = false; AddOption(menu, opt); AddIcon(menu, true); }
 
     // the options icon menu: after its exit animation, open the list screen for our icon
@@ -1159,8 +1139,6 @@ bool NativeUI::Install() {
     g_optionsIconVt[0] = g_mainIconVt[0] = (void*)0x51A500;    // IconOption's deleting destructor
     g_optionsIconVt[1] = (void*)&OptionsIconReact;
     g_mainIconVt[1] = (void*)&MainIconReact;
-    g_specIconVt[0] = (void*)0x51A500;
-    g_specIconVt[1] = (void*)&SpecIconReact;
 
     StringsTick();
     bool done = PatchCallTo(kCallOptionsScreenSetup, kOrigOptionsScreenSetup, (void*)&hk_OptionsScreenSetup);
@@ -1173,8 +1151,6 @@ bool NativeUI::Install() {
     done = done && PatchCallTo(kCallMainAdd, (uintptr_t)AddOption, (void*)&hk_MainAdd);
     done = done && HookQueueMessage();
     if (!done) { LOG("Native: a menu patch failed half way"); return false; }
-    if (!(CallTargets(kCallPauseIcons, kOrigPauseIcons) && PatchCallTo(kCallPauseIcons, kOrigPauseIcons, (void*)&hk_PauseIcons)))
-        LOG("Native: could not add Spectate to the race-over menu");
     if (!HookBeginTextInput())
         LOG("Native: could not hook the game's text entry (mouse clicks may still open a blank page)");
     if (!PatchCallTo(kCallEditSetString, (uintptr_t)SetWideString, (void*)&hk_EditSetString))
@@ -1185,8 +1161,6 @@ bool NativeUI::Install() {
 }
 
 bool NativeUI::Active() { return g_active; }
-bool (*NativeUI::SpectateOffered)() = nullptr;
-void (*NativeUI::SpectatePicked)() = nullptr;
 
 void NativeUI::Tick() {
     if (!g_active) return;

@@ -28,9 +28,6 @@ namespace NativeUI {
     // A Together field is being typed (or the pad button that ended it is still down): the game
     // gets no pad buttons, so A keeps / B cancels the field and nothing else.
     bool CapturesPad();
-    // Spectate on the race-over menu (set by main.cpp to the game's): shown when offered, picked = start
-    extern bool (*SpectateOffered)();
-    extern void (*SpectatePicked)();
 #ifdef MWT_DEVTOOLS
     // test command "native ...": type <text> | enter | esc (the game's text entry, no focus needed),
     // options | main | connect | settings (open the Together screen as if picked there), state
