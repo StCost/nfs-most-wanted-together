@@ -144,7 +144,8 @@ uint8_t Game::LocalFinishRank(void* localRi) {
     if (!localRi || !Mem::Read((uintptr_t)localRi + 0x21, fin) || !fin) return 0;
     Mem::Read((uintptr_t)localRi + 0x10, rank);
     Mem::Read((uintptr_t)localRi + 0x18, pct);
-    return CoopRace::FinishRankToReport(fin, rank, pct, RaceTypeOfCurrent(), BustedThisEventRun());
+    uint32_t outs = 0; Mem::Read((uintptr_t)localRi + 0x1C, outs);
+    return CoopRace::FinishRankAfterOut(CoopRace::FinishRankToReport(fin, rank, pct, RaceTypeOfCurrent(), BustedThisEventRun()), outs != 0);
 }
 
 // ---- the winner's photo for a shared win, naming the one who won ----
@@ -554,10 +555,23 @@ static void KnockoutReleaseTickImpl() {
     if (!g_koHeld) return;
     uint32_t ev = Game::CurrentEventHash();
     if (ev != g_koEvent || Game::GameFlowState() != 6) { g_koHeld = false; return; }   // restarted / left
-    if (PeerStillRacing() && GetTickCount() - g_koSince <= 15u * 60u * 1000u) return;
-    g_koHeld = false;
+    static DWORD stoppedAt = 0; static uint32_t stoppedFor = 0;
+    bool racing = PeerStillRacing();
+    const Net::Snapshot& p = Net::Latest();
+    bool inOurEvent = Net::Stats().connected && p.valid && p.s.eventHash == ev;
+    if (racing || stoppedFor != ev) { stoppedAt = 0; stoppedFor = ev; }
+    if (!racing && !stoppedAt) {
+        stoppedAt = GetTickCount() | 1;
+        LOG("Race: the other player stopped racing (in race %d, finished %d, stage %d, event %08X) - waiting for their result",
+            (int)p.s.inRace, (int)p.s.finished, (int)p.s.pad[0], p.s.eventHash);
+    }
+    CoopRace::KoRelease r = CoopRace::KnockoutRelease(racing, PeerWonThisEvent(), inOurEvent,
+                                                      stoppedAt ? (int)(GetTickCount() - stoppedAt) : 0,
+                                                      GetTickCount() - g_koSince > 15u * 60u * 1000u);
+    if (r == CoopRace::KoRelease::Hold) return;
+    g_koHeld = false; stoppedAt = 0;
     bool won = false;
-    if (PeerWonThisEvent())                                       // they won: the shared win is paid to us too
+    if (r == CoopRace::KoRelease::Won)                            // they won: the shared win is paid to us too
         won = CreditTeamWinOut("the knockout wait") || (g_outWinEvent == ev && g_teamWinEvent == ev);
     LOG("Race: the other player is done - our results screen now%s", won ? " (their win counts for us)" : "");
     ShowPostRaceOut(won);                                        // the screen the game held back
@@ -572,6 +586,7 @@ namespace { uint32_t g_loseToWinEvent = 0; DWORD g_loseToWinAt = 0; const char* 
 static void LoseScreenWinTickImpl() {
     uint32_t ev = Game::CurrentEventHash();
     if (g_loseToWinAt) {                                           // step 2: the screen has gone (or 1.5 s passed)
+    else LOG("Race: no win reported by the other player (finished %d, in race %d, event %08X)", (int)p.s.finished, (int)p.s.inRace, p.s.eventHash);
         if (ev != g_loseToWinEvent || Game::GameFlowState() != 6) { g_loseToWinAt = 0; return; }
         if ((FEScreens::IsPushed("Pause_Main.fng") || FEScreens::IsPushed("PostRace_Results.fng")) &&
             GetTickCount() - g_loseToWinAt < 1500) return;

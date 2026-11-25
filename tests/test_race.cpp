@@ -571,3 +571,23 @@ TEST(race_host_racers_only_in_our_event) {
     CHECK(!HostRacersAreOurs(true, 0xD9464514u, 0u));            // we left the race
     CHECK(HostRacersAreOurs(false, 0u, 0xD9464514u));            // no state from the host: leave as is
 }
+
+TEST(race_knockout_wait_for_partner_result) {
+    using namespace CoopRace;
+    CHECK(KnockoutRelease(true, false, true, 0, false) == KoRelease::Hold);          // they still race
+    CHECK(KnockoutRelease(false, true, true, 0, false) == KoRelease::Won);           // they won
+    CHECK(KnockoutRelease(true, true, true, 0, false) == KoRelease::Won);
+    CHECK(KnockoutRelease(false, false, true, 0, false) == KoRelease::Hold);         // stopped: their result may lag
+    CHECK(KnockoutRelease(false, false, true, kKoResultWaitMs - 1, false) == KoRelease::Hold);
+    CHECK(KnockoutRelease(false, false, true, kKoResultWaitMs, false) == KoRelease::Lost);
+    CHECK(KnockoutRelease(false, false, false, 0, false) == KoRelease::Lost);        // they left the event
+    CHECK(KnockoutRelease(true, false, true, 0, true) == KoRelease::Lost);           // 15 min: give up
+}
+
+TEST(race_out_is_never_reported_as_a_win) {
+    using namespace CoopRace;
+    CHECK_EQ((int)FinishRankAfterOut(1, true), 2);
+    CHECK_EQ((int)FinishRankAfterOut(1, false), 1);
+    CHECK_EQ((int)FinishRankAfterOut(3, true), 3);
+    CHECK_EQ((int)FinishRankAfterOut(0, true), 0);
+}

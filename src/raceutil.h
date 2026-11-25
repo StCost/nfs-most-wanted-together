@@ -243,6 +243,22 @@ namespace CoopRace {
         return (uint8_t)rank;
     }
 
+    // Knocked out of a lap knockout, waiting for the other player (coopwin.inl). When they stop racing, their
+    // result can lag a few snapshots behind (on their side "out" / results comes with the finish, and the rank
+    // there settles a frame later): wait up to kKoResultWaitMs for a reported win before showing a loss.
+    enum class KoRelease { Hold, Won, Lost };
+    constexpr int kKoResultWaitMs = 4000;
+    inline KoRelease KnockoutRelease(bool peerStillRacing, bool peerWon, bool peerInOurEvent, int msSinceStopped, bool timedOut) {
+        if (peerWon) return KoRelease::Won;
+        if (peerStillRacing && !timedOut) return KoRelease::Hold;
+        if (peerInOurEvent && !timedOut && msSinceStopped < kKoResultWaitMs) return KoRelease::Hold;
+        return KoRelease::Lost;
+    }
+    // Our finish as told to the other player: knocked out / busted / wrecked (GRacerInfo +0x1C) is never a win
+    // of ours, whatever rank the race status gives the car afterwards (seen: "finished, rank 1" right after a
+    // knockout when the results came up).
+    inline uint8_t FinishRankAfterOut(uint8_t reported, bool out) { return (out && reported == 1) ? 2 : reported; }
+
     // The other player's reported finish is a shared win only for this same event, after we raced
     // it together, and only if they reported rank 1 (a real win, not a loss / quit leftover).
     inline bool PeerReportedWin(uint32_t localEvent, uint32_t peerEvent, bool peerInRace,
