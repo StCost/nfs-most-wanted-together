@@ -1013,6 +1013,7 @@ static void* __cdecl hk_VehicleConstruct(SimParam p) {
             replaced = true;
             g_racerReplacedThisLoad = true;
             LOG("Race: rival race - the other player's racer built as their car %08X", pc->carKey);
+            LogCarBody("the other player's racer", pc->carKey, vp->customization);
         }
     }
     uint32_t hKey = 0; void* hCustom = nullptr; void* hMatched = nullptr; const char* hFrom = "";

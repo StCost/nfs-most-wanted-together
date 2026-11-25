@@ -101,6 +101,7 @@ namespace Game {
     std::string TakeMilestoneNotice();  // "milestone - it counts for you too" once after one was applied here
     std::string DebugGround();                      // test: ground height / physics mode of our car and the AI cars
     std::string DebugRivalGate(const char* arg);    // test: rival gate state; "force" gates as if the partner weren't ready, "auto" undoes it
+    std::string DebugBodies();                      // test: every car's BODY part and render state (cars without a body)
     std::string DebugCareerBin(const char* arg);    // test: set the current Blacklist rival (test profiles only)
     std::string DebugMilestones(const char* arg);   // test: "" list / "milestone" / "speedtrap" complete the first open one
     bool InstallCatchUp();              // AI catch-up measured against the leading human

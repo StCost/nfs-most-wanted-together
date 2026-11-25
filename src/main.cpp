@@ -276,6 +276,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                     else if (c == "milestones") r = Game::DebugMilestones("");
                     else if (c == "ground") r = Game::DebugGround();
                     else if (c == "rivalgate" || c.rfind("rivalgate ", 0) == 0) r = Game::DebugRivalGate(c.size() > 10 ? c.substr(10).c_str() : "");
+                    else if (c == "bodies") r = Game::DebugBodies();
                     else if (c.rfind("careerbin ", 0) == 0) r = Game::DebugCareerBin(c.substr(10).c_str());
                     else if (c == "milestone") r = Game::DebugMilestones("milestone");
                     else if (c == "speedtrap") r = Game::DebugMilestones("speedtrap");

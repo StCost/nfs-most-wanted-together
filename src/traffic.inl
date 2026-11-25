@@ -1598,3 +1598,39 @@ std::string Game::DebugGround() {
     sprintf_s(r, "%d car(s): %d in emulated physics, %d without ground under them (details in the log)", cars, emulated, noGround);
     return r;
 }
+
+// Test 'bodies': every car in the world - name, model, driver class, the BODY part of its parts record
+// and its render connection (FindCarRenderConn 0x744D40: +0x28 state, 2+ = drawn; +0x2C model type).
+// For cars drawn without a body (cutscenes).
+static void* CarPartByIndex(int16_t index);   // paint.inl
+static int DebugBodiesScan() {
+    int n = 0;
+    __try {
+        void* me = LocalVehicle();
+        void** b = nullptr;
+        int cnt = ListSize(VL_ALL, &b);
+        for (int i = 0; i < cnt; ++i) {
+            void* t = ListGet(VL_ALL, i);
+            if (!t || !IsVehicle(t)) continue;
+            int16_t body = -1; const void* rec = Customizations(t);
+            if (rec) Mem::SafeRead((const uint8_t*)rec + 23 * 2, &body, sizeof(body));
+            int st = -9, type = -9;
+            void* sim = VCall<void* (__thiscall*)(void*)>(t, IV_GetSimable)(t);
+            if (sim) {
+                uint32_t wid = VCall<uint32_t(__thiscall*)(void*)>(sim, 28)(sim);
+                char* conn = ((char*(__cdecl*)(uint32_t))0x744D40)(wid);
+                if (conn) { st = *(int*)(conn + 0x28); type = *(int*)(conn + 0x2C); }
+            }
+            ++n;
+            LOG("Bodies: %p %s%s model %08X class %d, parts %s, BODY %d (%s), render state %d type %d", t, t == me ? "OUR CAR " : t == g_ghost ? "THE OTHER PLAYER " : "",
+                VehName(t), ModelKeyOf(t), DriverClass(t), rec ? "yes" : "NONE", body, body >= 0 ? (CarPartByIndex(body) ? "found" : "NOT FOUND") : "-", st, type);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
+    return n;
+}
+std::string Game::DebugBodies() {
+    if (!g_ok || GameFlowState() != 6) return "not in game";
+    int n = DebugBodiesScan();
+    if (n < 0) return "exception";
+    return std::to_string(n) + " car(s) (details in the log)";
+}

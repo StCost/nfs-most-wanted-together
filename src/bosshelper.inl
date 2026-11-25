@@ -108,7 +108,18 @@ namespace {
     }
 }
 
+// The game composites a racer's paint and vinyls into one of 4 skin slots (DUMMY_SKIN1..4, picked from a
+// bit mask at 0x75D2A0; slots 5..12 are only used in its pre-composited mode). A rival race already fills
+// all 4 (us, the rival and Big Lou's two partners in the intro), so with the helper and the other player's
+// racer added the intro's partner cars got no slot and were drawn without a body. Two more slots fix it.
+static void InstallSkinSlots() {
+    static const uint8_t pick[3] = {0x83, 0xFA, 0x04}, pickNew[3] = {0x83, 0xFA, 0x06};   // cmp edx,4 -> 6
+    static const uint8_t kind[3] = {0x83, 0xFF, 0x04}, kindNew[3] = {0x83, 0xFF, 0x06};   // slot 5,6: composited kind
+    bool ok = Mem::PatchBytes(0x747F20, kind, kindNew, 3) && Mem::PatchBytes(0x75D2B4, pick, pickNew, 3);   // kind first: alone it is harmless
+    LOG("Race: car skin slots %s", ok ? "6" : "NOT raised (code differs)");
+}
 static void InstallBossHelper() {
+    InstallSkinSlots();   // needed with or without the helper: the other player's racer takes a slot too
     // the two racer-list hooks go together (a count without the driver would index past the event's list)
     uint8_t op1 = 0, op2 = 0; int32_t r1 = 0, r2 = 0;
     bool sites = Mem::Read(NumOppCall, op1) && Mem::Read(NumOppCall + 1, r1) && op1 == 0xE8 && NumOppCall + 5 + r1 == NumOppFn &&
