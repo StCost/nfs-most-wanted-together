@@ -287,6 +287,22 @@ namespace CoopRace {
         return true;
     }
 
+    // Start together, on the grid: we are on it first and hold the start for the other player. A slower load
+    // gets 20 s. While they are still loading - unloading the last race's world or loading this one (a game
+    // flow other than in game / the menus), or already in this event but not on its grid yet (its intro
+    // cutscene, their loading screen held) - we keep holding, and the 20 s count from when they were last
+    // seen loading: the client that starts a rival's next race while the host still leaves the last one's
+    // results through a full world load no longer goes 20 s before the host. Never longer than 2 minutes.
+    constexpr int kStartHoldMs = 20000;
+    constexpr int kStartHoldLoadingMaxMs = 120000;
+    inline bool PeerLoadingToStart(uint32_t event, uint32_t peerEvent, int peerFlow, uint8_t peerStage) {
+        if (peerFlow == 6) return event && peerEvent == event && !OnGridStage(peerStage);
+        return peerFlow != 0 && peerFlow != 3;      // 3: the menus (not on the way), 0: no game yet
+    }
+    inline bool StartHoldTimedOut(int heldMs, int sincePeerLoadingMs) {
+        return heldMs >= kStartHoldLoadingMaxMs || sincePeerLoadingMs >= kStartHoldMs;
+    }
+
     // An event start with no grid slot for the other player (their racer isn't one of ours, or both games
     // put the two cars on one spot): where to show them. The grid is read from the cars around us - how far
     // apart a row's cars stand side by side, and how far the rows are apart - and the first free slot is

@@ -557,13 +557,15 @@ namespace {
 // Start together. Each game loads an event at its own speed. CarState::pad[0] carries our stage in the
 // current event: 1 = loading / intro cutscene, 2 = on the grid (intro over). The game that gets there
 // first freezes its simulation (the front-end pause request counter 0x91CAE4, with the co-op "no
-// pause" patch lifted for the moment) until the other one is ready too, or 20 s pass.
+// pause" patch lifted for the moment) until the other one is ready too, or 20 s pass with them no longer
+// loading (CoopRace::StartHoldTimedOut: while they still load or play the intro, up to 2 minutes).
 // ---------------------------------------------------------------------------
 namespace {
     uint8_t  g_stage = 0;
     uint32_t g_stageEvent = 0;
     bool     g_sawNis = false, g_holding = false;
     DWORD    g_modeSince = 0, g_holdSince = 0, g_readyAt = 0;
+    DWORD    g_peerLoadingAt = 0;          // the other player was last seen loading (the start hold)
     char     g_startStatus[64] = "";
     bool     g_prologueHeld = false;   // the hold waited for a partner still on the way (prologue)
 
@@ -659,7 +661,7 @@ static void StartSyncTickImpl(bool connected) {
         bool peerReady = pr.valid && pr.s.eventHash == hash && CoopRace::OnGridStage(pr.s.pad[0]);
         if (connected && g_cfg.startTogether && peerComing && !peerReady && !g_holding) {
             int req = 0;
-            if (Mem::Read(0x91CAE4, req)) { ++req; Mem::Write(0x91CAE4, req); g_holding = true; g_holdSince = now; g_prologueHeld = PrologueHoldOn(hash, pr); }
+            if (Mem::Read(0x91CAE4, req)) { ++req; Mem::Write(0x91CAE4, req); g_holding = true; g_holdSince = g_peerLoadingAt = now; g_prologueHeld = PrologueHoldOn(hash, pr); }
             const std::string& pn = Net::Stats().peerName;
             const char* who = pn.empty() ? "the other player" : pn.c_str();
             // only the prologue's wait (minutes, by their own chain) says so; the short wait for a slower load
@@ -670,6 +672,9 @@ static void StartSyncTickImpl(bool connected) {
         }
     }
     if (g_holding) {
+        // the other player still on the way: unloading the last world, loading this one, or in its intro
+        bool loading = pr.valid && CoopRace::PeerLoadingToStart(hash, pr.s.eventHash, pr.s.gameFlowState, pr.s.pad[0]);
+        if (loading) g_peerLoadingAt = now;
         if (!connected || !pr.valid) ReleaseHold("the other player is gone");
         else if (pr.s.eventHash == hash && CoopRace::OnGridStage(pr.s.pad[0])) ReleaseHold("both ready");
         else if (PrologueHoldOn(hash, pr)) {
@@ -683,9 +688,15 @@ static void StartSyncTickImpl(bool connected) {
                 if (menuSince && now - menuSince > 30000) { menuSince = 0; ReleaseHold("the other player is in the menus"); }
             }
         }
-        else if (g_prologueHeld && (g_prologueHeld = false, true)) g_holdSince = now;   // they arrived: the usual 20 s to load from now
-        else if (now - g_holdSince > 20000) ReleaseHold("waited long enough");
+        else if (g_prologueHeld && (g_prologueHeld = false, true)) g_holdSince = g_peerLoadingAt = now;   // they arrived: the usual 20 s to load from now
+        else if (CoopRace::StartHoldTimedOut((int)(now - g_holdSince), (int)(now - g_peerLoadingAt)))
+            ReleaseHold(now - g_holdSince >= (DWORD)CoopRace::kStartHoldLoadingMaxMs ? "waited 2 minutes" : "waited long enough");
         else {
+            // still loading (the last race's world, this one, or its intro cutscene): say so after 2 s
+            const std::string& pn = Net::Stats().peerName;
+            if (loading && now - g_holdSince > 2000)
+                sprintf_s(g_startStatus, "%s is loading", pn.empty() ? "the other player" : pn.c_str());
+            else if (!loading) g_startStatus[0] = 0;
             // roaming with no event, or in a different one, for 1.5 s: they are not coming
             static DWORD elsewhereSince = 0;
             bool elsewhere = pr.s.eventHash != hash && pr.s.gameFlowState == 6 && pr.s.hasCar && now - g_holdSince > 3000;
@@ -797,7 +808,7 @@ static void RestartTickImpl(bool connected) {
 
 void Game::PauseRuleTick(bool connected) {
     if (!g_ok) return;
-    __try { if (g_holding && GetTickCount() - g_holdSince > (g_prologueHeld ? 15u * 60u * 1000u + 1000u : 21000u)) ReleaseHold("safety limit"); } __except (EXCEPTION_EXECUTE_HANDLER) { g_holding = false; }
+    __try { if (g_holding && GetTickCount() - g_holdSince > (g_prologueHeld ? 15u * 60u * 1000u + 1000u : (DWORD)CoopRace::kStartHoldLoadingMaxMs + 1000u)) ReleaseHold("safety limit"); } __except (EXCEPTION_EXECUTE_HANDLER) { g_holding = false; }
     __try {
         StartSyncTickImpl(connected);
         // while we wait on the grid, or a story scene holds / plays over the world, the pause must bite

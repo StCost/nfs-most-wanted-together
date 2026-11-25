@@ -454,6 +454,43 @@ TEST(race_grid_stage_is_2_or_3_only) {
     CHECK(!OnGridStage(0) && !OnGridStage(1) && OnGridStage(2) && OnGridStage(3) && !OnGridStage(kStageLoadHeld));
 }
 
+// ---- the start hold waits while the other player still loads (1.7.14) ---------------------------
+TEST(race_start_hold_peer_loading_states) {
+    const uint32_t ev = 0xD9464514, other = 0xFE9D9378;
+    CHECK(PeerLoadingToStart(ev, other, 7, 0));             // unloading the last race's world (results left)
+    CHECK(PeerLoadingToStart(ev, 0, 8, 0));
+    CHECK(PeerLoadingToStart(ev, 0, 4, 0));                 // loading this one
+    CHECK(PeerLoadingToStart(ev, ev, 5, 0));
+    CHECK(PeerLoadingToStart(ev, ev, 6, 1));                // in this event, intro cutscene
+    CHECK(PeerLoadingToStart(ev, ev, 6, kStageLoadHeld));   // holding their loading screen
+    CHECK(!PeerLoadingToStart(ev, ev, 6, 2));               // on the grid: ready, not loading
+    CHECK(!PeerLoadingToStart(ev, ev, 6, 3));
+    CHECK(!PeerLoadingToStart(ev, other, 6, 1));            // driving in another event / its results
+    CHECK(!PeerLoadingToStart(ev, 0, 6, 0));                // free roam
+    CHECK(!PeerLoadingToStart(ev, 0, 3, 0));                // the menus: not on the way
+    CHECK(!PeerLoadingToStart(ev, 0, 0, 0));
+    CHECK(!PeerLoadingToStart(0, 0, 6, 1));
+}
+TEST(race_start_hold_waits_for_a_full_world_load) {
+    // the client holds on the grid; the host leaves the last race's results through a full load (flow 7, 8,
+    // 4, 5), then its intro: 1 s steps, last seen loading at 30 s - no go at 20 s (the old limit)
+    int lastLoading = 0;
+    for (int t = 0; t <= 30000; t += 1000) {
+        lastLoading = t;                         // still loading the whole time
+        CHECK(!StartHoldTimedOut(t, t - lastLoading));
+    }
+    // done loading but never on the grid: the usual 20 s from then
+    CHECK(!StartHoldTimedOut(30000 + kStartHoldMs - 1, kStartHoldMs - 1));
+    CHECK(StartHoldTimedOut(30000 + kStartHoldMs, kStartHoldMs));
+}
+TEST(race_start_hold_limits) {
+    CHECK(!StartHoldTimedOut(0, 0));
+    CHECK(!StartHoldTimedOut(kStartHoldMs - 1, kStartHoldMs - 1));   // a slower load, not loading any more
+    CHECK(StartHoldTimedOut(kStartHoldMs, kStartHoldMs));            // the old 20 s when they are not loading
+    CHECK(!StartHoldTimedOut(kStartHoldLoadingMaxMs - 1, 0));         // loading for nearly 2 minutes
+    CHECK(StartHoldTimedOut(kStartHoldLoadingMaxMs, 0));              // never longer than 2 minutes
+}
+
 // ---- a grid slot for the other player (1.7.5) ----------------------------------------------------
 TEST(race_grid_slot_nothing_around_is_behind_us) {
     float a = 0, s = 0;
