@@ -29,7 +29,8 @@
 //     node) at +0x134 (UpdateRoadBlocks 0x439EE0; node: next, prev, IRoadBlock*). A roadblock with no
 //     cops left is released there (ReleaseAllSmackables destroys its pieces).
 //   IPursuit vt+0x3C GetRoadBlock. IRoadBlock (AIRoadBlock+0x50, vtable 0x892130): vehicles vector
-//     begin/end +0x0C/+0x10, pieces +0x1C/+0x20, centre +0x38, direction +0x44.
+//     begin/end +0x0C/+0x10, pieces +0x1C/+0x20, centre +0x34, direction +0x40 (unit vector, seen in game: the centre
+//     sits between the pieces, the direction is level along the road).
 // ---------------------------------------------------------------------------
 namespace {
     constexpr uintptr_t RbCreateFn = 0x43DD30;
@@ -130,8 +131,8 @@ namespace {
         d.id = ++g_rbNextId ? g_rbNextId : ++g_rbNextId;
         d.setup = (uint8_t)(g_rbCapSetup >= 0 ? g_rbCapSetup : 0);
         d.flags = (uint8_t)((g_rbCapSpikes ? Roadblock::RB_SPIKES : 0) | (heavy ? Roadblock::RB_HEAVY : 0));
-        Mem::SafeRead((uint8_t*)rb + 0x38, d.centre, 12);
-        Mem::SafeRead((uint8_t*)rb + 0x44, d.dir, 12);
+        Mem::SafeRead((uint8_t*)rb + 0x34, d.centre, 12);
+        Mem::SafeRead((uint8_t*)rb + 0x40, d.dir, 12);
         uintptr_t vb = 0, ve = 0, sb = 0, se = 0;
         Mem::Read((uintptr_t)rb + 0x0C, vb); Mem::Read((uintptr_t)rb + 0x10, ve);
         Mem::Read((uintptr_t)rb + 0x1C, sb); Mem::Read((uintptr_t)rb + 0x20, se);
