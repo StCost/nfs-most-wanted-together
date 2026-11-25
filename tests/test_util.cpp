@@ -740,12 +740,17 @@ TEST(util_collide_gate_and_hitch) {
     CHECK(HitUtil::StateHitch(false, 0));
     CHECK(HitUtil::StateHitch(false, 10));
 
-    CHECK(HitUtil::WantPlayerCollide(true, false, false, false));
-    CHECK(!HitUtil::WantPlayerCollide(false, false, false, false));  // setting off
-    CHECK(!HitUtil::WantPlayerCollide(true, true, false, false));    // hitch: off, even if boxes are clear
-    CHECK(!HitUtil::WantPlayerCollide(true, false, true, false));    // teleport / start hold
-    CHECK(!HitUtil::WantPlayerCollide(true, false, false, true));    // still overlapping
-    CHECK(!HitUtil::WantPlayerCollide(true, true, true, true));
-    // hitch just cleared, hold over, boxes no longer overlap: back on
-    CHECK(HitUtil::WantPlayerCollide(true, false, false, false));
+    // collisions off (after a start, teleport or hitch)
+    CHECK(HitUtil::WantPlayerCollide(true, false, false, false, false));   // boxes clear: back on
+    CHECK(!HitUtil::WantPlayerCollide(false, false, false, false, false)); // setting off
+    CHECK(!HitUtil::WantPlayerCollide(true, true, false, false, false));   // hitch: off, even if boxes are clear
+    CHECK(!HitUtil::WantPlayerCollide(true, false, true, false, false));   // teleport / start hold
+    CHECK(!HitUtil::WantPlayerCollide(true, false, false, true, false));   // still overlapping: stay off
+    CHECK(!HitUtil::WantPlayerCollide(true, true, true, true, false));
+    // collisions on: the cars getting close (about to touch) keeps them on
+    CHECK(HitUtil::WantPlayerCollide(true, false, false, true, true));
+    CHECK(HitUtil::WantPlayerCollide(true, false, false, false, true));
+    CHECK(!HitUtil::WantPlayerCollide(true, true, false, true, true));     // a hitch still turns them off
+    CHECK(!HitUtil::WantPlayerCollide(true, false, true, false, true));    // so does a teleport
+    CHECK(!HitUtil::WantPlayerCollide(false, false, false, false, true));
 }

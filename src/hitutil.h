@@ -93,8 +93,11 @@ namespace HitUtil {
         return !stateValid || ageMs >= hitchMs;
     }
 
-    inline bool WantPlayerCollide(bool collisionsEnabled, bool hitch, bool teleportHold, bool boxesTooClose) {
-        return collisionsEnabled && !hitch && !teleportHold && !boxesTooClose;
+    // The overlap test only decides when collisions come back on. Once on, they stay on when the boxes
+    // overlap again (the cars are about to touch): turning them off then let a car drive into the other.
+    inline bool WantPlayerCollide(bool collisionsEnabled, bool hitch, bool teleportHold, bool boxesTooClose, bool collidingNow) {
+        if (!collisionsEnabled || hitch || teleportHold) return false;
+        return collidingNow || !boxesTooClose;
     }
 
     // Oriented box: pos is the centre, axis[i] is the unit local axis i, half[i] is the half-extent on it.

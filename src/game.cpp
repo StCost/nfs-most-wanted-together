@@ -1734,7 +1734,7 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
         }
         memcpy(prevV, lv, 12); prevT = tnow;
     }
-    bool wantCollide = HitUtil::WantPlayerCollide(g_cfg.ghostCollisions, hitch, g_protectHolding, tooClose);
+    bool wantCollide = HitUtil::WantPlayerCollide(g_cfg.ghostCollisions, hitch, g_protectHolding, tooClose, g_ghostCollide);
     if (wantCollide != g_ghostCollide) {
         SetCollisions(g_ghost, wantCollide);
         g_ghostCollide = wantCollide;
