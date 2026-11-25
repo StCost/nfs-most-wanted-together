@@ -39,6 +39,35 @@ namespace SharedPursuit {
         return speedMs > PATROL_SPEEDING_MS || (heat == heat && (int)heat >= PATROL_RECOGNISE_HEAT);
     }
 
+    // ---- the other player's cops while we are already wanted (chase or cooldown) ----------------------
+    // Our game's pursuit only counts its own cops as seeing us, and the other game's cops are only copies
+    // here, so in a shared pursuit a cop of theirs right next to us never kept us in the chase or ended our
+    // cooldown (and ours never did it for them). Their copy counts as seeing us by the same rules our game
+    // uses for a patrol cop, without the speeding part (we are already wanted): a cop chasing there within
+    // PEER_COP_SEES_PLAYER_M, a patrol one close in any direction or in front of it. Not in a hiding spot.
+    inline bool PeerCopSpotsWanted(bool copInPursuit, float dist, float facing) {
+        if (!(dist >= 0.f)) return false;
+        if (copInPursuit) return dist <= PEER_COP_SEES_PLAYER_M;
+        if (dist > PATROL_SEES_M) return false;
+        return dist <= PATROL_SEES_ANY_DIR_M || facing >= 0.f;
+    }
+    // A ram of one of their cops counts as being seen for this long (ms).
+    constexpr uint32_t PEER_COP_HIT_SEEN_MS = 1500;
+    inline bool PeerCopKeepsUsSeen(bool inPursuit, bool hiding, bool engage, bool copSees, uint32_t sinceHitMs) {
+        if (!inPursuit || hiding || !engage) return false;
+        return copSees || sinceHitMs < PEER_COP_HIT_SEEN_MS;
+    }
+
+    // The minimap shows a cop of ours only while we are chased and once it is engaged with us (DrawCops 0x579E00:
+    // IPursuitAI slot 35). The other player's cops (copies here, no IPursuitAI) follow the same rule: shown once
+    // one of them has seen us (PeerCopSpotsWanted) in this pursuit, for PEER_COP_ENGAGED_MS after it last did -
+    // not as soon as it exists or chases the other player. showAll: the game's own "all cops" switch (0x91CF00).
+    constexpr uint32_t PEER_COP_ENGAGED_MS = 30000;
+    inline bool PeerCopOnOurMap(bool showAll, bool chased, bool everSawUs, uint32_t sinceSawUsMs) {
+        if (showAll) return true;
+        return chased && everSawUs && sinceSawUsMs <= PEER_COP_ENGAGED_MS;
+    }
+
     // ---- cops of our pursuit going after the other player ------------------------------------------
     // Each game's pursuit cops chase that game's player. When both are chased, a cop of ours that is
     // clearly closer to the other player's car goes after it (AITarget::Aquire), and comes back to us

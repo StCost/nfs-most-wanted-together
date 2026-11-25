@@ -84,6 +84,32 @@ TEST(pursuit_peer_cop_sees_player_uses_local_positions) {
     CHECK(PeerCopSeesPlayer(true, true, farCop, me, 100.f));
 }
 
+// the other player's cops see us while we are already wanted: chase and cooldown, both directions
+TEST(pursuit_peer_cop_spots_wanted_player) {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    CHECK(PeerCopSpotsWanted(true, 30.f, -1.f));               // chasing there, 30 m away, any direction
+    CHECK(PeerCopSpotsWanted(true, PEER_COP_SEES_PLAYER_M, 0.f));
+    CHECK(!PeerCopSpotsWanted(true, 60.f, 1.f));               // too far
+    CHECK(PeerCopSpotsWanted(false, 30.f, 0.5f));              // patrol cop, we are in front: no speeding needed
+    CHECK(!PeerCopSpotsWanted(false, 30.f, -0.5f));            // patrol cop, behind it
+    CHECK(PeerCopSpotsWanted(false, 10.f, -0.9f));             // right next to it
+    CHECK(!PeerCopSpotsWanted(false, 41.f, 1.f));
+    CHECK(!PeerCopSpotsWanted(true, nan, 1.f));
+    CHECK(!PeerCopSpotsWanted(false, -1.f, 1.f));
+    CHECK(!PeerCopSpotsWanted(false, 30.f, nan));              // unknown facing: not seen unless close
+}
+
+TEST(pursuit_peer_cop_keeps_us_seen) {
+    const uint32_t never = 0xFFFFFFFFu;
+    CHECK(PeerCopKeepsUsSeen(true, false, true, true, never));     // their cop next to us: seen (cooldown ends)
+    CHECK(!PeerCopKeepsUsSeen(true, false, true, false, never));   // none near: our own cops decide
+    CHECK(!PeerCopKeepsUsSeen(false, false, true, true, never));   // not chased: the start-a-pursuit path handles it
+    CHECK(!PeerCopKeepsUsSeen(true, true, true, true, never));     // in a hiding spot: not seen
+    CHECK(!PeerCopKeepsUsSeen(true, false, false, true, never));   // their cops don't count here (other event, results)
+    CHECK(PeerCopKeepsUsSeen(true, false, true, false, 200));      // we rammed one of their cops just now
+    CHECK(!PeerCopKeepsUsSeen(true, false, true, false, PEER_COP_HIT_SEEN_MS));
+}
+
 TEST(pursuit_patrol_cop_spots_speeding_player) {
     CHECK(PatrolCopSpotsPlayer(30.f, 0.8f, 33.f));            // in front, 120 km/h
     CHECK(!PatrolCopSpotsPlayer(30.f, 0.8f, 20.f));           // 72 km/h: not speeding
@@ -594,4 +620,13 @@ TEST(pursuit_busted_together_only_in_the_same_event) {
     // the tick counter wraps
     EventBust w; EventSeenTogether(w, true, EV, 0xFFFFFF00u);
     CHECK(BustWithThem(w, EV, 0x100u, false, false));
+}
+
+TEST(pursuit_peer_cops_on_map_like_ours) {
+    using namespace SharedPursuit;
+    CHECK(!PeerCopOnOurMap(false, false, true, 0));               // not chased: none (they stayed after an escape)
+    CHECK(!PeerCopOnOurMap(false, true, false, 0));               // chased, but this cop never saw us
+    CHECK(PeerCopOnOurMap(false, true, true, 1000));              // engaged
+    CHECK(!PeerCopOnOurMap(false, true, true, PEER_COP_ENGAGED_MS + 1));   // lost us long ago
+    CHECK(PeerCopOnOurMap(true, false, false, 0));                // the game shows every cop (debug)
 }

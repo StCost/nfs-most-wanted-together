@@ -275,6 +275,9 @@ namespace {
         bool     haveFreeze = false;
         float    freezeSearch = 0.f, freezeSince = 0.f;
         DWORD    lastCopHit = 0;
+        DWORD    peerCopHitAt = 0;        // we rammed one of their cops while chased (counts as seen)
+        DWORD    peerSpotLog = 0;
+        bool     peerSpotting = false;   // one of their cops sees us now (for the log)
         int      radarCops = -1, mapCops = -1;
         bool     peerCopsShown = false;   // their cops on our minimap / radar detector: same place (free roam or same event)
         bool     sentEvaded = false;     // keep PURSUIT_EVADED on the wire after the pursuit object is gone
@@ -300,6 +303,25 @@ namespace {
         if (!Mem::Read(s11, c11) || !Mem::Read(s12, c12)) return false;
         if (c11 != PerpHiddenCarFn || c12 != PerpHiddenHeliFn) return false;
         return Mem::PatchPointer((void*)s11, (void*)&hk_PerpHiddenCar) && Mem::PatchPointer((void*)s12, (void*)&hk_PerpHiddenHeli);
+    }
+
+    // HUD pursuit board (IPursuitBoard vtable 0x8A2428): slot 2 SetIsHiding(bool), slot 3 SetTimeUntilHidden(float)
+    // write [this+9] / [this+0xC]; a time > 0 shows the cooldown meter's HIDDEN backing. While the other player
+    // hides for both of us our cooldown runs at the hiding-spot speed, so our board says HIDDEN too.
+    constexpr uintptr_t BoardVtable = 0x8A2428, BoardSetIsHidingFn = 0x568C90, BoardSetTimeUntilHiddenFn = 0x568CA0;
+    void __fastcall hk_BoardSetIsHiding(uint8_t* self, void*, bool hiding) {
+        if (g_sp.sharedHidePerp) hiding = true;
+        self[9] = hiding ? 1 : 0;
+    }
+    void __fastcall hk_BoardSetTimeUntilHidden(uint8_t* self, void*, float t) {
+        if (g_sp.sharedHidePerp && !(t > 0.f)) t = 1.f;
+        *(float*)(self + 0xC) = t;
+    }
+    bool PatchBoardHidden() {
+        uintptr_t s2 = BoardVtable + 2 * 4, s3 = BoardVtable + 3 * 4, c2 = 0, c3 = 0;
+        if (!Mem::Read(s2, c2) || !Mem::Read(s3, c3)) return false;
+        if (c2 != BoardSetIsHidingFn || c3 != BoardSetTimeUntilHiddenFn) return false;
+        return Mem::PatchPointer((void*)s2, (void*)&hk_BoardSetIsHiding) && Mem::PatchPointer((void*)s3, (void*)&hk_BoardSetTimeUntilHidden);
     }
 
     // 0x5EBA50 writes [esi+0x2CF] = al at these two sites. When hideSafehouse is set, store 0 instead.
@@ -398,19 +420,66 @@ namespace {
         uint16_t f = m.s[m.n - 1].e.flags;
         return (f & 1) && (!inPursuitOnly || (f & 4)) && IsVehicle(m.iv);
     }
-    // Local interpolated positions only (not the owner's remote coords, not a traffic id).
-    bool PeerCopsSeeUs() {
-        void* me = LocalVehicle();
+    // when each of the other player's cops last saw us in our current pursuit (minimap: SharedPursuit::PeerCopOnOurMap)
+    struct PeerCopSeen { uint16_t id; DWORD at; };
+    PeerCopSeen g_peerCopSeen[32] = {};
+    void NotePeerCopSawUs(uint16_t id, DWORD now) {
+        int freeSlot = -1, oldest = 0;
+        for (int i = 0; i < 32; ++i) {
+            if (g_peerCopSeen[i].id == id) { g_peerCopSeen[i].at = now ? now : 1; return; }
+            if (!g_peerCopSeen[i].id && freeSlot < 0) freeSlot = i;
+            if ((int)(g_peerCopSeen[i].at - g_peerCopSeen[oldest].at) < 0) oldest = i;
+        }
+        int s = freeSlot >= 0 ? freeSlot : oldest;
+        g_peerCopSeen[s] = PeerCopSeen{ id, now ? now : 1 };
+    }
+    bool PeerCopSawUs(uint16_t id, DWORD now, uint32_t* since) {
+        for (auto& x : g_peerCopSeen) if (x.id == id && x.at) { *since = now - x.at; return true; }
+        return false;
+    }
+    void ForgetPeerCopsSawUs() { for (auto& x : g_peerCopSeen) x = PeerCopSeen{}; }
+    // every copy of their cops that sees us now (chased): remembered for the minimap
+    void NotePeerCopsSeeingUs(void* me, DWORD now) {
         void* rb = me ? RigidBodyOf(me) : nullptr;
-        if (!rb) return false;
+        if (!rb) return;
         const float* mp = RB_GetVec(rb, RB_GetPosition);
         for (auto& m : g_mirrors) {
-            if (!IsPeerCop(m, true)) continue;
+            if (!IsPeerCop(m, false)) continue;
             void* crb = RigidBodyOf(m.iv);
             if (!crb) continue;
-            if (SharedPursuit::PeerCopSeesPlayer(true, true, RB_GetVec(crb, RB_GetPosition), mp)) return true;
+            const float* cp = RB_GetVec(crb, RB_GetPosition);
+            float d = Dist(cp, mp);
+            if (!(d <= SharedPursuit::PEER_COP_SEES_PLAYER_M)) continue;
+            float fwd[3] = {};
+            VCall<void(__thiscall*)(void*, float*)>(crb, 13 /*GetForwardVector*/)(crb, fwd);
+            float to[3] = { mp[0] - cp[0], mp[1] - cp[1], mp[2] - cp[2] };
+            float facing = d > 0.01f ? (fwd[0] * to[0] + fwd[1] * to[1] + fwd[2] * to[2]) / d : 1.f;
+            if (SharedPursuit::PeerCopSpotsWanted((m.s[m.n - 1].e.flags & 4) != 0, d, facing)) NotePeerCopSawUs(m.id, now);
         }
-        return false;
+    }
+    // One of the other player's cops (its copy here, at its local interpolated place - not the owner's
+    // remote coordinates or a traffic id) sees us while we are already wanted. Returns its id, or -1.
+    int PeerCopSpottingUs(void* me, float* distOut) {
+        void* rb = me ? RigidBodyOf(me) : nullptr;
+        if (!rb) return -1;
+        const float* mp = RB_GetVec(rb, RB_GetPosition);
+        for (auto& m : g_mirrors) {
+            if (!IsPeerCop(m, false)) continue;
+            void* crb = RigidBodyOf(m.iv);
+            if (!crb) continue;
+            const float* cp = RB_GetVec(crb, RB_GetPosition);
+            float d = Dist(cp, mp);
+            if (!(d <= SharedPursuit::PEER_COP_SEES_PLAYER_M)) continue;
+            float fwd[3] = {};
+            VCall<void(__thiscall*)(void*, float*)>(crb, 13 /*GetForwardVector*/)(crb, fwd);
+            float to[3] = { mp[0] - cp[0], mp[1] - cp[1], mp[2] - cp[2] };
+            float facing = d > 0.01f ? (fwd[0] * to[0] + fwd[1] * to[1] + fwd[2] * to[2]) / d : 1.f;
+            if (SharedPursuit::PeerCopSpotsWanted((m.s[m.n - 1].e.flags & 4) != 0, d, facing)) {
+                if (distOut) *distOut = d;
+                return (int)m.id;
+            }
+        }
+        return -1;
     }
 }
 
@@ -720,6 +789,35 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
             if (status == PS_COOLDOWN && me)
                 if (void* hp = Find(me, IPerpetratorHandle))
                     if (PRead<uint8_t>(hp, PERP_HiddenCar) || PRead<uint8_t>(hp, PERP_HiddenHeli)) g_sp.flags |= PURSUIT_HIDING;
+            // the other player's cops see us too (our game knows only its own): a cop of theirs next to us keeps
+            // us in the chase, and in cooldown it spots us again - the game's own "seen" (time since seen 0)
+            {
+                float d = -1.f;
+                if (me && g_sp.peerCopsEngage) NotePeerCopsSeeingUs(me, now);
+                int id = (me && g_sp.peerCopsEngage) ? PeerCopSpottingUs(me, &d) : -1;
+                bool hidingNow = status == PS_COOLDOWN && me && [&] {
+                    void* hp = Find(me, IPerpetratorHandle);
+                    return hp && (PRead<uint8_t>(hp, PERP_HiddenCar) || PRead<uint8_t>(hp, PERP_HiddenHeli));
+                }();
+                uint32_t sinceHit = g_sp.peerCopHitAt ? now - g_sp.peerCopHitAt : 0xFFFFFFFFu;
+                if (SharedPursuit::PeerCopKeepsUsSeen(true, hidingNow, g_sp.peerCopsEngage, id >= 0, sinceHit)) {
+                    bool ownSeen = (g_sp.flags & PURSUIT_SEEN) != 0;
+                    if (!ownSeen) PWrite<float>(pursuit, P_SinceSeen, 0.f);   // OnTask: seen -> search 0, cooldown ends
+                    g_sp.flags |= PURSUIT_SEEN;
+                    g_sp.flags &= ~PURSUIT_READY;
+                    if (!g_sp.peerSpotting || now - g_sp.peerSpotLog > 5000) {
+                        g_sp.peerSpotLog = now;
+                        if (id >= 0) LOG("Pursuit: the other player's cop %d sees us (%.0f m, %s)%s", id, d,
+                                         status == PS_COOLDOWN ? "in cooldown - back to the chase" : "chase",
+                                         ownSeen ? " - our cops see us too" : "");
+                        else LOG("Pursuit: we rammed the other player's cop - seen (%s)", status == PS_COOLDOWN ? "cooldown ends" : "chase");
+                    }
+                    g_sp.peerSpotting = true;
+                } else if (g_sp.peerSpotting) {
+                    g_sp.peerSpotting = false;
+                    LOG("Pursuit: the other player's cops no longer see us%s", hidingNow ? " (hiding spot)" : "");
+                }
+            }
         }
         if (busted) g_sp.flags |= PURSUIT_BUSTED;
         if (status == PS_EVADED) { g_sp.flags |= PURSUIT_EVADED; g_sp.sentEvaded = true; }
@@ -733,6 +831,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         g_sp.lastStatus = status;
     }
     // ---- 4. busted: count our own busts (personal; the other game is not busted with us) ----
+    if (!(g_sp.flags & PURSUIT_ACTIVE)) ForgetPeerCopsSawUs();   // a new pursuit: their cops have to find us again
     if (!pursuit || !busted) g_sp.lastBustedPursuit = nullptr;   // the next pursuit may get the same address
     if (pursuit && busted && pursuit != g_sp.lastBustedPursuit) {
         g_sp.lastBustedPursuit = pursuit;
@@ -883,7 +982,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     }
     g_sp.lastCool = coolNow;
     if (hidePerp != g_sp.sharedHidePerp) {
-        if (hidePerp) LOG("Pursuit: the other player is in a hiding spot - our cooldown runs at the hiding-spot speed too");
+        if (hidePerp) LOG("Pursuit: the other player is in a hiding spot - our cooldown runs at the hiding-spot speed too (HUD: HIDDEN)");
         else if (g_sp.sharedHidePerp) LOG("Pursuit: hiding spot no longer shared (%s)",
                                          !theirs.hiding ? "they left it" : mine.hiding ? "we are in one ourselves" : "not both in cooldown");
         g_sp.sharedHidePerp = hidePerp;
@@ -997,7 +1096,11 @@ static void SharedPursuitCopHit(uint16_t mirrorId) {
     DWORD now = GetTickCount();
     if (now - g_sp.lastCopHit < 3000) return;
     g_sp.lastCopHit = now;
-    if (PursuitOf(LocalVehicle())) { LOG("Pursuit: hit the other player's cop %u - we are already chased", (unsigned)mirrorId); return; }
+    if (PursuitOf(LocalVehicle())) {
+        g_sp.peerCopHitAt = now ? now : 1;   // counts as seen (ends our cooldown, see the pursuit tick)
+        LOG("Pursuit: hit the other player's cop %u - we are chased, it counts as seeing us", (unsigned)mirrorId);
+        return;
+    }
     bool ok = DebugForcePursuitImpl();
     LOG("Pursuit: hit the other player's cop %u - %s", (unsigned)mirrorId, ok ? "starting a pursuit on us" : "no cop manager, no pursuit");
 }
@@ -1029,7 +1132,13 @@ static void DrawPeerCopsImpl(void* mm, void* playerIv) {
     int drawn = 0;
     for (auto& m : g_mirrors) {
         if (slot >= 8) break;
-        if (!IsPeerCop(m, none) || !VehActive(m.iv) || VehIsHeli(m.iv)) continue;   // chased: all of them, as vanilla
+        if (!IsPeerCop(m, false) || !VehActive(m.iv) || VehIsHeli(m.iv)) continue;
+        if (g_lastTrafficPkt - m.lastSeen > 500) continue;   // the other game no longer sends it (despawned there): no marker
+        {   // as our own cops: only while we are chased, and once that cop has seen us (engaged)
+            uint32_t since = 0;
+            bool saw = PeerCopSawUs(m.id, GetTickCount(), &since);
+            if (!SharedPursuit::PeerCopOnOurMap(showAll != 0, !none, saw, since)) continue;
+        }
         void* sim = VCall<void* (__thiscall*)(void*)>(m.iv, IV_GetSimable)(m.iv);
         void* icon = nullptr;
         if (!sim || !Mem::Read((uintptr_t)mm + 0xD0 + slot * 4, icon) || !icon) continue;
@@ -1101,7 +1210,8 @@ bool Game::InstallPursuitHooks() {
     bool s1 = PatchAllowSafehouseWrite(WriteAllowSafehouse1);
     bool s2 = PatchAllowSafehouseWrite(WriteAllowSafehouse2);
     bool hs = PatchPerpHidden();
-    LOG("Pursuit: shared pursuits on (minimap cops %s, radar detector %s, safehouse flag %s/%s, shared hiding spot %s)",
-        m ? "hooked" : "NOT hooked", r ? "hooked" : "NOT hooked", s1 ? "ok" : "FAIL", s2 ? "ok" : "FAIL", hs ? "ok" : "FAIL");
+    bool hb = PatchBoardHidden();
+    LOG("Pursuit: shared pursuits on (minimap cops %s, radar detector %s, safehouse flag %s/%s, shared hiding spot %s, HIDDEN on the HUD %s)",
+        m ? "hooked" : "NOT hooked", r ? "hooked" : "NOT hooked", s1 ? "ok" : "FAIL", s2 ? "ok" : "FAIL", hs ? "ok" : "FAIL", hb ? "ok" : "FAIL");
     return m && r && s1 && s2;
 }
