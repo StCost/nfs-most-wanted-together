@@ -8,6 +8,7 @@
 #include "spectateutil.h"
 #include "profileutil.h"
 #include "prologueutil.h"
+#include "rivalgateutil.h"
 #include "groundutil.h"
 #include "hitutil.h"
 #include "noticeutil.h"
@@ -941,6 +942,7 @@ namespace {
     }
 }
 static void InstallBossHelper();
+static void InstallRivalGate();
 static void InstallBudgetLog();
 // The helper's car per Blacklist rival: the partner the rival's race intro shows, where it shows one
 // (BossHelperCar, raceutil.h); otherwise the game's own pick. (The cars the intro cutscene itself builds
@@ -1141,6 +1143,7 @@ bool Game::InstallVehicleFactoryHook() {
     InstallNisHook();
     InstallStoryHooks();
     InstallBossHelper();
+    InstallRivalGate();
     Net::OnHit = [](const float* dv) {
         if (!g_coopLinked) return;
         __try {
@@ -1256,6 +1259,7 @@ void Game::SetDataDir(const char* dir) { strncpy_s(g_dataDir, dir, _TRUNCATE); }
 #include "follow.inl"
 #include "milestone.inl"
 #include "bosshelper.inl"
+#include "rivalgate.inl"
 
 void Game::ReleaseGhost() {
     g_streamPeer = false;

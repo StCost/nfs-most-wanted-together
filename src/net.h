@@ -57,7 +57,8 @@ struct CarState {
     int32_t  gameFlowState; // sender's game flow state (6 = in game)
     uint8_t  hasCar;        // 0 if sender is in menus / loading
     uint8_t  pad[3];        // [0] race stage (0 none, 1 loading / intro, 2 on the grid), [1] co-op allowed
-                            // (past the prologue), [2] career rival number (15 .. 1; 16 prologue, 0 unknown)
+                            // (past the prologue; bit 0 - bits 1..5: our rival race open, rivalgateutil.h),
+                            // [2] career rival number (15 .. 1; 16 prologue, 0 unknown)
     float    pos[3];
     float    rot[4];        // orientation quaternion (x,y,z,w)
     float    linVel[3];

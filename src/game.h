@@ -86,6 +86,8 @@ namespace Game {
     uint32_t NisVoteHash();
     // Story scenes outside events ([Coop] SyncStoryScenes, story.inl)
     uint32_t SceneHash();               // for the state packet: the story movie we watch, else NisSceneHash()
+    void     RivalGateTick(bool linked);   // our Blacklist rival race waits for a partner who isn't ready (rivalgate.inl)
+    uint8_t  RivalGatePad(bool allowed);   // CarState pad[1]: co-op allowed + our rival race open (rivalgateutil.h)
     uint8_t  CareerBin();               // career rival number (15 .. 1, 16 = prologue, 0 = no profile)
     bool InstallStoryHooks();           // skip voting on story movies
     void StoryTick(bool connected);     // the other player's story scene: wait / watch along
@@ -98,6 +100,7 @@ namespace Game {
     void MilestoneTick(bool linked);    // find our completions, send them, apply the other player's
     std::string TakeMilestoneNotice();  // "milestone - it counts for you too" once after one was applied here
     std::string DebugGround();                      // test: ground height / physics mode of our car and the AI cars
+    std::string DebugRivalGate(const char* arg);    // test: rival gate state; "force" gates as if the partner weren't ready, "auto" undoes it
     std::string DebugCareerBin(const char* arg);    // test: set the current Blacklist rival (test profiles only)
     std::string DebugMilestones(const char* arg);   // test: "" list / "milestone" / "speedtrap" complete the first open one
     bool InstallCatchUp();              // AI catch-up measured against the leading human

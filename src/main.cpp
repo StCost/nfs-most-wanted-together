@@ -13,6 +13,7 @@
 #include "config.h"
 #include "net.h"
 #include "prologueutil.h"
+#include "rivalgateutil.h"
 #include "noticeutil.h"
 #include "exitutil.h"
 #include "overlay.h"
@@ -230,7 +231,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         // Test commands ([Debug] TestKeys=1): one command per line in scripts\MWTogether.cmd, the file is
         // deleted once read. Lets tests drive the game while it runs in the background.
         //   event <id> | events | restart | autopilot | cop | uncop | pursuit | clone | unclone | notice <text> | shot <file> | accept <package>
-        //   | skipnis | story | story <movie> | milestones | milestone | speedtrap | flash
+        //   | skipnis | story | story <movie> | milestones | milestone | speedtrap | flash | rivalgate [force|auto]
         static DWORD lastCmdCheck = 0;
         if (g_cfg.testKeys && g_gameOk && GetTickCount() - lastCmdCheck >= 500) {
             lastCmdCheck = GetTickCount();
@@ -276,6 +277,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                     else if (c == "cash") r = Game::DebugCash();
                     else if (c == "milestones") r = Game::DebugMilestones("");
                     else if (c == "ground") r = Game::DebugGround();
+                    else if (c == "rivalgate" || c.rfind("rivalgate ", 0) == 0) r = Game::DebugRivalGate(c.size() > 10 ? c.substr(10).c_str() : "");
                     else if (c.rfind("careerbin ", 0) == 0) r = Game::DebugCareerBin(c.substr(10).c_str());
                     else if (c == "milestone") r = Game::DebugMilestones("milestone");
                     else if (c == "speedtrap") r = Game::DebugMilestones("speedtrap");
@@ -326,7 +328,9 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
             local.eventHash = g_gameOk ? Game::CurrentEventHash() : 0;
             local.pad[0] = g_gameOk ? Game::RaceStage() : 0;
             // co-op allowed here: past the prologue, or in it ([Coop] Prologue) towards a build that knows it
-            local.pad[1] = (g_coopHere && Prologue::AllowedHere(pro.careerStarted, pro.inPrologue, g_cfg.coopPrologue, peerPro)) ? 1 : 0;
+            // + whether our Blacklist rival's race is open (rivalgateutil.h; only with bit 0 set: older builds test != 0)
+            local.pad[1] = g_gameOk ? Game::RivalGatePad(g_coopHere && Prologue::AllowedHere(pro.careerStarted, pro.inPrologue, g_cfg.coopPrologue, peerPro))
+                                    : RivalGate::Encode(g_coopHere && Prologue::AllowedHere(pro.careerStarted, pro.inPrologue, g_cfg.coopPrologue, peerPro), false, false, 0);
             local.prologue = Prologue::Encode(pro.inPrologue, pro.step, pro.careerStarted, pro.noProfile);
             local.pad[2] = g_gameOk ? Game::CareerBin() : 0;      // career rival number (story scenes the other game may show)
             if (g_gameOk) Game::FillSharedPursuit(local);          // [Coop] SharedPursuits: heat, pursuit state, busts
@@ -346,11 +350,12 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         // Co-op only while both players are past the prologue (pad[1] = 1 from a peer that allows it;
         // a peer we have no state from yet counts as allowed).
         const Net::Snapshot& peerSnap = Net::Latest();
-        bool peerAllowed = !peerSnap.valid || peerSnap.s.pad[1] != 0;
+        bool peerAllowed = RivalGate::PeerAllowed(peerSnap.valid, peerSnap.s.pad[1]);   // bit 0 (the rest: rival gate)
         Prologue::Peer peerPro = Prologue::Decode(peerSnap.valid, peerSnap.s.prologue);
         bool phaseOk = Prologue::PhaseMatches(g_inPrologue, peerPro);      // both in the prologue, or both past it
         bool linked = st.connected && g_coopHere && peerAllowed && phaseOk;
         if (g_gameOk) Game::SetCoopLinked(linked);
+        if (g_gameOk) Game::RivalGateTick(linked);         // our Blacklist rival race waits for a partner who isn't ready
         {
             static bool toldHere = false, toldPeer = false;
             static bool toldOld = false;
