@@ -168,6 +168,7 @@ namespace {
         return nullptr;
     }
     int g_budgetWaits = 0;   // mirror spawns that waited because the world was full (20 cars)
+    int g_copRoomWaits = 0, g_copViewWaits = 0;   // copies of the other player's cops that waited (room / out of view)
     bool IsMirrorCar(void* iv) {
         for (auto& m : g_mirrors) if (m.used && m.iv == iv) return true;
         return false;
@@ -963,7 +964,7 @@ static void MakeRoomForRoadblockCop() {
     last = GetTickCount();
     KillVehicle(best);
     if (++g_rbRoomMade <= 5 || g_rbRoomMade % 20 == 0)
-        LOG("Roadblock: removed one of our traffic cars out of sight (%.0f m) to make room for a cop of the other player's roadblock (%d so far)", bestD, g_rbRoomMade);
+        LOG("Cops: removed one of our traffic cars out of sight (%.0f m) to make room for one of the other player's cops (chasing or in their roadblock, %d so far)", bestD, g_rbRoomMade);
 }
 
 static int MaintainMirrors(double now) {
@@ -1123,20 +1124,25 @@ static int MaintainMirrors(double now) {
             // its cars for this copy (a car vanished in front of the player, then the game took the copy back)
             // (a cop of their roadblock: one of our own traffic cars nobody sees makes room for it, or the
             // roadblock would have a gap here that their game doesn't have)
-            { void** lb = nullptr; if (ListSize(VL_ALL, &lb) >= 20) { if (e.flags & TE_ROADBLOCK) MakeRoomForRoadblockCop(); ++g_budgetWaits; continue; } }
+            { void** lb = nullptr; if (ListSize(VL_ALL, &lb) >= 20) {
+                if (NetUtil::CopCopyNeedsRoom(e.flags)) { MakeRoomForRoadblockCop(); ++g_copRoomWaits; }
+                ++g_budgetWaits; continue; } }
             // SmoothHandover: only where the player can't see it pop in (or one of our cars becomes it)
             bool placed = smooth && !(e.flags & 1);
             if (placed && !PlaceHostCar(m, cam, lp, gp, own)) { if (!m.iv) ++g_hoWaiting; continue; }
             if (!placed && g_cfg.trafficNoSpawnNearPlayers) {
                 if (!viewCamRead) { viewCamRead = true; viewCam = ReadCamera(lrb ? RB_GetVec(lrb, RB_GetPosition) : nullptr); }
-                if (!NetUtil::MirrorMayAppear(viewCam, e.pos)) { ++g_viewWaiting; continue; }
+                if (!NetUtil::CopCopyMayAppearInView(e.flags) && !NetUtil::MirrorMayAppear(viewCam, e.pos)) {
+                    ++g_viewWaiting; if (e.flags & 1) ++g_copViewWaits; continue;
+                }
             }
             float dir[3] = { 1, 0, 0 };
             m.iv = SpawnVehicle(e.model, nullptr, e.pos, dir, g_cfg.trafficMirrorClass);
             ++spawned;
             if (!m.iv) { ++m.fails; LOG("Traffic: mirror spawn of %08X failed (%d)", e.model, m.fails); continue; }
             m.trailerSnap = true;   // a truck builds its trailer facing our spawn direction: put it at the hitch once the truck is in place
-            if (e.flags & 1) LOG("Cops: showing the other player's police car (id %u, model %08X)", (unsigned)m.id, e.model);
+            if (e.flags & 1) LOG("Cops: showing the other player's police car (id %u, model %08X%s%s)", (unsigned)m.id, e.model,
+                                 (e.flags & 4) ? ", chasing" : "", (e.flags & TE_ROADBLOCK) ? ", in their roadblock" : "");
         }
         if (m.iv) {
             DriveMirror(m, renderSend);
@@ -1146,6 +1152,15 @@ static int MaintainMirrors(double now) {
         }
     }
     if (freed) LOG("Traffic: removed %d mirror cars to make room for the other player's car", freed);
+    {   // the other player's cops whose copy is not here yet (every 5 s while it happens)
+        static DWORD nextCopLog = 0;
+        if ((g_copRoomWaits || g_copViewWaits) && (int)(GetTickCount() - nextCopLog) >= 0) {
+            nextCopLog = GetTickCount() + 5000;
+            LOG("Cops: copies of the other player's cops waiting - %d frame(s) at the 20-car limit, %d frame(s) out of view (patrol)",
+                g_copRoomWaits, g_copViewWaits);
+            g_copRoomWaits = g_copViewWaits = 0;
+        }
+    }
     g_ghostStarved = false;
     return alive;
 }

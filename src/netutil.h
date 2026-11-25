@@ -236,6 +236,13 @@ namespace NetUtil {
     }
     // A host car (or the other player's cop) we haven't created here yet may appear now: not inside
     // our camera's view within NOSPAWN_RADIUS_M (else it waits until it is out of view or farther).
+    // A copy of one of the other player's cops (TrafficEntry flags: 1 cop, 4 in a pursuit, 0x10 in a roadblock).
+    // One chasing in a pursuit or standing in their roadblock must be here: otherwise a player hits a car the
+    // other one can't see (host side: the client's cops were never built while the host's world was full or the
+    // spot was in view, and the client seemed to crash into air there). Such a copy gets room at the 20-car
+    // limit (one of our unseen traffic cars goes), and a chasing one may appear in view.
+    inline bool CopCopyNeedsRoom(uint16_t flags) { return (flags & 1) && (flags & (4 | 0x10)); }
+    inline bool CopCopyMayAppearInView(uint16_t flags) { return (flags & 1) && (flags & 4); }
     inline bool MirrorMayAppear(const CamView& c, const float* p) {
         return !InCameraView(c, p, NOSPAWN_RADIUS_M);
     }
