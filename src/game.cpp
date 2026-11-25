@@ -1774,6 +1774,14 @@ static bool UpdateGhostSafe(const Net::Snapshot& latest, const Net::Snapshot& pr
         return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
+    // A parked car: sub-millimetre wobble of the received pose is not applied (HitUtil::HoldStill).
+    {
+        static HitUtil::StillHold still; static void* stillOf = nullptr;
+        if (stillOf != g_ghost) { still = HitUtil::StillHold(); stillOf = g_ghost; }
+        if (HitUtil::HoldStill(still, s.pos, s.rot, s.linVel, s.angVel)) {
+            for (int i = 0; i < 3; ++i) { s.linVel[i] = 0; s.angVel[i] = 0; }
+        }
+    }
     }
 }
 

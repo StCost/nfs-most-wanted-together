@@ -169,11 +169,66 @@ namespace HitUtil {
         return true;
     }
 
+    // Hitting a copy of a car the other game owns (one of its cops, traffic cars, roadblock cars): the copy
+    // is moved by the owner's snapshots, so to our physics it is an unmovable wall and our car stopped dead.
+    // Give back what a hit on a real car of about our weight leaves us: all of the speed along the contact
+    // (sliding past) and half of the speed into it (we shove it and go on with it). n: from our car to the
+    // other one. False when the hit took nothing back to give (or the data is bad).
+    constexpr float MIRROR_HIT_KEEP_INTO = 0.5f;
+    constexpr float MIRROR_HIT_MIN_LOSS_MPS = 3.f;
+    inline bool MirrorHitKeepSpeed(const float* before, const float* after, const float* n, float* out) {
+        if (!Finite3(before) || !Finite3(after) || !Finite3(n)) return false;
+        float nx = n[0], nz = n[2], nl = std::sqrt(nx * nx + nz * nz);
+        if (!(nl > 1e-3f)) return false;
+        nx /= nl; nz /= nl;
+        float lx = before[0] - after[0], lz = before[2] - after[2];
+        if (!(std::sqrt(lx * lx + lz * lz) >= MIRROR_HIT_MIN_LOSS_MPS)) return false;
+        float into = before[0] * nx + before[2] * nz;           // speed towards the other car before the hit
+        float bt[2] = { before[0] - into * nx, before[2] - into * nz };   // along the contact
+        float keepInto = into > 0.f ? into * MIRROR_HIT_KEEP_INTO : into;
+        out[0] = bt[0] + keepInto * nx;
+        out[1] = after[1];
+        out[2] = bt[1] + keepInto * nz;
+        float bs = std::sqrt(before[0] * before[0] + before[2] * before[2]);
+        float os = std::sqrt(out[0] * out[0] + out[2] * out[2]);
+        float as = std::sqrt(after[0] * after[0] + after[2] * after[2]);
+        if (os > bs && os > 0.f) { out[0] *= bs / os; out[2] *= bs / os; os = bs; }
+        return os > as + 0.5f;                                   // only ever gives speed back
+    }
+
     // Overlap test used to re-enable collisions: both boxes are enlarged by COLLIDE_EXTENT_SCALE.
     inline bool ObbsOverlapWithClearance(const Obb& a, const Obb& b, float scale = COLLIDE_EXTENT_SCALE) {
         Obb aa = a, bb = b;
         if (!(scale > 0.f)) scale = 1.f;
         for (int i = 0; i < 3; ++i) { aa.half[i] *= scale; bb.half[i] *= scale; }
         return ObbsOverlap(aa, bb);
+    }
+    // A parked remote car: the received pose still wobbles by a fraction of a millimetre (sensor-level
+    // physics noise on their machine plus float rounding), which shows as a visible shiver. While the car
+    // is stopped (target speed and spin ~0) a pose within 1 mm / ~0.06 deg of the one we hold is not
+    // applied - the car stays put. Any real movement (speed, spin, or a bigger step) takes the new pose.
+    constexpr float STILL_SPEED_MPS = 0.05f;      // 0.18 km/h
+    constexpr float STILL_SPIN_RPS  = 0.02f;
+    constexpr float STILL_DEADBAND_M = 0.001f;    // 1 mm
+    constexpr float STILL_ROT_DOT = 0.9999995f;   // |q . held| above this: under ~0.06 deg apart
+    struct StillHold { bool have = false; float pos[3] = { 0, 0, 0 }; float rot[4] = { 0, 0, 0, 1 }; };
+    // true: keep the held pose (write it into pos / rot); false: the new pose is taken and held from now
+    inline bool HoldStill(StillHold& h, float pos[3], float rot[4], const float lin[3], const float ang[3]) {
+        float v2 = lin[0] * lin[0] + lin[1] * lin[1] + lin[2] * lin[2];
+        float w2 = ang[0] * ang[0] + ang[1] * ang[1] + ang[2] * ang[2];
+        bool still = v2 < STILL_SPEED_MPS * STILL_SPEED_MPS && w2 < STILL_SPIN_RPS * STILL_SPIN_RPS;
+        if (still && h.have) {
+            float dx = pos[0] - h.pos[0], dy = pos[1] - h.pos[1], dz = pos[2] - h.pos[2];
+            float dot = std::fabs(rot[0] * h.rot[0] + rot[1] * h.rot[1] + rot[2] * h.rot[2] + rot[3] * h.rot[3]);
+            if (dx * dx + dy * dy + dz * dz < STILL_DEADBAND_M * STILL_DEADBAND_M && dot > STILL_ROT_DOT) {
+                for (int i = 0; i < 3; ++i) pos[i] = h.pos[i];
+                for (int i = 0; i < 4; ++i) rot[i] = h.rot[i];
+                return true;
+            }
+        }
+        for (int i = 0; i < 3; ++i) h.pos[i] = pos[i];
+        for (int i = 0; i < 4; ++i) h.rot[i] = rot[i];
+        h.have = true;
+        return false;
     }
 }

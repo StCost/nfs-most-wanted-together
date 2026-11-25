@@ -1505,7 +1505,24 @@ static void MirrorHitTick() {
                 if (dd < best && HitPointsAt(d0, lp, RB_GetVec(rb, RB_GetPosition))) { best = dd; id = m.id; }
             }
             void* grb = RigidBodyOf(g_ghost);
-            if (id && !(grb && Dist(RB_GetVec(grb, RB_GetPosition), lp) < best)) { t0 = now; target = id; memcpy(v0, prevV, 12); }
+            if (id && !(grb && Dist(RB_GetVec(grb, RB_GetPosition), lp) < best)) {
+                t0 = now; target = id; memcpy(v0, prevV, 12);
+                // the copy is a wall to our physics: keep the speed a hit on a real car would leave us
+                Mirror* hm = FindMirror(id);
+                void* hrb = (hm && !hm->racer && hm->iv) ? RigidBodyOf(hm->iv) : nullptr;
+                if (hrb) {
+                    const float* hp = RB_GetVec(hrb, RB_GetPosition);
+                    float n[3] = { hp[0] - lp[0], 0.f, hp[2] - lp[2] }, nv[3];
+                    if (HitUtil::MirrorHitKeepSpeed(prevV, lv, n, nv)) {
+                        float was = sqrtf(prevV[0] * prevV[0] + prevV[2] * prevV[2]) * 3.6f;
+                        float lost = sqrtf(lv[0] * lv[0] + lv[2] * lv[2]) * 3.6f;
+                        float kept = sqrtf(nv[0] * nv[0] + nv[2] * nv[2]) * 3.6f;
+                        RB_SetVec(lrb, RB_SetLinearVelocity, nv);
+                        LOG("Collision: hit the other player's car %u at %.0f km/h - %.0f km/h left, keeping %.0f km/h (it is a copy: no wall)",
+                            (unsigned)id, was, lost, kept);
+                    }
+                }
+            }
         }
     }
     if (t0 && now - t0 >= 250) {
