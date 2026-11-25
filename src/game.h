@@ -100,6 +100,7 @@ namespace Game {
     void MilestoneTick(bool linked);    // find our completions, send them, apply the other player's
     std::string TakeMilestoneNotice();  // "milestone - it counts for you too" once after one was applied here
     std::string DebugGround();                      // test: ground height / physics mode of our car and the AI cars
+    std::string DebugRoadblock(const char* arg);    // test: build a roadblock now ("plain" / "spikes"), or "list"
     std::string DebugRivalGate(const char* arg);    // test: rival gate state; "force" gates as if the partner weren't ready, "auto" undoes it
     std::string DebugBodies();                      // test: every car's BODY part and render state (cars without a body)
     std::string DebugCareerBin(const char* arg);    // test: set the current Blacklist rival (test profiles only)
@@ -116,6 +117,7 @@ namespace Game {
     void TrafficTick(bool connected, const Net::Snapshot& peer);
     void OnRaceRestart();           // drop mirrored / leftover cops (vanilla unload can miss co-op copies)
     void PursuitTick(bool connected, const Net::Snapshot& peer);   // cops may chase the other player
+    void RoadblockTick(bool linked);   // police roadblocks the same in both games (roadblock.inl)
     int16_t LocalPursuitHeat();
     bool InstallPursuitHooks();                 // [Coop] SharedPursuits (minimap / radar)
     void FillSharedPursuit(CarState& s);        // heat100 / pursuitFlags / bustSeq / coolLeft10 for the state packet

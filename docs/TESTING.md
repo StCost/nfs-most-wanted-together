@@ -60,6 +60,7 @@ second, deletes it and logs `Command '<text>': <result>`. This works with the ga
 | `skipnis` | press "skip" on the current cutscene |
 | `story` / `story <movie>` | log the story-scene state (movie, scene hash, the other player's scene, hold, rival number) / play a story movie over the world here as the career would, e.g. `story storyfmv_pin11`, `story blacklist_15` |
 | `pursuit` / `uncop` | start a pursuit on you / remove all police cars |
+| `roadblock [plain\|spikes\|list]` | while chased (`pursuit`): build a roadblock for your pursuit now, plain or with spike strips (needs a straight road 250 m ahead and a few cops); `list` logs your roadblocks and the other player's |
 | `ram` | from far away: the first call loads the world next to the other car, the second (5 s later) parks 25 m from it, the third (5 s later) hits it at 90 km/h. Closer than 30 m: hit at once |
 | `ram cop` | the same against the nearest of the other player's police cars shown here |
 | `pos` | log own position, speed and damage |
@@ -136,6 +137,15 @@ tools\coop-test.ps1 -Scenario solo -Solo
 | No cars popping up in front | `NoSpawnNearPlayers=1` (default) on both. Start-up: both `Traffic: new traffic / cops never right in front of the other player - spot checks hooked: traffic ok, cops 4/4`. (1) Free roam, both drive side by side through busy streets, then 100-300 m apart (each with its own traffic / patrols, the client in a race with `SharedInRaces=0`). (2) A pursuit on H with C driving ahead of H. (3) C drives towards H's traffic looking ahead (near the 350 m switch) | (1)(2) now and then `Traffic: a new traffic car / police car at x y z would appear N m in front of the other player - the game picks another spot` (first few), and every ~5 s on change `Traffic: no-spawn - T traffic / P police spots refused in front of the other player so far, W of their cars wait until out of our view`; no new car or cop appears within ~60 m in front of either player; traffic density and pursuits otherwise look normal (cops keep coming, from other places). (3) C's `W` goes up while a host car's spot is in view and back to 0 once it is behind or far; no car pops up in front of C. No `CRASH`. Rerun with `NoSpawnNearPlayers=0`: no such lines |
 | Truck trailers | both PCs this build. Free roam, H and C together on a road with semi trucks (industrial area / highway; `ground` lists cars). C watches H's trucks pass, overtakes one, drives away past 450 m and back. Then the same with C's build older than H's (or H's older than C's) | H: `Traffic: 1 truck trailer(s) sent with the traffic` when a truck is near C (`0 ...` when none). C: `Traffic: the host's truck N (...): its trailer ... follows the host's trailer (hitched there 1, here 1)`, every 10 s `Traffic: trailers - X frame(s) moved with the host's trailer data, 0 frame(s) pulled by our own hitch, 0 re-hitched, 0 put back ...`. Every truck on C pulls its trailer through turns, no trailer lying on the road, none left behind when a truck is removed (`KillVehicle` of the truck only). Hitting a trailer on C does not separate it. Mixed builds: the old side ignores the trailer packets; with an old host C logs `the trailer ... put back at the hitch (the truck was just placed; no trailer data from the host - an older build?)` once per truck and `pulled by our own hitch` frames |
 | Rival catch-up | rival race (`boss -Event 15.1.2`), one player drives well ahead, the other slowly | the rival's PC (H) logs every 15 s `Race: catch-up measured against A% (ours B%, partner C%, rival race)` with A = the larger of B and C; the rival stays near the leading player on both screens, it never drops back to the slower one. If H ever logs `catch-up measured against us only (...)` while both race, the values in it say why the partner didn't count |
+
+## Shared roadblocks
+
+Both PCs linked, close together. Start-up: both logs `Roadblock: shared roadblocks on (create 2/2, setup ok, pieces ok/ok, place ok)`.
+H: `pursuit`, drive (autopilot) down a long straight, then `roadblock spikes`. H logs `Roadblock: our game built #N (spike setup S): ...`;
+C logs `Roadblock: the other player's game built roadblock #N ...` and, within 500 m, `Roadblock: showing the other player's roadblock #N ...: k of k piece(s) built`.
+Both screens show the same cars, sawhorses and spike strips in the same spots (screenshot both). Driving C over the strip pops C's tyres.
+While it stands, C's own requests log `Roadblock: the other player's roadblock stands near us - our game builds none of its own`.
+`uncop` on H: H logs `our roadblock #N is gone`, C `... was removed in their game - removed here`. Repeat with `roadblock plain` and from C's side.
 
 ## Shared pursuits (`SharedPursuits`)
 

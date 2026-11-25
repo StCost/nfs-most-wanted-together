@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include "roadblockutil.h"
 
 // Wire protocol. Little-endian, both peers are x86 so we send structs raw.
 #pragma pack(push, 1)
@@ -33,6 +34,7 @@ enum PacketType : uint16_t {
     PKT_RACEPROG = 24,  // host -> client: race progress of the host's AI opponents (older builds ignore it)
     PKT_PSTATS  = 25,   // what the sender earned itself in its current pursuit (cost to state, bounty; older builds ignore it)
     PKT_GRIDSLOT = 26,  // host -> client: the grid slot the client starts on at this event start (older builds ignore it)
+    PKT_ROADBLOCK = 27, // a police roadblock the sender's game built (or removed): its sawhorses / spike strips (older builds ignore it)
 };
 
 struct PacketHeader {
@@ -163,6 +165,15 @@ struct GridSlotPacket {
     uint8_t  fromRacer;     // 1: the slot of the client's racer, 0: a free slot read from the host's grid
     uint8_t  pad[3];
 };
+// A police roadblock of the sender's pursuit (both directions). Repeated every second while it stands
+// (alive 1), a few times when the game removed it (alive 0). Its cops come as the sender's cops in
+// PKT_TRAFFIC (TrafficEntry flag TE_ROADBLOCK); the receiver builds the pieces itself (roadblock.inl).
+struct RoadblockPacket {
+    PacketHeader h;
+    uint8_t  alive;
+    uint8_t  pad[3];
+    Roadblock::Desc d;
+};
 struct WeatherPacket {
     PacketHeader h;
     float rain, cloud;    // the host's rain model output (Rain::Update targets)
@@ -183,6 +194,7 @@ struct TrafficEntry {
     uint16_t id;          // host-side id (stable while the car exists)
     uint16_t flags;       // bit0 = cop car, bit1 = race opponent, bit2 = cop in a pursuit (radar icon),
                           // bit3 = emulated physics on the owner (height from the road path: put the copy on the ground)
+                          // bit4 = cop standing in a roadblock (TE_ROADBLOCK; sent first, shown even at the car limit)
     uint32_t model;       // model key (hash of the model name)
     uint32_t glare;       // light bits (IVehicle+0x9C): head/brake/reverse/signals/cop lights
     float    pos[3];
@@ -191,6 +203,7 @@ struct TrafficEntry {
     float    angVel[3];
 };
 constexpr int MAX_TRAFFIC_PER_PACKET = 20;
+constexpr uint16_t TE_ROADBLOCK = 0x10;
 struct EventPacket {
     PacketHeader h;
     uint32_t eventHash;   // Attrib::StringHash32 of the event ID
@@ -344,6 +357,8 @@ namespace Net {
     bool PeerPursuitStats(uint32_t& pursuitId, int32_t* v, uint32_t& recvCount);
     void SendGridSlot(uint32_t eventHash, const float* pos, bool fromRacer);   // host
     bool PeerGridSlot(uint32_t eventHash, float* pos, bool* fromRacer = nullptr);   // client: the host's slot for us in this event
+    void SendRoadblock(const Roadblock::Desc& d, bool alive);
+    extern void (*OnRoadblock)(const Roadblock::Desc& d, bool alive);
     bool PeerWeather(float& rain, float& cloud);              // the host's, if one came in the last 3 s      // a repeat carries the same seq
     void SendNisSkip(uint32_t sceneHash);
     void SendCarHit(uint16_t id, const float* dv);

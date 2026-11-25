@@ -230,6 +230,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         // deleted once read. Lets tests drive the game while it runs in the background.
         //   event <id> | events | restart | autopilot | cop | uncop | pursuit | clone | unclone | notice <text> | shot <file> | accept <package>
         //   | skipnis | story | story <movie> | milestones | milestone | speedtrap | flash | rivalgate [force|auto]
+        //   | roadblock [plain|spikes|list]
         static DWORD lastCmdCheck = 0;
         if (g_cfg.testKeys && g_gameOk && GetTickCount() - lastCmdCheck >= 500) {
             lastCmdCheck = GetTickCount();
@@ -275,6 +276,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                     else if (c == "cash") r = Game::DebugCash();
                     else if (c == "milestones") r = Game::DebugMilestones("");
                     else if (c == "ground") r = Game::DebugGround();
+                    else if (c == "roadblock" || c.rfind("roadblock ", 0) == 0) r = Game::DebugRoadblock(c.size() > 10 ? c.substr(10).c_str() : "");
                     else if (c == "rivalgate" || c.rfind("rivalgate ", 0) == 0) r = Game::DebugRivalGate(c.size() > 10 ? c.substr(10).c_str() : "");
                     else if (c == "bodies") r = Game::DebugBodies();
                     else if (c.rfind("careerbin ", 0) == 0) r = Game::DebugCareerBin(c.substr(10).c_str());
@@ -461,6 +463,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         }
         { Perf::Scope p(Perf::Traffic); if (g_netOk && g_gameOk) Game::TrafficTick(linked, Net::Latest()); }
         { Perf::Scope p(Perf::Pursuit); if (g_netOk && g_gameOk) Game::PursuitTick(linked, Net::Latest()); }
+        { Perf::Scope p(Perf::Pursuit); if (g_netOk && g_gameOk) Game::RoadblockTick(linked && Net::Stats().connected); }
         { Perf::Scope perfRules(Perf::Rules);
         if (g_netOk && g_gameOk) Game::EventTick(linked);
         if (g_netOk && g_gameOk) Game::CoopRulesTick(linked);

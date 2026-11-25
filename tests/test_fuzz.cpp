@@ -89,11 +89,16 @@ namespace {
             g_sink += r.custom[CUSTOM_RECORD_SIZE - 1] + (uint32_t)strlen(r.name);
         };
         Net::OnNisSkip = [](uint32_t h) { ++g_c.nisSkip; g_sink += h; };
+        Net::OnRoadblock = [](const Roadblock::Desc& d, bool alive) {
+            if (alive && !Roadblock::ValidDesc(d)) CHECK(!"an invalid roadblock reached the game layer");
+            if (!d.id) CHECK(!"a roadblock with id 0 reached the game layer");
+            g_sink += d.id + d.nPieces;
+        };
     }
 
     constexpr uint16_t ALL_TYPES[] = { PKT_HELLO, PKT_STATE, PKT_PING, PKT_PONG, PKT_BYE, PKT_CAR, PKT_TRAFFIC,
                                        PKT_EVENT, PKT_ROSTER, PKT_RACERNAME, PKT_RESTART, PKT_NISSKIP,
-                                       PKT_FILE, PKT_FILEACK, PKT_FILEREQ, PKT_NOFILE, PKT_RACEPROG, PKT_PSTATS, PKT_GRIDSLOT };
+                                       PKT_FILE, PKT_FILEACK, PKT_FILEREQ, PKT_NOFILE, PKT_RACEPROG, PKT_PSTATS, PKT_GRIDSLOT, PKT_ROADBLOCK };
     // any packet type; a bye only now and then, or the run would sit in the 2 s "ignore after bye"
     // window most of the time
     uint16_t PickType(Rng& r) {
@@ -119,6 +124,7 @@ namespace {
         case PKT_RACEPROG: return sizeof(RaceProgPacket);
         case PKT_PSTATS: return sizeof(PursuitStatsPacket);
         case PKT_GRIDSLOT: return sizeof(GridSlotPacket);
+        case PKT_ROADBLOCK: return sizeof(RoadblockPacket);
         }
         return sizeof(PacketHeader);
     }
@@ -179,6 +185,22 @@ namespace {
             break;
         }
         case PKT_FILEREQ: sprintf_s(((FileReqPacket*)out)->owner, "Player%u", r.Below(99)); break;
+        case PKT_ROADBLOCK: {
+            RoadblockPacket* p = (RoadblockPacket*)out;
+            p->alive = (uint8_t)r.Below(2);
+            Roadblock::Desc& d = p->d;
+            d.id = 1 + r.Below(5); d.flags = (uint8_t)r.Below(2); d.setup = (uint8_t)r.Below(9); d.nCars = (uint8_t)r.Below(5);
+            d.nPieces = (uint8_t)r.Below(Roadblock::MAX_PIECES + 1);
+            for (int i = 0; i < 3; ++i) d.centre[i] = r.Float(-5000, 5000);
+            d.dir[0] = 1;
+            for (int k = 0; k < d.nPieces; ++k) {
+                Roadblock::Piece& pc = d.p[k];
+                pc.kind = (uint8_t)(1 + r.Below(2));
+                pc.m[0] = pc.m[5] = pc.m[10] = pc.m[15] = 1;
+                for (int i = 0; i < 3; ++i) pc.m[12 + i] = d.centre[i] + r.Float(-10, 10);
+            }
+            break;
+        }
         }
         return FullSize(type);
     }

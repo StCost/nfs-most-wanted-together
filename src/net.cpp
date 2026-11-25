@@ -470,6 +470,14 @@ namespace {
             g_gridSlotTick = Tick32() ? Tick32() : 1;
             break;
         }
+        case PKT_ROADBLOCK: {
+            if (len < (int)sizeof(RoadblockPacket)) return;
+            RoadblockPacket p; memcpy(&p, buf, sizeof(p));
+            if (p.alive > 1) return;
+            if (p.alive ? !Roadblock::ValidDesc(p.d) : !p.d.id) return;
+            if (Net::OnRoadblock) Net::OnRoadblock(p.d, p.alive != 0);
+            break;
+        }
         case PKT_WEATHER: {
             if (len < (int)sizeof(WeatherPacket) || g_cfg.isHost) return;
             const WeatherPacket* w = (const WeatherPacket*)buf;
@@ -762,6 +770,7 @@ double (*Net::LocalClockMs)() = &Net::NowMs;
 void (*Net::OnEvent)(uint32_t, const char*) = nullptr;
 void (*Net::OnRoster)(const RosterPacket&) = nullptr;
 void (*Net::OnRacerName)(uint16_t, const char*) = nullptr;
+void (*Net::OnRoadblock)(const Roadblock::Desc&, bool) = nullptr;
 void (*Net::OnRestart)(uint32_t, uint32_t) = nullptr;
 void (*Net::OnNisSkip)(uint32_t) = nullptr;
 
@@ -829,6 +838,14 @@ bool Net::PeerGridSlot(uint32_t eventHash, float* pos, bool* fromRacer) {
     if (pos) memcpy(pos, g_gridSlot, sizeof(g_gridSlot));
     if (fromRacer) *fromRacer = g_gridSlotRacer;
     return true;
+}
+void Net::SendRoadblock(const Roadblock::Desc& d, bool alive) {
+    if (!g_stats.connected || !d.id) return;
+    RoadblockPacket p{};
+    FillHeader(p.h, PKT_ROADBLOCK);
+    p.alive = alive ? 1 : 0;
+    p.d = d;
+    SendRaw(&p, sizeof(p));
 }
 bool Net::PeerWeather(float& rain, float& cloud) {
     if (!g_stats.connected || !g_peerWeatherTick || Tick32() - g_peerWeatherTick > 3000) return false;
@@ -1047,7 +1064,7 @@ void Net::Test_Reset() {
     g_testTickOn = false; g_testTick = 0;
     g_testCapture = nullptr;
     Net::OnTraffic = nullptr; Net::OnTrailers = nullptr; Net::OnEvent = nullptr; Net::OnRoster = nullptr;
-    Net::OnRacerName = nullptr; Net::OnRestart = nullptr; Net::OnNisSkip = nullptr;
+    Net::OnRacerName = nullptr; Net::OnRestart = nullptr; Net::OnNisSkip = nullptr; Net::OnRoadblock = nullptr;
     Net::OnMilestone = nullptr; g_lastMilestoneId = 0;
     g_gridSlotEvent = g_gridSlotTick = 0; memset(g_gridSlot, 0, sizeof(g_gridSlot)); g_gridSlotRacer = false;
     Net::LocalClockMs = &Net::NowMs;

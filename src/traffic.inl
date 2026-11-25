@@ -931,6 +931,41 @@ static bool PlaceHostCar(Mirror& m, const NetUtil::CamView& cam, const float* lp
 
 // Spawn / drive / expire the mirror cars (both sides: the client mirrors the host's traffic and
 // cops, the host mirrors the client's own pursuit cops).
+// The world is at the game's 20-car limit and a cop of the other player's roadblock waits for room:
+// remove one of our own traffic cars that neither player can see (the farthest), at most every 0.5 s.
+// Never in a race (race scripts own some traffic cars; removing one crashed the game, 0x5FD94A) -
+// a Challenge Series pursuit counts as free roam here, as for the traffic sync.
+int g_rbRoomMade = 0;
+static void MakeRoomForRoadblockCop() {
+    static DWORD last = 0;
+    if (GetTickCount() - last < 500) return;
+    void* rs = nullptr; int mode = 0; void* parms = nullptr; int type = -1;
+    if (Mem::Read(0x91E000, rs) && rs && Mem::Read((uintptr_t)rs + 0x1960, mode) && mode == 1 &&
+        Mem::Read((uintptr_t)rs + 0x1968, parms) && parms)
+        type = ((int(__thiscall*)(void*))0x5FAA20)(parms);
+    if (CoopRace::ClientTrafficAsRace(mode, type) || g_clientRacing || (g_raceEndedTick && GetTickCount() - g_raceEndedTick < 8000)) return;
+    void* lrb = RigidBodyOf(LocalVehicle());
+    if (!lrb) return;
+    const float* me = RB_GetVec(lrb, RB_GetPosition);
+    void* best = nullptr; float bestD = -1.f;
+    void** b = nullptr;
+    int cnt = ListSize(VL_AITRAFFIC, &b);
+    for (int i = 0; i < cnt; ++i) {
+        void* t = ListGet(VL_AITRAFFIC, i);
+        if (!t || t == LocalVehicle() || t == g_ghost || IsMirrorCar(t) || IsPeerReservedCar(t) || !IsVehicle(t)) continue;
+        if (ListContainsOne(VL_AIRACERS, t) || ListContainsOne(VL_AICOPS, t) || CarShouldStay(t)) continue;
+        void* rb = RigidBodyOf(t);
+        if (!rb) continue;
+        float d = Dist(RB_GetVec(rb, RB_GetPosition), me);
+        if (d > bestD) { bestD = d; best = t; }
+    }
+    if (!best) return;
+    last = GetTickCount();
+    KillVehicle(best);
+    if (++g_rbRoomMade <= 5 || g_rbRoomMade % 20 == 0)
+        LOG("Roadblock: removed one of our traffic cars out of sight (%.0f m) to make room for a cop of the other player's roadblock (%d so far)", bestD, g_rbRoomMade);
+}
+
 static int MaintainMirrors(double now) {
     {   // how often copies were put on the ground (every 10 s while it happens)
         static DWORD last = 0; static int lastLearned = 0;
@@ -1086,7 +1121,9 @@ static int MaintainMirrors(double now) {
             if (Net::LocalClockMs() < m.noSpawnUntil) continue;   // the game just deleted it for room
             // the world is at the game's 20-car limit: wait for room instead of making the game delete one of
             // its cars for this copy (a car vanished in front of the player, then the game took the copy back)
-            { void** lb = nullptr; if (ListSize(VL_ALL, &lb) >= 20) { ++g_budgetWaits; continue; } }
+            // (a cop of their roadblock: one of our own traffic cars nobody sees makes room for it, or the
+            // roadblock would have a gap here that their game doesn't have)
+            { void** lb = nullptr; if (ListSize(VL_ALL, &lb) >= 20) { if (e.flags & TE_ROADBLOCK) MakeRoomForRoadblockCop(); ++g_budgetWaits; continue; } }
             // SmoothHandover: only where the player can't see it pop in (or one of our cars becomes it)
             bool placed = smooth && !(e.flags & 1);
             if (placed && !PlaceHostCar(m, cam, lp, gp, own)) { if (!m.iv) ++g_hoWaiting; continue; }
@@ -1113,7 +1150,16 @@ static int MaintainMirrors(double now) {
     return alive;
 }
 
+// A cop of ours standing in a roadblock: IVehicle vt+0xAC GetAIVehiclePtr -> IVehicleAI vt+0xA4 GetRoadBlock
+// (AIVehicle::GetRoadBlock 0x431D80, the same slot in every AIVehicle* vtable, e.g. 0x891A44).
+static bool CopInRoadblock(void* iv) {
+    if (!IsVehicle(iv)) return false;
+    void* ai = VCall<void* (__thiscall*)(void*)>(iv, 0xAC / 4)(iv);
+    return ai && VCall<void* (__thiscall*)(void*)>(ai, 0xA4 / 4)(ai) != nullptr;
+}
+
 // Collect our own (non-mirror) cars of the given lists, nearest to `to` first, into a packet.
+// Cops standing in one of our roadblocks go first (after race opponents), flagged TE_ROADBLOCK.
 static int CollectOwned(std::initializer_list<int> lists, const float* to, TrafficEntry* out, int maxOut, void** outIv = nullptr) {
     struct C { void* iv; float d; uint8_t flags; } cand[64]; int nc = 0;
     void* me = LocalVehicle();
@@ -1127,8 +1173,9 @@ static int CollectOwned(std::initializer_list<int> lists, const float* to, Traff
             if (!rb) continue;
             cand[nc].iv = t;
             // race opponents first, then cops, then traffic (nearest first within each)
-            cand[nc].d = Dist(RB_GetVec(rb, RB_GetPosition), to) - (list == VL_AIRACERS ? 20000.f : list == VL_AICOPS ? 10000.f : 0.f);
-            cand[nc].flags = list == VL_AIRACERS ? 2 : list == VL_AICOPS ? 1 : 0;
+            bool inRb = list == VL_AICOPS && CopInRoadblock(t);
+            cand[nc].d = Dist(RB_GetVec(rb, RB_GetPosition), to) - (list == VL_AIRACERS ? 20000.f : inRb ? 15000.f : list == VL_AICOPS ? 10000.f : 0.f);
+            cand[nc].flags = (uint8_t)((list == VL_AIRACERS ? 2 : list == VL_AICOPS ? 1 : 0) | (inRb ? TE_ROADBLOCK : 0));
             ++nc;
         }
     }
@@ -1537,7 +1584,9 @@ bool Game::TrafficSuppressed() { return g_suppressTraffic; }
 
 // Race restart: vanilla unloads the pursuit, but our mirrored remote cops (and leftover local
 // cops if the unload missed them) stayed in the world with no radar blips. Drop them now.
+static void RoadblockOnRestart();   // roadblock.inl
 void Game::OnRaceRestart() {
+    RoadblockOnRestart();
     int mirrors = 0, local = 0;
     for (auto& m : g_mirrors) {
         if (!m.used) continue;

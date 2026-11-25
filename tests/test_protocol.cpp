@@ -63,6 +63,10 @@ static_assert(PKT_TRAILER != PKT_FOLLOW && PKT_TRAILER != PKT_MILESTONE && PKT_T
 static_assert(PKT_PSTATS > PKT_RACEPROG && sizeof(PursuitStatsPacket) == 16 + 4 + 13 * 4, "PursuitStatsPacket layout changed");
 static_assert(PKT_GRIDSLOT > PKT_PSTATS && sizeof(GridSlotPacket) == 16 + 4 + 12 + 4 && offsetof(GridSlotPacket, pos) == 20,
               "GridSlotPacket layout changed");
+static_assert(PKT_ROADBLOCK > PKT_GRIDSLOT && sizeof(Roadblock::Piece) == 68 && sizeof(Roadblock::Desc) == 32 + 4 * 68 &&
+              sizeof(RoadblockPacket) == 16 + 4 + sizeof(Roadblock::Desc) && sizeof(RoadblockPacket) < 436,
+              "RoadblockPacket layout changed (keep it under the 436 bytes some VPNs drop)");
+static_assert((TE_ROADBLOCK & 0xFF0F) == 0, "TE_ROADBLOCK collides with another TrafficEntry flag (racer slot bits 8-15)");
 
 TEST(protocol_struct_sizes) {
     // the same numbers at run time, so a failure shows up in the test report too

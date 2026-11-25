@@ -532,3 +532,67 @@ TEST(packets_grid_slot_ignored_by_the_host) {
     float got[3];
     CHECK(!Net::PeerGridSlot(0x33333333u, got));                              // only the host decides
 }
+
+// ---- police roadblocks (PKT_ROADBLOCK, both directions) ------------------------------------------
+namespace {
+    struct RbSeen { int calls = 0; bool alive = false; Roadblock::Desc d{}; };
+    RbSeen g_rb;
+    Roadblock::Desc SampleRoadblock() {
+        Roadblock::Desc d{};
+        d.id = 7; d.setup = 6; d.flags = Roadblock::RB_SPIKES; d.nCars = 2; d.nPieces = 3;
+        d.centre[0] = 1200.5f; d.centre[1] = 31.f; d.centre[2] = -2400.25f;
+        d.dir[2] = 1.f;
+        const float xs[3] = { -9.f, 9.f, 0.f };
+        const uint8_t kinds[3] = { Roadblock::PIECE_SPIKES, Roadblock::PIECE_SPIKES, Roadblock::PIECE_SAWHORSE };
+        for (int i = 0; i < 3; ++i) {
+            Roadblock::Piece& p = d.p[i];
+            p.kind = kinds[i];
+            p.m[0] = 1; p.m[5] = 1; p.m[10] = 1; p.m[15] = 1;
+            p.m[12] = d.centre[0] + xs[i]; p.m[13] = d.centre[1]; p.m[14] = d.centre[2] - (i == 2 ? 3.f : 0.f);
+        }
+        return d;
+    }
+}
+TEST(packets_roadblock_round_trip_and_bad_values) {
+    Roadblock::Desc d = SampleRoadblock();
+    Datagrams dg = SerializeOnHost([&] { Net::SendRoadblock(d, true); Net::SendRoadblock(d, false); });
+    REQUIRE(dg.size() == 2);
+    CHECK_EQ(dg[0].size(), sizeof(RoadblockPacket));
+    NetFixture client(false);
+    Connect("Host");
+    g_rb = RbSeen{};
+    Net::OnRoadblock = [](const Roadblock::Desc& x, bool alive) { ++g_rb.calls; g_rb.alive = alive; g_rb.d = x; };
+    DeliverToClient({ dg[0] });
+    REQUIRE(g_rb.calls == 1);
+    CHECK(g_rb.alive);
+    CHECK(memcmp(&g_rb.d, &d, sizeof(d)) == 0);                                // every byte as sent
+    CHECK_EQ(Roadblock::CountKind(g_rb.d, Roadblock::PIECE_SPIKES), 2);
+    DeliverToClient({ dg[1] });
+    CHECK(g_rb.calls == 2 && !g_rb.alive && g_rb.d.id == 7);                   // removed
+    // bad ones never reach the game
+    RoadblockPacket bad{};
+    bad.h = Hdr(PKT_ROADBLOCK, 70); bad.alive = 1; bad.d = d; bad.d.p[0].m[12] = std::numeric_limits<float>::quiet_NaN();
+    Inject(bad);                                                               // NaN position
+    bad.h = Hdr(PKT_ROADBLOCK, 71); bad.d = d; bad.d.p[1].m[12] += 500.f;
+    Inject(bad);                                                               // a piece far from the roadblock
+    bad.h = Hdr(PKT_ROADBLOCK, 72); bad.d = d; bad.d.p[2].kind = 9;
+    Inject(bad);                                                               // unknown piece
+    bad.h = Hdr(PKT_ROADBLOCK, 73); bad.d = d; bad.d.nPieces = Roadblock::MAX_PIECES + 1;
+    Inject(bad);                                                               // too many pieces
+    bad.h = Hdr(PKT_ROADBLOCK, 74); bad.d = d; bad.d.id = 0;
+    Inject(bad);                                                               // no id
+    bad.h = Hdr(PKT_ROADBLOCK, 75); bad.d = d; bad.d.setup = 40;
+    Inject(bad);                                                               // no such setup
+    bad.h = Hdr(PKT_ROADBLOCK, 76); bad.d = d; bad.alive = 2;
+    Inject(bad);                                                               // alive is 0 or 1
+    bad.h = Hdr(PKT_ROADBLOCK, 77); bad.d = d; bad.alive = 1; bad.d.p[0].m[0] = 3.f;
+    Inject(bad);                                                               // not an orientation
+    RoadblockPacket ok{};
+    ok.h = Hdr(PKT_ROADBLOCK, 78); ok.alive = 1; ok.d = d;
+    InjectRaw(&ok, (int)sizeof(ok) - 1);                                       // short
+    CHECK_EQ(g_rb.calls, 2);
+    ok.h = Hdr(PKT_ROADBLOCK, 79);
+    Inject(ok);
+    CHECK_EQ(g_rb.calls, 3);
+    Net::OnRoadblock = nullptr;
+}
