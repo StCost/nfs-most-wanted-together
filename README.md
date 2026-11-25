@@ -63,6 +63,18 @@ You can play the prologue (the opening BMW races) together too: start a new care
 
 </details>
 
+<details open><summary><h2>Known issues</h2></summary>
+
+
+Things we know about but can't fix yet:
+
+- **Traffic popping in for the joining player.** Sometimes a traffic car appears right in front of the joining player's car, which can cause a sudden collision.
+- **Traffic vanishing.** The other way round, a traffic car can disappear right in front of you.
+- **Trucks.** Trucks are sometimes not synced and may be missing in one of the two games.
+
+
+</details>
+
 <details open><summary><h2>Community</h2></summary>
 
 
