@@ -1453,21 +1453,44 @@ static void HostGridSlotTick(const Net::Snapshot& latest) {
     if (!g_clientSlotEvent) {
         bool fromRacer = g_ghostKind == GK_RACER && g_ghost == g_replacedRacer && g_peerSlotValid;
         float along = 0.f, side = 0.f; int n = 0;
+        // decided once we stand on the grid (intro over) with them on our spot. The slot read when the race
+        // built their racer is not always where the grid has room for them (seen 24 m behind the grid with an
+        // empty slot next to us, 10.3.2): it is taken only if no car stands on it and no free slot of our
+        // grid is nearer to us; else that free slot.
+        if (Game::RaceStage() != 2 || !latest.valid || !latest.s.inRace || latest.s.eventHash != ev) return;
+        void* lrb = RigidBodyOf(LocalVehicle());
+        if (!lrb) return;
+        const float* lp = RB_GetVec(lrb, RB_GetPosition);
+        const float* lv = RB_GetVec(lrb, RB_GetLinearVelocity);
+        float mySpeed = sqrtf(lv[0] * lv[0] + lv[1] * lv[1] + lv[2] * lv[2]);
+        if (!NetUtil::SharingStartSpot(lp, mySpeed, latest.s.pos, latest.s.speedMps)) return;
+        float freeSlot[3] = {};
+        bool haveFree = FreeGridSlotNear(lrb, freeSlot, along, side, n);
+        if (fromRacer) {
+            bool taken = false;
+            void** lb = nullptr;
+            for (int i = 0, total = ListSize(VL_ALL, &lb); i < total && !taken; ++i) {
+                void* iv = ListGet(VL_ALL, i);
+                if (!iv || iv == LocalVehicle() || iv == g_ghost || !IsVehicle(iv)) continue;
+                void* orb = RigidBodyOf(iv);
+                const float* q = orb ? RB_GetVec(orb, RB_GetPosition) : nullptr;
+                if (q && NetUtil::Dist3(q, g_peerSlot) < 2.5f) taken = true;
+            }
+            float racerD = NetUtil::Dist3(lp, g_peerSlot), freeD = haveFree ? NetUtil::Dist3(lp, freeSlot) : 1e9f;
+            if (taken || (haveFree && freeD + 1.f < racerD) || !(racerD < 40.f)) {
+                LOG("Start: the slot our race gave the client's racer is %.1f m from us%s - %s", racerD,
+                    taken ? " with a car on it" : "", haveFree ? "a nearer free slot of our grid instead" : "no free slot either");
+                fromRacer = false;
+            }
+        }
         if (fromRacer) memcpy(g_clientSlot, g_peerSlot, sizeof(g_clientSlot));
         else {
-            // no racer for them: once we stand on the grid (intro over) with them on our spot
-            if (Game::RaceStage() != 2 || !latest.valid || !latest.s.inRace || latest.s.eventHash != ev) return;
-            void* lrb = RigidBodyOf(LocalVehicle());
-            if (!lrb) return;
-            const float* lp = RB_GetVec(lrb, RB_GetPosition);
-            const float* lv = RB_GetVec(lrb, RB_GetLinearVelocity);
-            float mySpeed = sqrtf(lv[0] * lv[0] + lv[1] * lv[1] + lv[2] * lv[2]);
-            if (!NetUtil::SharingStartSpot(lp, mySpeed, latest.s.pos, latest.s.speedMps)) return;
-            if (!FreeGridSlotNear(lrb, g_clientSlot, along, side, n)) {
+            if (!haveFree) {
                 static uint32_t loggedFor = 0;
                 if (loggedFor != ev) { loggedFor = ev; LOG("Start: no free slot on our grid for the client (%d car(s) around) - their game decides", n); }
                 return;
             }
+            memcpy(g_clientSlot, freeSlot, sizeof(g_clientSlot));
         }
         g_clientSlotEvent = ev; g_clientSlotRacer = fromRacer; sendUntil = now + 60000; nextSend = 0;
         if (fromRacer) LOG("Start: the client starts on the slot our race gave their racer %.1f %.1f %.1f - telling them", g_clientSlot[0], g_clientSlot[1], g_clientSlot[2]);
