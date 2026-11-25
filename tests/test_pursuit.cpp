@@ -539,7 +539,7 @@ TEST(pursuit_remote_cops_chase_us_in_free_roam_and_pursuit_challenges) {
     CHECK(OpenWorldShared(true, Place::FreeRoam, false));
     CHECK(OpenWorldShared(true, Place::None, false));                 // free roam here (as before)
     CHECK(OpenWorldShared(false, Place::SameEvent, true));            // both in the same pursuit challenge
-    CHECK(!OpenWorldShared(false, Place::SameEvent, false));          // a race with cops: only cooldown / stats
+    CHECK(!OpenWorldShared(false, Place::SameEvent, false));          // a race with cops: no shared heat (their cops: PeerCopsEngage)
     CHECK(!OpenWorldShared(false, Place::None, true));                // the other one isn't in it
 }
 TEST(pursuit_frozen_on_the_results_screen) {
@@ -549,4 +549,49 @@ TEST(pursuit_frozen_on_the_results_screen) {
     CHECK(PursuitFrozenForResults(false, false, true));
     CHECK(!PursuitFrozenForResults(true, false, false));              // still racing / chased
     CHECK(!PursuitFrozenForResults(false, true, false));              // free roam: a stale flag means nothing
+}
+
+// ---- the other player's cops in any event both are in; busted together in events --------------
+TEST(pursuit_peer_cops_engage_us_in_the_same_event) {
+    using SharedPursuit::Place; using SharedPursuit::PeerCopsEngage;
+    CHECK(PeerCopsEngage(true, Place::FreeRoam, false, false, false));     // free roam as before
+    CHECK(PeerCopsEngage(true, Place::SameEvent, false, false, false));    // a pursuit challenge as before
+    CHECK(PeerCopsEngage(false, Place::SameEvent, false, false, false));   // a tollbooth with cops: now too
+    CHECK(!PeerCopsEngage(false, Place::None, false, false, false));       // they are in another event / a menu
+    CHECK(!PeerCopsEngage(false, Place::SameEvent, true, false, false));   // results screen
+    CHECK(!PeerCopsEngage(true, Place::FreeRoam, false, true, false));     // a cutscene
+    CHECK(!PeerCopsEngage(false, Place::SameEvent, false, false, true));   // the event is still loading / its intro
+    CHECK(PeerCopsEngage(true, Place::FreeRoam, false, false, true));      // (a stale race stage means nothing in free roam)
+}
+TEST(pursuit_their_pursuit_pulls_us_in_only_close_by_in_a_race) {
+    using SharedPursuit::JoinTheirPursuit; using SharedPursuit::EVENT_JOIN_M;
+    CHECK(JoinTheirPursuit(true, true, -1.f));          // free roam: anywhere (one shared chase)
+    CHECK(JoinTheirPursuit(true, true, 5000.f));
+    CHECK(JoinTheirPursuit(false, true, 40.f));         // a race: they are chased right next to us
+    CHECK(JoinTheirPursuit(false, true, EVENT_JOIN_M));
+    CHECK(!JoinTheirPursuit(false, true, EVENT_JOIN_M + 1.f));   // far ahead / behind on the route
+    CHECK(!JoinTheirPursuit(false, true, -1.f));        // their car unknown here
+    CHECK(!JoinTheirPursuit(false, true, std::numeric_limits<float>::quiet_NaN()));
+    CHECK(!JoinTheirPursuit(true, false, 10.f));        // their cops don't engage us now
+}
+TEST(pursuit_busted_together_only_in_the_same_event) {
+    using namespace SharedPursuit;
+    EventBust b;
+    const uint32_t EV = 0x1234ABCD;
+    CHECK(!BustWithThem(b, EV, 1000, false, false));            // never seen together in it
+    EventSeenTogether(b, true, EV, 1000);
+    CHECK(BustWithThem(b, EV, 1000, false, false));             // both in it: busted with them
+    CHECK(BustWithThem(b, EV, 1000 + SAME_EVENT_GRACE_MS, false, false));   // their state left the event just after the bust
+    CHECK(!BustWithThem(b, EV, 1001 + SAME_EVENT_GRACE_MS, false, false));
+    CHECK(!BustWithThem(b, 0, 1000, false, false));             // free roam: busts are personal
+    CHECK(!BustWithThem(b, 0x99, 1000, false, false));          // we are in another event now
+    CHECK(!BustWithThem(b, EV, 1000, true, false));             // we already finished / results screen
+    CHECK(!BustWithThem(b, EV, 1000, false, true));             // already busted ourselves
+    EventSeenTogether(b, false, EV, 9000);                      // not together: nothing refreshed
+    CHECK(!BustWithThem(b, EV, 9000, false, false));
+    EventSeenTogether(b, true, 0, 9000);                        // no event: nothing refreshed
+    CHECK(!BustWithThem(b, EV, 9000, false, false));
+    // the tick counter wraps
+    EventBust w; EventSeenTogether(w, true, EV, 0xFFFFFF00u);
+    CHECK(BustWithThem(w, EV, 0x100u, false, false));
 }

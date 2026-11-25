@@ -233,8 +233,8 @@ namespace SharedPursuit {
     // ---- where the cooldown is shared --------------------------------------------------------------
     // Both in free roam (the full shared pursuit), or both in the same event (Challenge Series, a
     // career pursuit / milestone event, a race with cops): each game runs its own copy of that
-    // event's pursuit, and only the cooldown / escape is shared there (heat, joining a chase, being
-    // spotted by their cops and the safehouse stay free roam only). A player in another event, in a
+    // event's pursuit; there the cooldown / escape, their cops engaging us (PeerCopsEngage) and a
+    // bust (BustWithThem) are shared (heat and the safehouse stay free roam / pursuit challenge only). A player in another event, in a
     // menu or loading: solo.
     enum class Place { None, FreeRoam, SameEvent };
     struct Where { bool inGame; uint32_t eventHash; bool racing; };
@@ -249,6 +249,25 @@ namespace SharedPursuit {
     // (open-world driving with cops and no opponents). Not a race with cops, not another event.
     inline bool OpenWorldShared(bool localFreeRoam, Place place, bool pursuitChallenge) {
         return localFreeRoam || (place == Place::SameEvent && pursuitChallenge);
+    }
+    // The other player's cops in an event both of us are in (a Challenge Series tollbooth or sprint, a
+    // career race with cops): each game runs its own cops, and theirs are only mirrors here that the
+    // game's own spotting never sees. So their cops engage us as in free roam: a chasing one close to
+    // us or a patrol one we speed past starts a pursuit here, and so does ramming one. Never on the
+    // results / win screens, in a cutscene or before the race has started (the start countdown).
+    inline bool PeerCopsEngage(bool openWorld, Place place, bool resultsFreeze, bool cutscene, bool raceStarting) {
+        if (resultsFreeze || cutscene) return false;
+        if (openWorld) return true;
+        return place == Place::SameEvent && !raceStarting;
+    }
+    // A pursuit that just started on the other player pulls us in: anywhere in free roam / a pursuit
+    // challenge (one shared chase), in another event only while we are close to them (their cops are
+    // around us too; a player far ahead on the route is not chased because the other one was).
+    constexpr float EVENT_JOIN_M = 250.f;
+    inline bool JoinTheirPursuit(bool openWorld, bool engage, float peerDist) {
+        if (!engage) return false;
+        if (openWorld) return true;
+        return peerDist == peerDist && peerDist >= 0.f && peerDist <= EVENT_JOIN_M;
     }
     // On the results / win / Continue screens of an event (our racer finished or is out, or a
     // PostRace screen is up) nobody drives: the pursuit must not move on - no bust meter, no new
@@ -346,5 +365,25 @@ namespace SharedPursuit {
         if (peerSeq == t.last) return false;
         t.last = peerSeq;
         return true;
+    }
+    // Busted is personal in free roam. In an event both of you are in (Challenge Series, a race with
+    // cops, a pursuit challenge) a bust fails the event, and it fails it for both: the other game busts
+    // its player too (the game's own arrest: busted cutscene, then the event's loss screen). Only while
+    // we are still in that same event (seen together within SAME_EVENT_GRACE_MS: their state may leave
+    // the event a moment after the bust), still driving (not finished / out / on a results screen),
+    // and not busted already.
+    constexpr uint32_t SAME_EVENT_GRACE_MS = 5000;
+    constexpr uint32_t SHARED_BUST_TRY_MS = 12000;   // how long we keep trying (a pursuit may need starting first)
+    struct EventBust {
+        uint32_t lastSameEvent = 0;   // event hash we were last seen in together
+        uint32_t lastSameAt = 0;      // when (ms)
+    };
+    inline void EventSeenTogether(EventBust& b, bool sameEvent, uint32_t eventHash, uint32_t now) {
+        if (sameEvent && eventHash) { b.lastSameEvent = eventHash; b.lastSameAt = now; }
+    }
+    inline bool BustWithThem(const EventBust& b, uint32_t eventHash, uint32_t now, bool resultsFreeze, bool alreadyBusted) {
+        if (!eventHash || resultsFreeze || alreadyBusted) return false;
+        if (b.lastSameEvent != eventHash) return false;
+        return (uint32_t)(now - b.lastSameAt) <= SAME_EVENT_GRACE_MS;
     }
 }

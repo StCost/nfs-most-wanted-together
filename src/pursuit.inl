@@ -18,11 +18,14 @@
 //  AITarget::Aquire(ISimable*) 0x423860 (thiscall). IPerpetrator handle 0x4037E0, vt+4 GetHeat
 //
 //  [Coop] SharedPursuits (see the second half of this file). Free roam: everything below. Both in the
-//  same event (Challenge Series, a career pursuit event, a race with cops): only the cooldown /
-//  escape rule (frozen until both are in cooldown, escape together). Free roam: shared heat, the other
-//  player's cops on the minimap and the radar detector, ramming one of their cops starts a pursuit
-//  here. Evade bar and busted are personal. A player who evades ENTERS cooldown immediately;
-//  the meter is frozen until both are in cooldown, then both run as usual. Escape completes
+//  same event (Challenge Series, a career pursuit event, a race with cops): the cooldown / escape rule
+//  (frozen until both are in cooldown, escape together), their cops engage us (a chasing one close to
+//  us, a patrol one we speed past, ramming one, or their pursuit starting close to us starts one here),
+//  and busted together (a bust fails the event for both: the other game busts its player too). Free
+//  roam: shared heat, the other player's cops on the minimap and the radar detector, ramming one of
+//  their cops starts a pursuit here. Evade bar is personal; busted is personal in free roam.
+//  A player who evades ENTERS cooldown immediately; the meter is frozen until both are in cooldown,
+//  then both run as usual. Escape completes
 //  only when both have finished. If a player is spotted, only they drop back to pursuit; the
 //  other stays in cooldown, their progress is reset to 0 and frozen until the spotted player
 //  evades again. A hidden player is never pulled back into pursuit because the other was spotted.
@@ -90,7 +93,9 @@ namespace {
     // removed - at the end of an event. Their own game runs their pursuit; here the copy is never a perp.
     constexpr uintptr_t NewPursuitCall1 = 0x42F5A5, NewPursuitCall2 = 0x42F605, NewPursuitFn = 0x429EF0;
     void* g_noPerpLogged = nullptr;
+    bool  g_pursuitFrozen = false;   // results / race-over screen of an event (SharedPursuitTickImpl): no new pursuit on us
     bool __fastcall hk_NewPursuitFor(void* self, void*, void* iv) {
+        if (g_pursuitFrozen && iv && iv == LocalVehicle()) return false;   // the world runs on under that menu in co-op
         if (iv && (iv == g_ghost || (IsVehicle(iv) && DriverClass(iv) == DRV_REMOTE))) {
             if (iv != g_noPerpLogged) {
                 g_noPerpLogged = iv;
@@ -258,8 +263,12 @@ namespace {
         SharedPursuit::BustTracker bust;
         void*    lastBustedPursuit = nullptr;
         DWORD    bustingForPeerAt = 0;      // we bust ourselves because they were busted: not reported back
-        DWORD    pendingBustUntil = 0;
+        DWORD    pendingBustUntil = 0;     // busting us because they were busted in our event (until then)
         bool     pendingStarted = false;
+        uint32_t pendingEvent = 0;
+        DWORD    nextForce = 0;
+        SharedPursuit::EventBust eventBust;
+        bool     peerCopsEngage = false;   // their cops may start a pursuit on us now (SharedPursuit::PeerCopsEngage)
         int      lastStatus = -2;
         int      lastCool = -1;
         bool     peerWasCooling = false;   // previous tick, for Reset vs Freeze
@@ -426,6 +435,13 @@ namespace {
     uint32_t g_tallyId = 0, g_tallyPeerCount = 0;
     void*    g_tallyPursuit = nullptr;
     DWORD    g_tallyNext = 0, g_tallySendUntil = 0;
+}
+// busted in this run of the current event (event.inl: a restart from the other player is not queued then)
+static bool LocalBustedThisRun() {
+    uint32_t ev = Game::CurrentEventHash();
+    return ev && g_bustedEvent == ev;
+}
+namespace {
 
     bool TallyRead(void* pursuit, void* perp, int32_t* v) {
         for (int i = 0; i < SharedPursuit::T_COUNT; ++i) {
@@ -549,6 +565,9 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
             Mem::Read((uintptr_t)ri + 0x21, fin); Mem::Read((uintptr_t)ri + 0x1C, outs);
             done = fin || outs;
         }
+        // busted in this run: the event is over for us (its race-over menu is up while the world runs on in
+        // co-op) - no second bust there, and nobody's cops start a pursuit on us until a restart
+        if (ev && g_bustedEvent == ev) done = true;
         bool screen = FEScreens::IsPushed("PostRace_Results.fng") || FEScreens::IsPushed("PostRace_Pursuit.fng") ||
                       FEScreens::IsPushed("PostRace_MilestoneRewards.fng") || FEScreens::IsPushed("InGamePhotoMaster.fng");
         resultsFreeze = Game::GameFlowState() == 6 && PursuitFrozenForResults(ev != 0, done, screen);
@@ -558,8 +577,22 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
             LOG("Pursuit: %s", resultsFreeze ? "results screen - pursuit and bust meter frozen for us" : "results closed - pursuit runs again");
         }
         if (resultsFreeze) openWorld = false;
+        g_pursuitFrozen = resultsFreeze && connected;
     }
     g_sp.peerCopsShown = here && !resultsFreeze;
+    // their cops spot / hit / pull us in: free roam and a pursuit challenge as before, and now any event
+    // both of us are in (a Challenge Series tollbooth race with cops: their cops ignored us there)
+    {
+        uint8_t stage = Game::RaceStage();
+        bool engage = SharedPursuit::PeerCopsEngage(openWorld, place, resultsFreeze, NisActive(),
+                                                    stage == 1 || stage == CoopRace::kStageLoadHeld);
+        if (engage != g_sp.peerCopsEngage && (engage || g_sp.peerCopsEngage))
+            LOG("Pursuit: the other player's cops %s", engage ? (openWorld ? "can start a pursuit on us (open world)"
+                                                                         : "can start a pursuit on us in this event too")
+                                                          : "no longer start a pursuit on us");
+        g_sp.peerCopsEngage = engage;
+    }
+    SharedPursuit::EventSeenTogether(g_sp.eventBust, sameEvent, Game::CurrentEventHash(), now);
     {
         static SharedPursuit::Place lastPlace = SharedPursuit::Place::None;
         if (place != lastPlace && on) {
@@ -579,6 +612,20 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         PWrite<float>(pursuitAll, P_BustTimer, 0.f);       // results screen: no bust meter (slot 79's own reset)
     if (pursuitAll && (PRead<uint8_t>(pursuitAll, P_PerpBusted) || PRead<int>(pursuitAll, P_Status) == PS_BUSTED))
         if (uint32_t ev = Game::CurrentEventHash()) g_bustedEvent = ev;   // a pursuit challenge run is lost
+    {   // Restart on the race-over menu after a bust doesn't raise the restart flag (coopwin.inl's new-run reset
+        // misses it): that menu closing back to the race (Restart; Quit leaves the event) starts a new run
+        static bool sawRaceOver = false;
+        uint32_t ev = Game::CurrentEventHash();
+        bool bustedRun = ev && g_bustedEvent == ev;
+        bool menu = FEScreens::IsPushed("Pause_Main.fng");
+        bool bustedNow = pursuitAll && (PRead<uint8_t>(pursuitAll, P_PerpBusted) || PRead<int>(pursuitAll, P_Status) == PS_BUSTED);
+        if (!bustedRun) sawRaceOver = false;
+        else if (menu) sawRaceOver = true;
+        else if (sawRaceOver && !bustedNow && FEScreens::IsPushed("HUD_SingleRace.fng")) {
+            sawRaceOver = false; g_bustedEvent = 0;
+            LOG("Pursuit: restarted from the race-over menu - a new run, the pursuit runs again");
+        }
+    }
     void* me = here ? meAll : nullptr;
     void* pursuit = here ? pursuitAll : nullptr;
 
@@ -588,21 +635,27 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     // the earlier one back into a chase.
     static bool peerWasActive = false; static DWORD peerStartAt = 0, ownEndAt = 0; static bool hadOwn = false;
     bool peerActive = peer.valid && (peer.s.pursuitFlags & PURSUIT_ACTIVE) && peer.s.gameFlowState == 6 &&
-                      (!peer.s.eventHash || (pcShared && peer.s.eventHash == Game::CurrentEventHash()));
+                      (!peer.s.eventHash || (sameEvent && peer.s.eventHash == Game::CurrentEventHash()));
     if (peerActive && !peerWasActive) peerStartAt = now;
     peerWasActive = peerActive;
     if (hadOwn && !pursuit) ownEndAt = now;
     hadOwn = pursuit != nullptr;
-    if (me && openWorld && !pursuit && peerActive && now - peerStartAt < 30000 && (!ownEndAt || now - ownEndAt > 30000)) {
+    if (me && g_sp.peerCopsEngage && !pursuit && peerActive && now - peerStartAt < 30000 && (!ownEndAt || now - ownEndAt > 30000)) {
         static DWORD nextJoin = 0;
-        if ((int)(now - nextJoin) >= 0) {
+        float peerDist = -1.f;
+        if (!openWorld) {   // in a race: only when we are close to them
+            void* orb = RigidBodyOf(g_ghost); void* mrb = RigidBodyOf(me);
+            if (orb && mrb) peerDist = Dist(RB_GetVec(orb, RB_GetPosition), RB_GetVec(mrb, RB_GetPosition));
+        }
+        if ((int)(now - nextJoin) >= 0 && SharedPursuit::JoinTheirPursuit(openWorld, true, peerDist)) {
             nextJoin = now + 20000;   // if the game starts none (no cops around yet), try again later
             bool ok = DebugForcePursuitImpl();
-            LOG("Pursuit: the other player is chased - %s", ok ? "starting the same pursuit on us" : "no cop manager, no pursuit");
+            LOG("Pursuit: the other player is chased%s - %s", openWorld ? "" : " close to us in this event",
+                ok ? "starting the same pursuit on us" : "no cop manager, no pursuit");
         }
     }
     // ---- the other player's cops spot us too: a chasing one close to our car, or a patrol one we speed past ----
-    if (me && !pursuit && openWorld) {
+    if (me && !pursuit && g_sp.peerCopsEngage) {
         static DWORD nextSpot = 0;
         void* myRb = RigidBodyOf(me);
         if (myRb && (int)(now - nextSpot) >= 0) {
@@ -688,12 +741,13 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
             LOG("Pursuit: busted here too, as the other player was");
         else if (on) {
             ++g_sp.bustSeq;
-            LOG("Pursuit: we were busted (count %u) - busts are personal, the other player is not busted with us", (unsigned)g_sp.bustSeq);
+            LOG("Pursuit: we were busted (count %u) - %s", (unsigned)g_sp.bustSeq,
+                Game::CurrentEventHash() ? "in an event the other player is busted with us" : "busts are personal in free roam");
         }
         g_sp.bustingForPeerAt = 0;
     }
     if (!on) {
-        g_sp.heat = {}; g_sp.bust = {}; g_sp.pendingBustUntil = 0; g_sp.lastCool = -1;
+        g_sp.heat = {}; g_sp.bust = {}; g_sp.pendingBustUntil = 0; g_sp.lastCool = -1; g_sp.peerCopsEngage = false;
         g_sp.sentEvaded = false;
         g_sp.sharedHidePerp = nullptr;
         if (g_tally.live) SharedPursuit::TallyStop(g_tally);
@@ -717,10 +771,39 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         }
     } else g_sp.heat = {};
 
-    // ---- 4. the other player was busted: personal, we are not busted with them ----
-    if (peer.valid && PeerJustBusted(g_sp.bust, peer.s.bustSeq))
-        LOG("Pursuit: the other player was busted - busts are personal, ours continues");
-    g_sp.pendingBustUntil = 0;   // 1.7.1: do not start or continue a shared bust
+    // ---- 4. the other player was busted: personal in free roam; in an event both of us are in it
+    //      fails the event for both, so we are busted too (the game's own arrest, cutscene and loss screen) ----
+    {
+        uint32_t ev = Game::CurrentEventHash();
+        bool bustedHere = pursuitAll && (PRead<uint8_t>(pursuitAll, P_PerpBusted) || PRead<int>(pursuitAll, P_Status) == PS_BUSTED);
+        if (peer.valid && PeerJustBusted(g_sp.bust, peer.s.bustSeq)) {
+            if (BustWithThem(g_sp.eventBust, ev, now, resultsFreeze, bustedHere)) {
+                g_sp.pendingBustUntil = now + SHARED_BUST_TRY_MS; g_sp.pendingStarted = false; g_sp.pendingEvent = ev;
+                g_sp.nextForce = 0;
+                LOG("Pursuit: the other player was busted in event %08X - %s", ev,
+                    pursuitAll ? "busting us too (the event is lost for both)" : "no pursuit here, starting one to bust us too");
+            } else if (ev && bustedHere) LOG("Pursuit: the other player was busted - we already are");
+            else if (ev && resultsFreeze) LOG("Pursuit: the other player was busted - we are done with this event, nothing happens");
+            else LOG("Pursuit: the other player was busted - %s", ev ? "not in the same event, ours continues" : "busts are personal in free roam, ours continues");
+        }
+        if (g_sp.pendingBustUntil) {
+            if (ev != g_sp.pendingEvent || resultsFreeze || (int)(now - g_sp.pendingBustUntil) > 0) {
+                LOG("Pursuit: gave up busting us with the other player (%s)", ev != g_sp.pendingEvent ? "left the event" :
+                                                                              resultsFreeze ? "results screen" : "no pursuit came");
+                g_sp.pendingBustUntil = 0;
+            } else if (bustedHere) {
+                g_sp.pendingBustUntil = 0;
+            } else if (pursuitAll && !PRead<uint8_t>(pursuitAll, P_Bailed)) {
+                PWrite<float>(pursuitAll, P_BustTimer, 10.f);   // above the 5 s limit: the game busts us on its next sim tick
+                g_sp.bustingForPeerAt = now;
+            } else if (!pursuitAll && (int)(now - g_sp.nextForce) >= 0) {
+                g_sp.nextForce = now + 2500;
+                bool ok = DebugForcePursuitImpl();
+                if (!g_sp.pendingStarted) LOG("Pursuit: starting a pursuit to bust us with the other player - %s", ok ? "requested" : "no cop manager");
+                g_sp.pendingStarted = true;
+            }
+        }
+    }
 
     // ---- 5. cooldown: enter immediately; freeze / reset the meter; escape only when both finish ----
     // peer.evaded is honoured even if they already left free roam (they entered a safehouse).
@@ -910,7 +993,7 @@ static void PursuitTickImpl(bool connected, const Net::Snapshot& peer) {
 
 // ---- 3. we rammed one of the other player's cops (traffic.inl MirrorHitTick) ----
 static void SharedPursuitCopHit(uint16_t mirrorId) {
-    if (!g_cfg.sharedPursuits || !g_coopLinked || !FreeRoamHere()) return;
+    if (!g_cfg.sharedPursuits || !g_coopLinked || !g_sp.peerCopsEngage) return;   // free roam, or the same event
     DWORD now = GetTickCount();
     if (now - g_sp.lastCopHit < 3000) return;
     g_sp.lastCopHit = now;

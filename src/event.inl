@@ -812,6 +812,7 @@ bool Game::TakeRestartIgnoredNotice() { bool v = g_restartIgnoredNotice; g_resta
 // (0x5A764C -> 0x5A7880) answers with its dismiss event (0x625870) and the restart - right away, or, with
 // the winner's photo (InGamePhotoMaster) up, once that screen has closed (flag 0x91CF40). The same message
 // from us is exactly a press of Restart there - an ERestartRace of our own on a finished race crashed.
+static bool LocalBustedThisRun();   // pursuit.inl
 static bool PressRestartOnResults() {
     void* fe = nullptr;
     if (!Mem::Read(0x91CADC, fe) || !fe) return false;
@@ -843,7 +844,9 @@ bool Game::InstallRestartSync() {
                 // there goes through that screen - an ERestartRace queued now crashed (0x4E7D40, null object)
                 void* ri = RacerInfoOfLocal(); uint8_t fin = 0;
                 if (ri) Mem::Read((uintptr_t)ri + 0x21, fin);
-                if (fin || FEScreens::IsPushed("PostRace_Results.fng") || FEScreens::IsPushed("InGamePhotoMaster.fng")) {
+                // busted in this run (also when the other player's bust busted us): the race-over menu is up, and the
+                // same ERestartRace would crash there - the player presses Restart on it
+                if (fin || LocalBustedThisRun() || FEScreens::IsPushed("PostRace_Results.fng") || FEScreens::IsPushed("InGamePhotoMaster.fng")) {
                     if (PressRestartOnResults()) { g_restartFromPeer = true; g_restartFromPeerAt = GetTickCount(); LOG("Race: peer restarted - pressing Restart on our results screen too"); }
                     else { LOG("Race: peer restarted, but our race is already over and no results screen is up - Restart there to join"); g_restartIgnoredNotice = true; }
                     return;
@@ -862,6 +865,7 @@ static const char* DebugRestartSafe() {
     __try {
         int mode = 0; CurrentParms(&mode);
         if (Game::GameFlowState() != 6 || mode != 1) return "not racing";
+        if (LocalBustedThisRun()) return "busted - the race-over menu is up, use its Restart (a queued restart crashes there)";
         return TriggerRestart() ? "restarting the race" : "restart failed";
     } __except (EXCEPTION_EXECUTE_HANDLER) { return "exception"; }
 }

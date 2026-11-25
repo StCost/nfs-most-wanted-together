@@ -56,7 +56,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - **Your own cars.** You both drive your own car with your tuning and visuals, damage and brake lights included.
 - **Events together.** Start any career event and your partner comes along: same opponents, same start, and you see each other.
 - **Shared wins.** If one of you wins, you both win. Whoever is still driving gets finished as the winner right there. Totaled or knocked out before your partner won? Your losing screen closes and you get the winner's screen too, saying who won, with the win, cash and progress counted.
-- **Police.** In free roam you share the cops: same heat, you lose them together, you get busted together. Your partner's cops show on your minimap and set off your radar.
+- **Police.** In free roam you share the cops: same heat, you lose them together. Your partner's cops show on your minimap and set off your radar. In an event you're both in (Challenge Series, races with cops) your partner's cops chase you too, and if one of you gets busted, you both are.
 - **One world.** Shared traffic when you're close, collisions between your cars, blips on the minimap and the map.
 - **Saves.** Each of you keeps your own career save on your own PC, as in the plain game.
 
@@ -158,7 +158,8 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - [x] The other player's cops show on your minimap and trigger your radar
 - [x] Ramming their cop starts a pursuit on you
 - [x] Blacklist pursuits (milestones, bounty) started from the Blacklist screen take your partner along to the start (`[Coop] FollowToPursuits`)
-- [x] One of you gets busted, you both get busted
+- [ ] One of you gets busted in an event you're both in (Challenge Series, a race with cops), you both get busted: the busted cutscene and the event's loss screen on both PCs. In free roam a bust is personal
+- [ ] Your partner's cops chase you in events too (Challenge Series tollbooth, races with cops): their chasing cop close to you, their patrol cop you speed past, ramming one of their cops, or their pursuit starting within 250 m of you starts your pursuit
 - [x] Escaping: whoever loses the cops first goes into cooldown, but the meter doesn't fill until you're both in cooldown. Then both meters run, a spot restarts the other one's, and you both escape at the same moment. This works in free roam and when you're both in the same event (Challenge Series, career pursuit events, races with cops)
 - [x] Police roadblocks are the same for both of you, in free roam and in Challenge Series / career pursuits: the same cars, sawhorses and spike strips in the same spots, so the gap you aim for is there on both screens. Spike strips work on both sides, and a roadblock removed in one game goes in the other too. While your partner's roadblock stands near you, your game doesn't build a second one
 - [x] Cost to State and bounty count for both of you: cops either of you immobilizes or damages, roadblocks and spike strips dodged and property smashed while you're both in the pursuit are added to both players' totals, so the HUD, milestones, Challenge Series goals and the rap sheet match. Infractions stay personal
