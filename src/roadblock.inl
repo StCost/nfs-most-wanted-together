@@ -242,6 +242,30 @@ namespace {
         g_rbPeer.e[i].lastMs = GetTickCount() ? GetTickCount() : 1;
     }
 
+    // we drove through one of theirs: a roadblock dodged here, as the game counts its own
+    // (IPursuit +0x154 via slot 58's field, and GManager IncrementStat 0x5EDB50 "roadblocks_dodged")
+    constexpr uintptr_t GM_IncStat = 0x5EDB50;
+    void RbCheckPass(Roadblock::PeerEntry& x, const float* me) {
+        float along, across, up;
+        Roadblock::RoadblockFrame(x.d, me, &along, &across, &up);
+        bool had = x.haveSide; float prev = x.lastAlong;
+        x.haveSide = true; x.lastAlong = along;
+        if (!had || x.dodged || !Roadblock::PassedRoadblock(prev, along, across, up)) return;
+        void* pursuit = PursuitOf(LocalVehicle());
+        bool live = pursuit && (g_sp.flags & PURSUIT_ACTIVE) && !(g_sp.flags & PURSUIT_BUSTED);
+        if (!live) {
+            LOG("Roadblock: drove through the other player's roadblock #%u (%.0f m from its centre) - not chased, not counted", x.d.id, std::fabs(across));
+            return;
+        }
+        x.dodged = true;
+        int32_t before = PRead<int32_t>(pursuit, 0x154);
+        PWrite<int32_t>(pursuit, 0x154, before + 1);
+        void* gm = nullptr;
+        if (Mem::Read(GManagerPtr, gm) && gm) ((void(__thiscall*)(void*, const char*))GM_IncStat)(gm, (const char*)S_Roadblocks);
+        LOG("Roadblock: drove through the other player's roadblock #%u (%.0f m from its centre) - roadblock dodged here (pursuit %d -> %d)",
+            x.d.id, std::fabs(across), before, before + 1);
+    }
+
     void RoadblockTickImpl(bool linked) {
         DWORD now = GetTickCount();
         float sim = Game::SimTimeSec();
@@ -279,7 +303,63 @@ namespace {
             if (!linked) { RbForget(i, false, "- co-op not linked, removed here"); continue; }
             if (Roadblock::Expired(x, now)) { RbForget(i, false, "- not heard of for 5 s, removed here"); continue; }
             if (!x.placed && haveMe && Game::GameFlowState() == 6 && Roadblock::InRange(x, me, Roadblock::kPlaceRange)) RbPlacePieces(i);
+            if (x.placed && haveMe) RbCheckPass(x, me);
         }
+    }
+}
+
+// ---- the pause map: their roadblocks get the roadblock icon too ----------------------------------
+//  WorldMap::AddRoadBlocks 0x531350 (thiscall, tail-jumped to from 0x54889C) walks IRoadBlock::GetList()
+//  (vector at 0x92FD58: begin +4, size +0xC) and asks each one only GetRoadBlockCentre (slot 14) and
+//  GetRoadBlockDir (slot 15), giving it MMICON_ROADBLOCK_<n>. For that one call the list is swapped for a
+//  copy with a stand-in for each of their roadblocks (only those two slots are ever called on it).
+namespace {
+    constexpr uintptr_t WmAddRoadBlocksFn = 0x531350, WmAddRoadBlocksJmp = 0x54889C, RbGameList = 0x92FD58;
+    constexpr int kMapRoadblocksMax = 4;   // icons the map has for roadblocks (vanilla never has more at once)
+    struct RbStandIn { void** vt; float centre[3]; float dir[3]; };
+    const float* __fastcall RbStandInCentre(RbStandIn* self, void*) { return self->centre; }
+    const float* __fastcall RbStandInDir(RbStandIn* self, void*) { return self->dir; }
+    void* g_rbStandInVt[24] = {};
+    RbStandIn g_rbStandIn[Roadblock::MAX_PEER] = {};
+    int g_rbMapLogged = -1;
+    void __fastcall hk_WmAddRoadBlocks(void* wm, void*) {
+        void* list[kMapRoadblocksMax + Roadblock::MAX_PEER] = {};
+        void** begin = nullptr; uint32_t size = 0;
+        int added = 0;
+        bool swapped = false;
+        __try {
+            if (g_rbOn && g_coopLinked && Mem::Read(RbGameList + 4, begin) && Mem::Read(RbGameList + 0xC, size) && size <= (uint32_t)kMapRoadblocksMax) {
+                int n = 0;
+                for (uint32_t i = 0; i < size; ++i) list[n++] = begin[i];
+                for (int i = 0; i < Roadblock::MAX_PEER && n < kMapRoadblocksMax; ++i) {
+                    const Roadblock::PeerEntry& x = g_rbPeer.e[i];
+                    if (!x.used || !x.placed) continue;
+                    RbStandIn& r = g_rbStandIn[i];
+                    r.vt = g_rbStandInVt;
+                    memcpy(r.centre, x.d.centre, 12); memcpy(r.dir, x.d.dir, 12);
+                    list[n++] = &r; ++added;
+                }
+                if (added) {
+                    void** nb = list; uint32_t ns = (uint32_t)n;
+                    Mem::Write(RbGameList + 4, nb); Mem::Write(RbGameList + 0xC, ns);
+                    swapped = true;
+                }
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        ((void(__thiscall*)(void*))WmAddRoadBlocksFn)(wm);
+        if (swapped) { Mem::Write(RbGameList + 4, begin); Mem::Write(RbGameList + 0xC, size); }
+        if (added != g_rbMapLogged) { g_rbMapLogged = added; LOG("Roadblock: map - %d of the other player's roadblock(s) shown (and %u of ours)", added, size); }
+    }
+    bool PatchWorldMapRoadblocks() {
+        for (int i = 0; i < 24; ++i) g_rbStandInVt[i] = nullptr;
+        g_rbStandInVt[14] = (void*)&RbStandInCentre;
+        g_rbStandInVt[15] = (void*)&RbStandInDir;
+        int32_t rel = (int32_t)(WmAddRoadBlocksFn - (WmAddRoadBlocksJmp + 5));
+        uint8_t expect[5] = { 0xE9 }; memcpy(expect + 1, &rel, 4);
+        uint8_t repl[5] = { 0xE9 };
+        int32_t nrel = (int32_t)((uintptr_t)&hk_WmAddRoadBlocks - (WmAddRoadBlocksJmp + 5));
+        memcpy(repl + 1, &nrel, 4);
+        return Mem::PatchBytes(WmAddRoadBlocksJmp, expect, repl, 5);
     }
 }
 
@@ -314,8 +394,9 @@ static void InstallRoadblockSync() {
             if (Mem::Read(site, op) && Mem::Read(site + 1, r) && op == 0xE8 && site + 5 + r == (uintptr_t)&hk_RbCreate) Mem::PatchCall(site, (void*)RbCreateFn);
         }
     }
-    LOG("Roadblock: shared roadblocks %s (create %d/2, setup %s, pieces %s/%s, place %s)", g_rbOn ? "on" : "OFF",
-        calls, pick ? "ok" : "FAIL", saw ? "ok" : "FAIL", spk ? "ok" : "FAIL", place ? "ok" : "FAIL");
+    bool wmap = g_rbOn && PatchWorldMapRoadblocks();
+    LOG("Roadblock: shared roadblocks %s (create %d/2, setup %s, pieces %s/%s, place %s, map icons %s)", g_rbOn ? "on" : "OFF",
+        calls, pick ? "ok" : "FAIL", saw ? "ok" : "FAIL", spk ? "ok" : "FAIL", place ? "ok" : "FAIL", wmap ? "ok" : "FAIL");
     Net::OnRoadblock = [](const Roadblock::Desc& d, bool alive) {
         __try { OnRoadblockPacket(d, alive); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Roadblock: exception on a packet"); }
     };

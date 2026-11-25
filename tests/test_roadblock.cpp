@@ -1,6 +1,7 @@
 // Shared police roadblocks: checks and the other player's roadblock table (src/roadblockutil.h).
 #include "mwt_test.h"
 #include "../src/roadblockutil.h"
+#include <limits>
 
 using namespace Roadblock;
 
@@ -87,4 +88,26 @@ TEST(roadblock_suppress_ours_only_near_a_live_one_of_theirs) {
     CHECK(!SuppressOurs(t, me, 5001 + kExpireMs, true));     // the owner stopped saying it is there
     float away[3] = { 0, 10, 250 + kSuppressRange + 1 };
     CHECK(!SuppressOurs(t, away, 5000, true));               // their pursuit is elsewhere
+}
+
+TEST(roadblock_passing_theirs_counts) {
+    Desc d = Make(7, 100.f, 200.f);             // road along +z
+    float along, across, up;
+    float before[3] = { 103.f, 10.5f, 195.f }, after[3] = { 103.f, 10.5f, 206.f };
+    RoadblockFrame(d, before, &along, &across, &up);
+    CHECK_NEAR(along, -5.f, 1e-4); CHECK_NEAR(std::fabs(across), 3.f, 1e-4);   // which side is "left" does not matter
+    float a0 = along;
+    RoadblockFrame(d, after, &along, &across, &up);
+    CHECK(PassedRoadblock(a0, along, across, up));      // through it
+    CHECK(PassedRoadblock(along, a0, across, up));      // the other way too
+    CHECK(!PassedRoadblock(-8.f, -2.f, 3.f, 0.f));      // not there yet
+    CHECK(!PassedRoadblock(-5.f, 5.f, kPassHalfWidth + 1.f, 0.f));   // on another road beside it
+    CHECK(!PassedRoadblock(-5.f, 5.f, 0.f, kPassHeight + 1.f));      // on a bridge above it
+    CHECK(!PassedRoadblock(-30.f, 30.f, 0.f, 0.f));     // a jump (reset to the road), not a pass
+    float nan = std::numeric_limits<float>::quiet_NaN();
+    CHECK(!PassedRoadblock(nan, 5.f, 0.f, 0.f));
+    Desc flat = Make(8, 0.f, 0.f); flat.dir[0] = flat.dir[2] = 0.f;   // no direction: still well-defined
+    float p[3] = { 2.f, 10.f, 0.f };
+    RoadblockFrame(flat, p, &along, &across, &up);
+    CHECK_NEAR(along, 2.f, 1e-4);
 }

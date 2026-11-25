@@ -88,7 +88,35 @@ namespace Roadblock {
         bool     placed = false;   // its pieces are built here (the game layer keeps the objects)
         uint32_t lastMs = 0;       // when the owner last said it is there
         Desc     d{};
+        bool     haveSide = false; // our car's last place along the road, seen from it (PassedRoadblock)
+        float    lastAlong = 0.f;
+        bool     dodged = false;   // we drove through it: counted once
     };
+
+    // ---- driving through one of theirs counts as a roadblock dodged here too --------------------
+    // The game counts a dodge for its own roadblocks only (the chased car crosses the line through the
+    // centre, AICopManager::UpdateRoadBlocks 0x43A040); theirs is not in our cop manager. Same rule for
+    // theirs: our car crosses that line (either way) close to the centre.
+    constexpr float kPassHalfWidth = 30.f;   // across the road from the centre
+    constexpr float kPassHeight = 8.f;
+    constexpr float kPassMaxStep = 40.f;     // a jump farther than this between two ticks is a reset, not a pass
+    // along: signed distance past the line (+dir side); across / up: from the centre
+    inline void RoadblockFrame(const Desc& d, const float* p, float* along, float* across, float* up) {
+        float rx = p[0] - d.centre[0], ry = p[1] - d.centre[1], rz = p[2] - d.centre[2];
+        float hx = d.dir[0], hz = d.dir[2];
+        float hl = std::sqrt(hx * hx + hz * hz);
+        if (!(hl > 1e-4f)) { hx = 1.f; hz = 0.f; hl = 1.f; }
+        hx /= hl; hz /= hl;
+        *along = rx * hx + rz * hz;
+        *across = -rx * hz + rz * hx;
+        *up = ry;
+    }
+    inline bool PassedRoadblock(float prevAlong, float along, float across, float up) {
+        if (!std::isfinite(prevAlong) || !std::isfinite(along) || !std::isfinite(across) || !std::isfinite(up)) return false;
+        if ((prevAlong < 0.f) == (along < 0.f)) return false;               // still on the same side
+        if (std::fabs(along - prevAlong) > kPassMaxStep) return false;
+        return std::fabs(across) <= kPassHalfWidth && std::fabs(up) <= kPassHeight;
+    }
     struct PeerTable {
         PeerEntry e[MAX_PEER];
         int Find(uint32_t id) const {
