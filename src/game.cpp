@@ -780,6 +780,10 @@ namespace {
     bool IsKeptCar(void* iv) { for (void* k : g_keepCars) if (k && k == iv) return true; return false; }
     void KeepCar(void* iv) {
         for (void*& r : g_removedCars) if (r == iv) r = nullptr;     // this address is ours again
+        // the same address again (the game freed a car of ours without asking the cache - a race's racers -
+        // and built this one there): renew that entry. A second entry would leave the old one first, and its
+        // stale world id made StillOurCar() call the new car "not ours" (the ghost then was respawned every frame)
+        for (int i = 0; i < 64; ++i) if (g_keepCars[i] == iv) { g_keepWid[i] = WorldIdOf(iv); return; }
         for (int i = 0; i < 64; ++i) if (!g_keepCars[i]) { g_keepCars[i] = iv; g_keepWid[i] = WorldIdOf(iv); return; }
     }
     void ForgetCar(void* iv) { for (void*& k : g_keepCars) if (k == iv) k = nullptr; }
@@ -1478,8 +1482,10 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
         g_ghostKind = GK_RACER; g_ghostList = VL_AIRACERS; DisableAI(g_ghost);   // same object reused by the race
         LOG("Race: the ghost is now the racer built as the peer's car");
     }
+    // (only a racer the code below would take: otherwise it lets go of our copy and spawns it again, every frame)
     if (g_ghost && g_ghostKind != GK_RACER && g_replacedRacer && g_replacedRacer != g_ghost &&
-        ListContains(VL_AIRACERS, g_replacedRacer) && RigidBodyOf(g_replacedRacer)) {
+        ListContains(VL_AIRACERS, g_replacedRacer) && RigidBodyOf(g_replacedRacer) && StillOurCar(g_replacedRacer) &&
+        CoopRace::MayAcquireGhostRacer(true, ModelKeyOf(g_replacedRacer), Net::PeerCar() ? Net::PeerCar()->carKey : 0, Net::PeerCar() != nullptr)) {
         LOG("Race: switching the ghost to the racer built as the peer's car");
         Game::ReleaseGhost();
     }
