@@ -551,6 +551,19 @@ namespace {
         KnockoutRacerOrig(racer);
     }
 }
+// knocked out of a lap knockout while the other player still races (and until our results come up)
+static bool KnockedOutDrivesOn() {
+    __try { return g_koHeld || KnockoutHoldWanted(); } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+static void KnockoutNoticeTick() {
+    bool on = false;
+    if (Game::GameFlowState() == 6 && Game::CurrentEventHash()) {
+        void* ri = RacerInfoOfLocal(); uint32_t outs = 0; uint8_t fin = 0;
+        if (ri) { Mem::Read((uintptr_t)ri + 0x1C, outs); Mem::Read((uintptr_t)ri + 0x21, fin); }
+        on = outs && !fin && KnockedOutDrivesOn() && !FEScreens::IsPushed("PostRace_Results.fng");
+    }
+    Game::StickyNotice(on ? "KNOCKED OUT - waiting for the other player" : nullptr);
+}
 static void KnockoutReleaseTickImpl() {
     if (!g_koHeld) return;
     uint32_t ev = Game::CurrentEventHash();
@@ -573,6 +586,7 @@ static void KnockoutReleaseTickImpl() {
     bool won = false;
     if (r == CoopRace::KoRelease::Won)                            // they won: the shared win is paid to us too
         won = CreditTeamWinOut("the knockout wait") || (g_outWinEvent == ev && g_teamWinEvent == ev);
+    else LOG("Race: no win reported by the other player (finished %d, in race %d, event %08X)", (int)p.s.finished, (int)p.s.inRace, p.s.eventHash);
     LOG("Race: the other player is done - our results screen now%s", won ? " (their win counts for us)" : "");
     ShowPostRaceOut(won);                                        // the screen the game held back
 }
@@ -586,7 +600,6 @@ namespace { uint32_t g_loseToWinEvent = 0; DWORD g_loseToWinAt = 0; const char* 
 static void LoseScreenWinTickImpl() {
     uint32_t ev = Game::CurrentEventHash();
     if (g_loseToWinAt) {                                           // step 2: the screen has gone (or 1.5 s passed)
-    else LOG("Race: no win reported by the other player (finished %d, in race %d, event %08X)", (int)p.s.finished, (int)p.s.inRace, p.s.eventHash);
         if (ev != g_loseToWinEvent || Game::GameFlowState() != 6) { g_loseToWinAt = 0; return; }
         if ((FEScreens::IsPushed("Pause_Main.fng") || FEScreens::IsPushed("PostRace_Results.fng")) &&
             GetTickCount() - g_loseToWinAt < 1500) return;
@@ -638,6 +651,7 @@ void Game::CoopWinTick(bool connected, const Net::Snapshot& peer) {
     __try { if (connected) CoopFinishTickImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Race: exception finishing our racer"); }
     __try { CoopWinTickImpl(connected, peer); } __except (EXCEPTION_EXECUTE_HANDLER) {}
     __try { KnockoutReleaseTickImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) { g_koHeld = false; }
+    __try { KnockoutNoticeTick(); } __except (EXCEPTION_EXECUTE_HANDLER) {}
     __try { LoseScreenWinTickImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 

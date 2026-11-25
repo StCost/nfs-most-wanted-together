@@ -666,6 +666,7 @@ namespace {
             if (*(uint32_t*)(scr + 0x10) > hold) *(uint32_t*)(scr + 0x10) = hold;
         } __except (EXCEPTION_EXECUTE_HANDLER) { g_hudHoldUntil = 0; }
     }
+    char g_stickyText[64] = {};                 // Game::StickyNotice: shown whenever nothing else is
     struct QueuedNotice { std::string full; std::vector<std::string> parts; size_t next; bool warn; DWORD at; };
     std::deque<QueuedNotice> g_notices;
     DWORD g_noticeNext = 0;
@@ -675,10 +676,27 @@ void Game::QueueNotice(const std::string& text, bool warn) {
     g_notices.push_back({ text, Notice::Split(text), 0, warn, GetTickCount() });
     while (g_notices.size() > 6) g_notices.pop_front();             // a burst: the newest ones matter
 }
+void Game::StickyNotice(const char* text) {
+    const char* t = text ? text : "";
+    if (strcmp(t, g_stickyText) == 0) return;
+    if (*t) LOG("Notice: kept on the screen: %s", t); else if (g_stickyText[0]) LOG("Notice: \"%s\" taken off the screen", g_stickyText);
+    strncpy_s(g_stickyText, t, _TRUNCATE);
+}
 void Game::NoticeTick() {
     if (!g_ok) return;
     DWORD now = GetTickCount();
     if (g_hudHoldUntil) { if ((int)(now - g_hudHoldUntil) >= 0) g_hudHoldUntil = 0; else HudHoldRaw(); }
+    // the sticky notice: up again whenever the message line is free, held while it is ours
+    if (g_stickyText[0] && g_notices.empty() && g_cfg.gameNotices && GameFlowState() == 6 && !NisActive()) {
+        static DWORD nextTry = 0;
+        bool ours = g_hudHoldUntil && strcmp(g_hudText, g_stickyText) == 0;
+        if (ours) g_hudHoldUntil = (now + 1000) | 1;
+        else if (!g_hudHoldUntil && (int)(now - nextTry) >= 0) {
+            int r = HudMessageRaw(g_stickyText, true);
+            if (r == 1) g_hudHoldUntil = (now + 1000) | 1;
+            nextTry = now + (r == 0 ? 300 : 1000);
+        }
+    }
     if (g_notices.empty()) return;
     if (!g_cfg.gameNotices) { g_notices.clear(); return; }
     if ((int)(now - g_noticeNext) < 0) return;
