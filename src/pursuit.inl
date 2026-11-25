@@ -126,7 +126,7 @@ namespace {
         int n = g_rtN;
         for (int i = 0; i < n; ++i) RetargetBack(pursuit, g_rtCops[i]);
         g_rtN = 0;
-        LOG("Pursuit: %d cop(s) back on the local player", n);
+        LOG("Pursuit: %d cop(s) back on the local player%s", n, pursuit ? "" : " (no pursuit any more)");
     }
 }
 
@@ -846,9 +846,14 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         g_sp.bustingForPeerAt = 0;
     }
     if (!on) {
+        // alone again (they left / disconnected): our pursuit is the plain game's from here on
+        if (g_sp.sharedHidePerp || g_sp.peerSpotting || g_sp.haveFreeze || g_sp.peerCopHitAt)
+            LOG("Pursuit: the other player is gone - our pursuit and cooldown run as in the plain game");
         g_sp.heat = {}; g_sp.bust = {}; g_sp.pendingBustUntil = 0; g_sp.lastCool = -1; g_sp.peerCopsEngage = false;
         g_sp.sentEvaded = false;
         g_sp.sharedHidePerp = nullptr;
+        g_sp.haveFreeze = false; g_sp.peerWasCooling = false; g_sp.peerCopHitAt = 0; g_sp.peerSpotting = false;
+        ForgetPeerCopsSawUs();
         if (g_tally.live) SharedPursuit::TallyStop(g_tally);
         g_tallyPursuit = nullptr;
         ApplySafehouseFlag(false);
@@ -1019,7 +1024,12 @@ static void PursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     if (now < g_nextPursuitCheck) return;
     g_nextPursuitCheck = now + 400;
     void* me = LocalVehicle();
-    void* pursuit = (connected && Game::GameFlowState() == 6) ? PursuitOf(me) : nullptr;
+    // our pursuit whether or not the other player is still there: after a disconnect the cops we sent after
+    // their car must come back to us. (Up to 1.7.14 the pursuit was looked up only while connected, so at a
+    // disconnect they were "released" with no pursuit to put them back on us and kept chasing the other
+    // player's car - our cooldown / hiding spot then never came, HIDDEN never showed.)
+    void* ownPursuit = Game::GameFlowState() == 6 ? PursuitOf(me) : nullptr;
+    void* pursuit = connected ? ownPursuit : nullptr;
     void* other = g_ghost;
     {   // one status line every 5 s while either of us is being chased
         static DWORD nextLog = 0;
@@ -1035,7 +1045,7 @@ static void PursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     void* otherRb = RigidBodyOf(other);
     void* myRb = RigidBodyOf(me);
     void* sim = SimOf(other);
-    if (!pursuit || !peerInPursuit || !otherRb || !myRb || !sim) { ReleaseRetargets(pursuit); return; }
+    if (!pursuit || !peerInPursuit || !otherRb || !myRb || !sim) { ReleaseRetargets(ownPursuit); return; }
 
     void** cops = nullptr; int n = 0;
     Mem::Read((uintptr_t)pursuit + 0x18, cops);
