@@ -78,6 +78,13 @@ namespace CoopRace {
         RacerWant w{ model };
         return PickRacer(c, n, w, anyModel);
     }
+    // The host's racers drive ours only while the host is in our event. Starting a rival's next race from
+    // the results screen, one game is in the new race while the other still shows the last one's results
+    // and sends that race's racers: bound to them, our new racers were driven to the old race's spots
+    // (and stayed taken when the host's racers of this race came). No state from the host: no change.
+    inline bool HostRacersAreOurs(bool peerStateValid, uint32_t peerEvent, uint32_t ourEvent) {
+        return !peerStateValid || (ourEvent != 0 && peerEvent == ourEvent);
+    }
     // Role of an AI racer by its GRacerInfo slot: `helperSlot` / `partnerSlot` as this race load set
     // them (-1 = none), `bossRace` = a Blacklist rival race. The other player's slot is no AI racer.
     inline int RacerRoleOf(int slot, bool bossRace, int helperSlot, int partnerSlot) {

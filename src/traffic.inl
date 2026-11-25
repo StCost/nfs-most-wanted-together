@@ -1012,6 +1012,20 @@ static int MaintainMirrors(double now) {
                 LOG("Race: the racer that followed host opponent %u is a new car now - binding again", m.id);
                 m.iv = nullptr; m.wid = 0; m.fails = 0;
             }
+            // the host is in another event (the last race's results, or the next race while we're still on
+            // ours): those are another race's racers - ours keep their own AI until it sends this race's
+            {
+                const Net::Snapshot& hp = Net::Latest();
+                if (!CoopRace::HostRacersAreOurs(hp.valid, hp.valid ? hp.s.eventHash : 0u, Game::CurrentEventHash())) {
+                    if (m.iv) {
+                        if (!m.wid || WorldIdOf(m.iv) == m.wid) RestoreAI(m.iv);
+                        LOG("Race: host opponent %u is from another event (host %08X, ours %08X) - our racer %p drives itself", m.id, hp.s.eventHash, Game::CurrentEventHash(), m.iv);
+                        m.iv = nullptr; m.wid = 0; m.fails = 0;
+                    }
+                    m.unboundSince = 0;
+                    continue;
+                }
+            }
             // never drive the other player's own car as an opponent / traffic slot
             if (m.iv && IsPeerReservedCar(m.iv)) {
                 LOG("Race: opponent mirror %u was bound to the other player's car - letting go", m.id);

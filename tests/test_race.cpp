@@ -517,3 +517,11 @@ TEST(race_team_results_leave_like_the_photo) {
     CHECK(TeamResultsAction(kFeAccept, 0x1234, 0, 0x1234, false, false) == kResultsAsIs);
     CHECK(TeamResultsAction(kFeAccept, 0x1234, 0, 0x1234, true, true) == kResultsAsIs);
 }
+
+TEST(race_host_racers_only_in_our_event) {
+    CHECK(HostRacersAreOurs(true, 0xD9464514u, 0xD9464514u));
+    CHECK(!HostRacersAreOurs(true, 0xFE9D9378u, 0xD9464514u));   // host still on the last race's results
+    CHECK(!HostRacersAreOurs(true, 0u, 0xD9464514u));            // host back in free roam
+    CHECK(!HostRacersAreOurs(true, 0xD9464514u, 0u));            // we left the race
+    CHECK(HostRacersAreOurs(false, 0u, 0xD9464514u));            // no state from the host: leave as is
+}
