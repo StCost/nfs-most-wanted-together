@@ -782,7 +782,32 @@ uint8_t Game::RaceStage() {
 }
 const char* Game::StartStatus() { return g_startStatus; }
 
+// The other player restarted while our race is over (we're on its results screen): normally their
+// restart message presses Restart there for us. If that message never comes (their restart from the results
+// screen, a lost packet), their state says it too: they are in this same event again, racing from the
+// start, after we saw them out of it - then we press Restart on our results screen ourselves.
+static bool PressRestartOnResults();
+namespace { uint32_t g_peerOutOf = 0; DWORD g_peerBackAt = 0; bool g_peerBackPressed = false; }
+static void PeerRestartByState(bool connected) {
+    int mode = 0;
+    void* parms = CurrentParms(&mode);
+    uint32_t h = (parms && mode == 1) ? EventHashOf(parms) : 0;
+    const Net::Snapshot& pr = Net::Latest();
+    if (!connected || !g_coopLinked || !h || !pr.valid || pr.s.eventHash != h) { if (!h) g_peerOutOf = 0; g_peerBackAt = 0; g_peerBackPressed = false; return; }
+    bool peerOut = pr.s.finished || pr.s.pad[0] == 3;                 // on their results screen / out of the race
+    bool peerFresh = !pr.s.finished && (pr.s.pad[0] == 1 || pr.s.pad[0] == CoopRace::kStageLoadHeld || (pr.s.pad[0] == 2 && pr.s.inRace));
+    if (peerOut) { g_peerOutOf = h; g_peerBackAt = 0; g_peerBackPressed = false; return; }
+    if (g_peerOutOf != h || !peerFresh || g_peerBackPressed) return;
+    bool ourOver = LocalRacerOut() || FEScreens::IsPushed("PostRace_Results.fng") || FEScreens::IsPushed("InGamePhotoMaster.fng");
+    if (!ourOver) { g_peerOutOf = 0; return; }                          // we restarted with them already
+    if (!g_peerBackAt) { g_peerBackAt = GetTickCount(); return; }
+    if (GetTickCount() - g_peerBackAt < 1500) return;                  // their message may still come
+    g_peerBackPressed = true;
+    if (PressRestartOnResults()) { g_restartFromPeer = true; g_restartFromPeerAt = GetTickCount(); LOG("Race: the other player is racing this event again (no restart message came) - pressing Restart on our results screen too"); }
+    else { LOG("Race: the other player is racing this event again, but no results screen is up here - Restart there to join"); g_restartIgnoredNotice = true; }
+}
 static void RestartTickImpl(bool connected) {
+    __try { PeerRestartByState(connected); } __except (EXCEPTION_EXECUTE_HANDLER) {}
     uint8_t flag = 0;
     Mem::Read(0x91CF28, flag);
     if (flag && !g_lastRestartFlag) {
@@ -847,6 +872,8 @@ bool Game::InstallRestartSync() {
             uint8_t pending = 0;
             Mem::Read(0x91CF28, pending);
             if (seq == g_peerRestartSeq) return;                              // a repeat of one we already handled
+            LOG("Race: the other player restarted (event %08X, ours %08X, mode %d, flow %d)", hash, EventHashOf(parms), mode, Game::GameFlowState());
+            if (g_ownRestartAt && GetTickCount() - g_ownRestartAt < 2500) LOG("Race: ... we restarted at the same moment - nothing to do");
             if (hash && EventHashOf(parms) != hash) { LOG("Race: peer restarted a different event - ignored"); return; }
             g_peerRestartSeq = seq;
             if (g_ownRestartAt && GetTickCount() - g_ownRestartAt < 2500) return;   // we both restarted at once
