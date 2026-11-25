@@ -16,6 +16,7 @@
 #include "exitutil.h"
 #include "storyutil.h"
 #include "togetherutil.h"
+#include "opponentsutil.h"
 #include "mem.h"
 #include "log.h"
 #include "config.h"
@@ -975,6 +976,66 @@ static uint32_t PartnerCarKey() {
     } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
 }
 
+// ---- fixed AI opponents ([Coop] FixedOpponents, opponentsutil.h) ---------------------------------------
+namespace {
+    Opponents::Book g_oppBook;
+    bool     g_oppBookLoaded = false;
+    uint32_t g_oppHash = 0;          // the event whose racers are being built
+    DWORD    g_oppLastBuild = 0;
+    int      g_oppNext = 0;          // its next opponent (AI racers the game picked, in build order)
+    uint8_t  g_oppRec[Opponents::kRecordBytes];
+    std::string OppBookPath() {
+        char path[MAX_PATH] = {};
+        HMODULE m = nullptr;
+        if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)&OppBookPath, &m) ||
+            !GetModuleFileNameA(m, path, MAX_PATH)) return "MWTogether-opponents.bin";
+        std::string s = path;
+        size_t slash = s.find_last_of("\\/");
+        return (slash == std::string::npos ? std::string() : s.substr(0, slash + 1)) + "MWTogether-opponents.bin";
+    }
+    void OppBookLoad() {
+        if (g_oppBookLoaded) return;
+        g_oppBookLoaded = true;
+        std::vector<uint8_t> buf;
+        if (FILE* f = fopen(OppBookPath().c_str(), "rb")) {
+            uint8_t chunk[4096]; size_t n;
+            while ((n = fread(chunk, 1, sizeof(chunk), f)) > 0) buf.insert(buf.end(), chunk, chunk + n);
+            fclose(f);
+        }
+        if (buf.empty()) LOG("Race: fixed opponents - no book yet (each event's first opponents are kept)");
+        else if (g_oppBook.Load(buf.data(), buf.size())) LOG("Race: fixed opponents - book of %u event(s) loaded", (unsigned)g_oppBook.Events());
+        else LOG("Race: fixed opponents - the book is damaged, starting a new one");
+    }
+    void OppBookSave() {
+        std::vector<uint8_t> out = g_oppBook.Save();
+        std::string path = OppBookPath(), tmp = path + ".tmp";
+        FILE* f = fopen(tmp.c_str(), "wb");
+        if (!f) { LOG("Race: fixed opponents - can't write %s", tmp.c_str()); return; }
+        bool ok = fwrite(out.data(), 1, out.size(), f) == out.size();
+        ok = fclose(f) == 0 && ok;
+        if (ok) ok = MoveFileExA(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING) != 0;
+        if (!ok) LOG("Race: fixed opponents - saving the book failed");
+    }
+    uint32_t OppEventNow() {
+        void* rs = nullptr; void* parms = nullptr;
+        if (!Mem::Read(0x91E000, rs) || !rs || !Mem::Read((uintptr_t)rs + 0x1968, parms) || !parms) return 0;
+        return ((uint32_t(__thiscall*)(void*))0x5FAB40)(parms);   // GRaceParameters::GetEventHash
+    }
+    // GRacerInfo::ChooseRandomName 0x5DC800 (thiscall, from GRaceStatus::AddRacer at 0x602001): bRandom
+    // (seed bDefaultSeed 0x8EC4E0) picks RACERNAME_000..149 until no other racer has it. For that call
+    // the seed comes from the event and the racer's slot; the generator then goes on where it was.
+    constexpr uintptr_t ChooseNameFn = 0x5DC800, ChooseNameCall = 0x602001, RandomSeed = 0x8EC4E0;
+    void __fastcall hk_ChooseRandomName(void* ri, void*) {
+        uint32_t hash = 0; int slot = -1;
+        if (g_cfg.fixedOpponents) { __try { hash = OppEventNow(); slot = RacerSlotOfInfo(ri); } __except (EXCEPTION_EXECUTE_HANDLER) { hash = 0; } }
+        uint32_t saved = 0;
+        bool seeded = hash && slot >= 0 && Mem::Read(RandomSeed, saved);
+        if (seeded) { uint32_t s = Opponents::NameSeed(hash, slot); Mem::Write(RandomSeed, s); }
+        ((void(__thiscall*)(void*))ChooseNameFn)(ri);
+        if (seeded) Mem::Write(RandomSeed, saved);
+    }
+}
+
 static void* __cdecl hk_VehicleConstruct(SimParam p) {
     using Fn = void* (__cdecl*)(SimParam);
     VehicleParams* vp = (VehicleParams*)p.mData;
@@ -1064,7 +1125,42 @@ static void* __cdecl hk_VehicleConstruct(SimParam p) {
         }
     }
 
+    // fixed opponents: the ones this event was first built with here (not over the other player's roster,
+    // their car, or a rival race's own racers)
+    bool fromBook = false; int oppIdx = -1; uint32_t oppHash = 0;
+    uint32_t bKey = 0; void* bCustom = nullptr; void* bMatched = nullptr;
+    if (vp && vp->carClass == DRV_RACER && !replaced && !boss && g_cfg.fixedOpponents) {
+        __try {
+            OppBookLoad();
+            oppHash = OppEventNow();
+            DWORD nowB = GetTickCount();
+            if (Opponents::NewBuild(g_oppHash, oppHash, nowB - g_oppLastBuild)) { g_oppHash = oppHash; g_oppNext = 0; }
+            g_oppLastBuild = nowB;
+            oppIdx = oppHash ? g_oppNext++ : -1;
+            const Opponents::Entry* be = (oppIdx >= 0 && !fromRoster) ? g_oppBook.Get(oppHash, oppIdx) : nullptr;
+            if (be && be->hasCustom && !(g_coopLinked && g_usePeerRoster)) {
+                bKey = vp->carType; bCustom = vp->customization; bMatched = vp->matched;
+                memcpy(g_oppRec, be->custom, sizeof(g_oppRec));
+                vp->carType = be->key; vp->customization = g_oppRec; vp->matched = nullptr;
+                fromBook = true;
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) { oppIdx = -1; }
+    }
+
     void* simable = ((Fn)Addr::PVehicleConstruct)(p);
+    if (fromBook && !simable) {
+        LOG("Race: fixed opponent %d (model %08X) not loaded here - the game's pick instead", oppIdx, vp->carType);
+        vp->carType = bKey; vp->customization = bCustom; vp->matched = bMatched; fromBook = false;
+        simable = ((Fn)Addr::PVehicleConstruct)(p);
+    } else if (fromBook) LOG("Race: opponent %d built as this event's fixed opponent (model %08X)", oppIdx, vp->carType);
+    if (simable && oppIdx >= 0 && !fromBook && vp) {
+        uint8_t rec[Opponents::kRecordBytes];
+        bool hasRec = vp->customization && Mem::SafeRead(vp->customization, rec, sizeof(rec));
+        if (g_oppBook.Put(oppHash, oppIdx, vp->carType, hasRec ? rec : nullptr)) {
+            LOG("Race: fixed opponents - event %08X opponent %d is model %08X from now on", oppHash, oppIdx, vp->carType);
+            OppBookSave();
+        }
+    }
     if (helper && hKey && !simable) {
         LOG("Race: rival race - helper model %08X (%s) not loaded here - the game's pick %08X instead", vp->carType, hFrom, hKey);
         vp->carType = hKey; vp->customization = hCustom; vp->matched = hMatched; hFrom = "the game's pick";
@@ -1139,6 +1235,12 @@ bool Game::InstallVehicleFactoryHook() {
         return false;
     }
     Mem::PatchPointer((void*)0x92C534, (void*)&hk_VehicleConstruct);
+    {
+        uint8_t op = 0; int32_t rel = 0;
+        bool names = Mem::Read(ChooseNameCall, op) && Mem::Read(ChooseNameCall + 1, rel) && op == 0xE8 && ChooseNameCall + 5 + rel == ChooseNameFn;
+        if (names) Mem::PatchCall(ChooseNameCall, (void*)&hk_ChooseRandomName);
+        LOG("Race: fixed opponents %s (racer names %s)", g_cfg.fixedOpponents ? "on" : "off ([Coop] FixedOpponents=0)", names ? "hooked" : "NOT hooked");
+    }
     InstallTrafficHooks();
     InstallBudgetLog();
     InstallNosHooks();
@@ -1672,6 +1774,14 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
     // Hard-set the exact interpolated transform + velocities every frame. Because consecutive targets
     // come from one smooth curve, the car moves smoothly; setting velocities makes the physics step
     // between our frames carry it along the same path instead of fighting us.
+    // A parked car: sub-millimetre wobble of the received pose is not applied (HitUtil::HoldStill).
+    {
+        static HitUtil::StillHold still; static void* stillOf = nullptr;
+        if (stillOf != g_ghost) { still = HitUtil::StillHold(); stillOf = g_ghost; }
+        if (HitUtil::HoldStill(still, s.pos, s.rot, s.linVel, s.angVel)) {
+            for (int i = 0; i < 3; ++i) { s.linVel[i] = 0; s.angVel[i] = 0; }
+        }
+    }
     RB_SetVec(rb, RB_SetOrientationQuat, s.rot);
     RB_SetVec(rb, RB_SetPosition, s.pos);
     RB_SetVec(rb, RB_SetLinearVelocity, s.linVel);
@@ -1774,14 +1884,6 @@ static bool UpdateGhostSafe(const Net::Snapshot& latest, const Net::Snapshot& pr
         return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
-    // A parked car: sub-millimetre wobble of the received pose is not applied (HitUtil::HoldStill).
-    {
-        static HitUtil::StillHold still; static void* stillOf = nullptr;
-        if (stillOf != g_ghost) { still = HitUtil::StillHold(); stillOf = g_ghost; }
-        if (HitUtil::HoldStill(still, s.pos, s.rot, s.linVel, s.angVel)) {
-            for (int i = 0; i < 3; ++i) { s.linVel[i] = 0; s.angVel[i] = 0; }
-        }
-    }
     }
 }
 

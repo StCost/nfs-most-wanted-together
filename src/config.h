@@ -41,6 +41,7 @@ struct Config {
     bool        coopPrologue = true;     // [Coop] Prologue - co-op already in the prologue (both games run its chain, kept together at each start)
     bool        catchUpLeader = true;    // [Coop] CatchUpLeader - AI catch-up follows whichever player is ahead
     bool        partnerInRivalRaces = true; // [Coop] PartnerInRivalRaces - a rival race together has a racer slot for the other player (in the standings)
+    bool        fixedOpponents = true;   // [Coop] FixedOpponents - every start of an event gets the same AI racers (names, cars, tuning)
     bool        bossHelper = true;       // [Coop] BossHelper - co-op Blacklist rival races get one more AI racer (normal AI)
     bool        bossHelperSolo = false;  // [Debug] BossHelperSolo - test: the extra rival-race racer also when not connected
     bool        startTogether = true;    // [Coop] StartTogether - hold the loading screen (and the grid) until the other player has loaded

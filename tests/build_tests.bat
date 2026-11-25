@@ -22,7 +22,7 @@ call "%VCVARS%" >nul 2>nul || (echo vcvars32 not found & exit /b 1)
 :have_cl
 
 set COMMON=/nologo /EHsc /std:c++17 /W3 /DWIN32_LEAN_AND_MEAN /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS /DMWT_TESTS
-set SRC=tests\test_main.cpp tests\test_protocol.cpp tests\test_util.cpp tests\test_net.cpp tests\test_packets.cpp tests\test_file.cpp tests\test_config.cpp tests\test_fuzz.cpp tests\test_loopback.cpp tests\test_pursuit.cpp tests\test_milestone.cpp tests\test_race.cpp tests\test_profile.cpp tests\test_ground.cpp tests\test_notice.cpp tests\test_prologue.cpp tests\test_together.cpp tests\test_paint.cpp tests\test_fe.cpp tests\test_story.cpp tests\test_rivalgate.cpp tests\test_roadblock.cpp tests\test_log.cpp tests\test_netsim.cpp src\net.cpp src\config.cpp src\log.cpp
+set SRC=tests\test_main.cpp tests\test_protocol.cpp tests\test_util.cpp tests\test_net.cpp tests\test_packets.cpp tests\test_file.cpp tests\test_config.cpp tests\test_fuzz.cpp tests\test_loopback.cpp tests\test_pursuit.cpp tests\test_milestone.cpp tests\test_race.cpp tests\test_profile.cpp tests\test_ground.cpp tests\test_notice.cpp tests\test_prologue.cpp tests\test_together.cpp tests\test_paint.cpp tests\test_fe.cpp tests\test_story.cpp tests\test_rivalgate.cpp tests\test_roadblock.cpp tests\test_opponents.cpp tests\test_log.cpp tests\test_netsim.cpp src\net.cpp src\config.cpp src\log.cpp
 
 if /i "%1"=="analyze" goto :analyze
 

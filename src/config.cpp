@@ -61,6 +61,7 @@ void Config::Load(const char* ini) {
     coopPrologue = ReadInt(ini, "Coop", "Prologue", 1) != 0;
     catchUpLeader = ReadInt(ini, "Coop", "CatchUpLeader", 1) != 0;
     bossHelper = ReadInt(ini, "Coop", "BossHelper", 1) != 0;
+    fixedOpponents = ReadInt(ini, "Coop", "FixedOpponents", 1) != 0;
 #ifdef MWT_DEVTOOLS
     bossHelperSolo = ReadInt(ini, "Debug", "BossHelperSolo", 0) != 0;
 #else
