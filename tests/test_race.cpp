@@ -405,15 +405,15 @@ TEST(race_lose_screen_gives_way_to_the_results_list) {
 }
 
 TEST(race_out_player_gets_the_team_win) {
-    // totaled / knocked out with the losing results list up, then they win: counted, the list stays
-    CHECK(OutOfRaceWin(false, true, true, true, false, false, false, true, false) == OutWin::CreditHere);
+    // totaled / knocked out with the losing results list up, then they win: the list closes for the winner's photo
+    CHECK(OutOfRaceWin(false, true, true, true, false, false, false, true, false) == OutWin::ViaResults);
     CHECK(OutOfRaceWin(false, true, true, true, false, false, false, true, true) == OutWin::None);    // the photo, not ours
     CHECK(OutOfRaceWin(false, true, true, true, false, true, false, true, false) == OutWin::None);    // already counted
     // quit / continued off the losing screen before they won: the race is over here - not counted
     CHECK(OutOfRaceWin(false, true, false, true, false, false, false, false, false) == OutWin::None);
     CHECK(OutOfRaceWin(false, true, false, true, false, false, false, true, false) == OutWin::None);
     CHECK(OutOfRaceWin(false, true, false, true, false, false, true, false, false) == OutWin::None);
-    // they won while "race over" was shown: the results list instead of the losing screen
+    // they won while "race over" was shown: the winner's photo instead of the losing screen
     CHECK(CreditBeforeLoseScreen(true, true, true, false, false));
     CHECK(!CreditBeforeLoseScreen(false, true, true, false, false));  // they haven't won (yet)
     CHECK(!CreditBeforeLoseScreen(true, false, true, false, false));  // the race is over here
@@ -492,30 +492,39 @@ TEST(race_grid_slot_all_taken_falls_back) {
     CHECK(a == -kGridDefaultRow && s == 0.f);
 }
 
-// ---- the winner's photo only for whoever really won (1.7.6) ---------------------------------------
-TEST(race_team_win_shows_the_results_list) {
-    CHECK(TeamWinResults(true, 0x1234, 0x1234));      // our win came from the other player: results list
-    CHECK(!TeamWinResults(true, 0x1234, 0));          // we won ourselves: the photo
-    CHECK(!TeamWinResults(true, 0x1234, 0x999));      // their win in an earlier event
-    CHECK(!TeamWinResults(false, 0x1234, 0x1234));    // lost: the game's losing screen as always
-    CHECK(!TeamWinResults(true, 0, 0));
+// ---- a shared win shows the winner's photo, naming who won ---------------------------------------
+TEST(race_team_win_shows_the_photo) {
+    CHECK(TeamWinPhoto(0x1234, 0x1234));      // our win came from the other player: the photo names them
+    CHECK(!TeamWinPhoto(0x1234, 0));          // we won ourselves: the photo as the game shows it
+    CHECK(!TeamWinPhoto(0x1234, 0x999));      // their win in an earlier event
+    CHECK(!TeamWinPhoto(0, 0));
 }
-TEST(race_team_results_leave_like_the_photo) {
-    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x1234, 0, true, false) == kResultsOutro);
-    CHECK(TeamResultsAction(kFeAccept, 0x1234, 0x1234, 0, true, false) == kResultsNoDialog);
-    CHECK(TeamResultsAction(0xE1A57D51u, 0x1234, 0x1234, 0, true, false) == kResultsAsIs);   // Restart: as the game does
-    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0, 0, true, false) == kResultsAsIs);    // a lost race / "raceover"
-    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x999, 0, true, false) == kResultsAsIs);
-    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x1234, 0, false, false) == kResultsAsIs);
-    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x1234, 0, true, true) == kResultsAsIs);  // opened from the photo
-    CHECK(TeamResultsAction(kFeExitComplete, 0, 0, 0, true, false) == kResultsAsIs);
-    // won after we were out ("raceover"): Continue without the dialog, the list's own exit
-    CHECK(TeamResultsAction(kFeAccept, 0x1234, 0, 0x1234, true, false) == kResultsNoDialog);
-    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0, 0x1234, true, false) == kResultsAsIs);
-    CHECK(TeamResultsAction(0xE1A57D51u, 0x1234, 0, 0x1234, true, false) == kResultsAsIs);
-    CHECK(TeamResultsAction(kFeAccept, 0x1234, 0, 0x999, true, false) == kResultsAsIs);
-    CHECK(TeamResultsAction(kFeAccept, 0x1234, 0, 0x1234, false, false) == kResultsAsIs);
-    CHECK(TeamResultsAction(kFeAccept, 0x1234, 0, 0x1234, true, true) == kResultsAsIs);
+TEST(race_team_photo_after_out_ends_like_the_results_list) {
+    // (msg, event, outWinEvent, racePhoto, career, photoReady)
+    CHECK(TeamPhotoAction(kFeAccept, 0x1234, 0x1234, true, true, true) == kPhotoEndOut);
+    CHECK(TeamPhotoAction(kFeAccept, 0x1234, 0, true, true, true) == kPhotoAsIs);         // "postrace": the photo's own
+    CHECK(TeamPhotoAction(kFeAccept, 0x1234, 0x999, true, true, true) == kPhotoAsIs);     // another event's win
+    CHECK(TeamPhotoAction(kFeAccept, 0, 0, true, true, true) == kPhotoAsIs);
+    CHECK(TeamPhotoAction(0xE1A57D51u, 0x1234, 0x1234, true, true, true) == kPhotoAsIs);  // Restart: as the game does
+    CHECK(TeamPhotoAction(kFeExitComplete, 0x1234, 0x1234, true, true, true) == kPhotoAsIs);
+    CHECK(TeamPhotoAction(kFeAccept, 0x1234, 0x1234, false, true, true) == kPhotoAsIs);   // a speedtrap / pursuit photo
+    CHECK(TeamPhotoAction(kFeAccept, 0x1234, 0x1234, true, false, true) == kPhotoAsIs);   // quick race: quits to the menu
+    CHECK(TeamPhotoAction(kFeAccept, 0x1234, 0x1234, true, true, false) == kPhotoAsIs);   // pictures still coming in
+}
+TEST(race_team_results_list) {
+    // (msg, event, teamWinEvent, swapEvent, resultsUp)
+    CHECK(TeamResultsAction(kFeAccept, 0x1234, 0x1234, 0, true) == kResultsNoDialog);       // shared win: no "you did not win"
+    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x1234, 0, true) == kResultsAsIs);     // its exit as the game does
+    CHECK(TeamResultsAction(0xE1A57D51u, 0x1234, 0x1234, 0, true) == kResultsAsIs);         // Restart
+    CHECK(TeamResultsAction(kFeAccept, 0x1234, 0, 0, true) == kResultsAsIs);                // a lost race
+    CHECK(TeamResultsAction(kFeAccept, 0x1234, 0x999, 0, true) == kResultsAsIs);
+    CHECK(TeamResultsAction(kFeAccept, 0x1234, 0x1234, 0, false) == kResultsAsIs);
+    CHECK(TeamResultsAction(kFeAccept, 0, 0, 0, true) == kResultsAsIs);
+    // the losing list closing for the winner's photo: it must not end the race on its way out
+    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0, 0x1234, true) == kResultsHold);
+    CHECK(TeamResultsAction(kFeAccept, 0x1234, 0, 0x1234, true) == kResultsHold);
+    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0, 0x999, true) == kResultsAsIs);
+    CHECK(TeamResultsAction(0xE1A57D51u, 0x1234, 0, 0x1234, true) == kResultsAsIs);
 }
 
 TEST(race_host_racers_only_in_our_event) {

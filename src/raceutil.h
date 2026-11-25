@@ -330,44 +330,49 @@ namespace CoopRace {
         return false;
     }
 
-    // The winner's photo is for whoever really won: a win we only have because the other player won
-    // (event `teamWinEvent`) shows the results list instead (coopwin.inl ShowPostRaceCoop).
-    inline bool TeamWinResults(bool won, uint32_t event, uint32_t teamWinEvent) {
-        return won && event && event == teamWinEvent;
+    // A win we only have because the other player won (event `teamWinEvent`) shows the winner's photo too, its line
+    // under the photo naming them ("<name> won the race"; coopwin.inl hk_PhotoSetup).
+    inline bool TeamWinPhoto(uint32_t event, uint32_t teamWinEvent) {
+        return event && event == teamWinEvent;
     }
-
-    // What the results list does with a message while it stands in for the winner's photo in the race
-    // script's "postrace" state (outroEvent: the event it was shown for there; coopwin.inl hk_ResultsNotify).
-    // That state only moves on with the photo's Continue (MFlowReadyForOutro); the list's own Continue posts
-    // MNotifyRaceAbandoned, which only "raceover" answers - the race never ended and nothing responded.
-    enum TeamResultsStep { kResultsAsIs = 0, kResultsNoDialog = 1, kResultsOutro = 2 };
     constexpr uint32_t kFeAccept = 0x406415E3u, kFeExitComplete = 0xE1FDE1D1u;
-    // outWinEvent: the event whose win was counted for us after we were out ("raceover"): the list's own exit
-    // (MNotifyRaceAbandoned) is the way out there, only the "you did not win" dialog is skipped.
-    inline int TeamResultsAction(uint32_t msg, uint32_t event, uint32_t outroEvent, uint32_t outWinEvent,
-                                 bool resultsUp, bool photoUp) {
-        if (!event || !resultsUp || photoUp) return kResultsAsIs;
-        if (event != outroEvent) return (msg == kFeAccept && event == outWinEvent) ? kResultsNoDialog : kResultsAsIs;
-        if (msg == kFeExitComplete) return kResultsOutro;     // the list has gone after Continue: the photo's Continue
-        if (msg == kFeAccept) return kResultsNoDialog;        // Continue: no "you did not win" dialog for a counted win
+    // The photo's Continue (coopwin.inl hk_PhotoNotify). outWinEvent: the event whose win was counted for us after we
+    // were out - the race script is in "raceover" and waits for MNotifyRaceAbandoned, not the photo's
+    // MFlowReadyForOutro: a career race then ends the way the results list ends it. Anywhere else the photo's own.
+    enum TeamPhotoStep { kPhotoAsIs = 0, kPhotoEndOut = 1 };
+    inline int TeamPhotoAction(uint32_t msg, uint32_t event, uint32_t outWinEvent, bool racePhoto, bool career,
+                               bool photoReady) {
+        if (msg != kFeAccept || !event || event != outWinEvent) return kPhotoAsIs;
+        if (!racePhoto || !career || !photoReady) return kPhotoAsIs;   // a quick race quits to the menu as always
+        return kPhotoEndOut;
+    }
+    // What the results list does with a message (coopwin.inl hk_ResultsNotify). swapEvent: the event whose losing
+    // list is closing for the winner's photo - its Continue / exit must not end the race then. A shared win's
+    // Continue skips the "you did not win" dialog of a Blacklist race (our racer may not be 1st here).
+    enum TeamResultsStep { kResultsAsIs = 0, kResultsNoDialog = 1, kResultsHold = 2 };
+    inline int TeamResultsAction(uint32_t msg, uint32_t event, uint32_t teamWinEvent, uint32_t swapEvent, bool resultsUp) {
+        if (!event || !resultsUp) return kResultsAsIs;
+        if (event == swapEvent && (msg == kFeAccept || msg == kFeExitComplete)) return kResultsHold;
+        if (msg == kFeAccept && event == teamWinEvent) return kResultsNoDialog;
         return kResultsAsIs;
     }
 
     // Out of the event ("raceover": totaled, knocked out, beaten), not waiting for a knockout, the race still
     // running here, and then the other player wins (once per run): what happens to the screen up.
-    //  ViaPauseScreen - the race-over Restart / Quit screen: it goes, the win is counted, the results list
-    //  CreditHere     - the losing results list: the win is counted, the list stays (its Continue ends the race)
+    // The screen up closes and the winner's photo comes instead, the win counted (coopwin.inl LoseScreenWinTickImpl):
+    //  ViaPauseScreen - the race-over Restart / Quit screen
+    //  ViaResults     - the losing results list
     //  None           - nothing yet (the "race over" message: ShowLosingPostRaceScreen decides), or we left
-    enum class OutWin { None, CreditHere, ViaPauseScreen };
+    enum class OutWin { None, ViaResults, ViaPauseScreen };
     inline OutWin OutOfRaceWin(bool knockoutHeld, bool peerWon, bool racing, bool localOut,
                                bool localWon, bool doneThisRun, bool pauseScreenUp, bool resultsUp, bool photoUp) {
         if (knockoutHeld || !peerWon || !racing || !localOut || localWon || doneThisRun) return OutWin::None;
         if (pauseScreenUp) return OutWin::ViaPauseScreen;
-        if (resultsUp && !photoUp) return OutWin::CreditHere;
+        if (resultsUp && !photoUp) return OutWin::ViaResults;
         return OutWin::None;
     }
     // ShowLosingPostRaceScreen with their win already in (they won while "race over" was shown): the win is
-    // counted and the results list comes instead of the losing screen
+    // counted and the winner's photo comes instead of the losing screen
     inline bool CreditBeforeLoseScreen(bool peerWon, bool racing, bool localOut, bool localWon, bool doneThisRun) {
         return peerWon && racing && localOut && !localWon && !doneThisRun;
     }
