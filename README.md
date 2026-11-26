@@ -70,7 +70,7 @@ Things we know about but can't fix yet:
 
 - **Traffic popping in for the joining player.** Sometimes a traffic car appears right in front of the joining player's car, which can cause a sudden collision.
 - **Traffic vanishing.** The other way round, a traffic car can disappear right in front of you.
-- **Semi trucks and their trailers.** A semi truck (tractor unit) with a trailer hitched behind it is sometimes not synced: the truck or its trailer may be missing in one of the two games.
+- **Semi trucks with trailers.** A semi truck with a trailer might not be synced between the two games.
 
 
 </details>
