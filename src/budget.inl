@@ -146,6 +146,20 @@ static void InstallBudgetLog() {
     const uint8_t cmp[3] = { 0x83, 0xF8, 0x14 }, lea[3] = { 0x8D, 0x50, 0xEC };   // cmp eax,0x14 / lea edx,[eax-0x14]
     g_limitPatchOk = !memcmp((void*)(LimitCmpImm - 2), cmp, 3) && !memcmp((void*)(LimitLeaImm - 2), lea, 3);
     LOG("Budget: count limit %s", g_limitPatchOk ? "found (20, 40 for the other player's copies once the tables are grown)" : "NOT found (code differs) - 20 for all");
+    // The budget's eviction path (over the count or the memory limit) lists every car in the world (list
+    // 0x92C510) into a local UTL::FixedVector of 20 (vtable 0x8AA234, 0x18-byte entries, storage on the
+    // stack). With more than 20 cars a push past its capacity wrote over the stack - the car pointer it
+    // reloads at 0x687903 - and the game crashed at 0x687956 (seen with 26 cars: 0xC0000409). The full
+    // branch (inc edx / push edx / ... grow at 0x6878B9) now restores ebp and skips to the next car:
+    // the eviction picks from the first 20 cars listed.
+    {
+        const uint8_t orig[9] = { 0x42, 0x52, 0x8B, 0x54, 0x24, 0x30, 0x8D, 0x4C, 0x24 };
+        const uint8_t patch[9] = { 0x8B, 0xAC, 0x24, 0x44, 0x02, 0x00, 0x00,     // mov ebp,[esp+244h]
+                                   0xEB, 0x4D };                                 // jmp 0x68790F (next car)
+        bool full = Mem::PatchBytes(0x6878B9, orig, patch, sizeof(patch));
+        LOG("Budget: eviction list kept to its 20 %s", full ? "(no stack overrun past 20 cars)" : "NOT patched (bytes differ) - more than 20 cars can crash an eviction");
+        if (!full) g_limitPatchOk = false;   // then stay at 20
+    }
     bool ok = PatchCallChecked(BudgetCall, BudgetFn, (void*)&hk_BudgetCheck);
     LOG("Budget: car budget %s", ok ? "logged (evictions / refusals)" : "NOT logged (call site differs)");
 }

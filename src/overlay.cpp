@@ -556,7 +556,7 @@ namespace {
             ++g_frames;
             if (g_cb) g_cb(dev);
             if (!g_shotPath.empty() && !g_shotOverlay) { SaveBackBuffer(dev, g_shotPath); g_shotPath.clear(); }   // before our overlay
-            if (g_visible || Together::Visible()) DrawOnBackBuffer(dev);
+            if (g_visible || Together::Visible() || g_peerBar.kind > 0) DrawOnBackBuffer(dev);   // the partner bar draws with the overlay hidden too
             if (!g_shotPath.empty() && g_shotOverlay) { SaveBackBuffer(dev, g_shotPath); g_shotPath.clear(); }
         }
         HRESULT hr = o_Present(dev, src, dst, wnd, dirty);
