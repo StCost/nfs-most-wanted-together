@@ -873,6 +873,12 @@ namespace {
     }
 
     void* g_killed[32] = {}; int g_killedNext = 0;   // cars we destroyed (see KillVehicle)
+    // Room for 40 cars (budget.inl): the game's car tables grown to twice their size, and the other player's
+    // copies (built by SpawnVehicle) allowed up to 40; the game's own cars keep its 20.
+    constexpr int kGameCarLimit = 20, kCopyCarLimit = 40;
+    bool g_tablesBig = false;       // every car table has its big buffer now
+    bool g_copySpawn = false;       // SpawnVehicle is building one of the other player's cars
+    int  CopyCarLimit() { return g_tablesBig ? kCopyCarLimit : kGameCarLimit; }
     void* SpawnVehicle(uint32_t carKey, const void* custom, const float pos[3], const float dir[3], int driverClass) {
         uint32_t typeHash = 0;
         ((uint32_t* (__cdecl*)(uint32_t*))Addr::VehicleParamsType)(&typeHash);
@@ -889,7 +895,9 @@ namespace {
         vp.customization = custom ? customCopy : nullptr;
         vp.vehicleCache = &g_cache;   // lets the budget check evict traffic/cops to make room for this model
         using Fn = void* (__cdecl*)(SimParam);
+        g_copySpawn = true;
         void* simable = ((Fn)Addr::PVehicleConstruct)(vp.base);
+        g_copySpawn = false;
         if (!simable) return nullptr;
         // find its IVehicle interface
         void* iv = nullptr;

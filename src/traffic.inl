@@ -1167,7 +1167,7 @@ static int MaintainMirrors(double now) {
             // its cars for this copy (a car vanished in front of the player, then the game took the copy back)
             // (a cop of their roadblock: one of our own traffic cars nobody sees makes room for it, or the
             // roadblock would have a gap here that their game doesn't have)
-            { void** lb = nullptr; if (ListSize(VL_ALL, &lb) >= 20) {
+            { void** lb = nullptr; if (ListSize(VL_ALL, &lb) >= CopyCarLimit()) {
                 if (NetUtil::CopCopyNeedsRoom(e.flags)) { MakeRoomForRoadblockCop(); ++g_copRoomWaits; }
                 ++g_budgetWaits; continue; } }
             // SmoothHandover: only where the player can't see it pop in (or one of our cars becomes it)
