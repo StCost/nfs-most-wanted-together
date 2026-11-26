@@ -284,8 +284,10 @@ namespace {
         bool     hideSafehouse = false;
         uint32_t lastEvent = 0;          // our event: a new one clears an old escape signal
         bool     peerChasedInEvent = false;   // their pursuit was live in this same event
+        bool     peerLiveWithOurs = false;    // their pursuit was live while this pursuit of ours was
         void*    sharedHidePerp = nullptr;    // our IPerpetrator: its pursuit runs the cooldown as if hidden
         float    catchUpLogged = 0.f;
+        float    catchUpLeftSeen = -1.f;      // our P_CoolLeft when we last added a catch-up
     } g_sp;
 
     // IPerpetrator slots 11 / 12 (hidden from cars / helicopters). Vanilla for everyone, except that our
@@ -867,13 +869,13 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         float mine = VCall<float(__thiscall*)(void*)>(perp, 1)(perp);
         g_sp.heat100 = HeatToWire(mine);
         float take = peerHere ? HeatToTake(g_sp.heat, mine, peer.s.heat100) : 0.f;
-        if (!peerHere) g_sp.heat = {};
+        if (!peerHere) g_sp.heat.lastPeer = 0;   // a gap: their next value is a baseline (synced stays)
         if (take > 0.f) {
             VCall<void(__thiscall*)(void*, float)>(perp, 2)(perp, take);
             g_sp.heat100 = HeatToWire(take);
             LOG("Pursuit: heat %.2f -> %.2f (the other player's heat)", mine, take);
         }
-    } else g_sp.heat = {};
+    } else g_sp.heat.lastPeer = 0;
 
     // ---- 4. the other player was busted: personal in free roam; in an event both of us are in it
     //      fails the event for both, so we are busted too (the game's own arrest, cutscene and loss screen) ----
@@ -926,7 +928,10 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     // escape signal must not end ours - that would win the event for us).
     if (sameEvent && theirs.inPursuit) g_sp.peerChasedInEvent = true;
     if (!sameEvent) g_sp.peerChasedInEvent = false;
-    bool peerEvadedHere = peer.valid && PeerEscapeCounts(place, theirs.evaded, g_sp.peerChasedInEvent);
+    // their pursuit live during this pursuit of ours (reset whenever ours isn't live)
+    if (!mine.inPursuit) g_sp.peerLiveWithOurs = false;
+    else if (peer.valid && theirs.inPursuit) g_sp.peerLiveWithOurs = true;
+    bool peerEvadedHere = peer.valid && PeerEscapeCounts(place, theirs.evaded, g_sp.peerChasedInEvent, g_sp.peerLiveWithOurs);
     if (!peerEvadedHere) theirs.evaded = false;
     bool peerForCool = peerHere || peerEvadedHere;
     if ((g_sp.flags & PURSUIT_ACTIVE) && peerForCool) {
@@ -963,7 +968,11 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         // both in cooldown: one cooldown (the one further on), and the hiding spot of either counts for both
         if (d.what == Cool::Free && peerHere && !resultsFreeze && pursuit && status == PS_COOLDOWN) {
             float add = CooldownCatchUp(mine, theirs, true);
+            // P_CoolLeft is only recomputed by the game's own pursuit task: while it hasn't run since our
+            // last catch-up (pause menu, a sim stall) the same difference must not be added again
+            if (add > 0.f && mine.left == g_sp.catchUpLeftSeen) add = 0.f;
             if (add > 0.f) {
+                g_sp.catchUpLeftSeen = mine.left;
                 float search = PRead<float>(pursuit, P_Search);
                 PWrite<float>(pursuit, P_Search, search + add);
                 if (add >= 1.f || g_sp.catchUpLogged == 0.f) {
@@ -972,7 +981,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
                 }
             }
             if (ShareHidingSpot(mine, theirs, true) && me) hidePerp = Find(me, IPerpetratorHandle);
-        } else g_sp.catchUpLogged = 0.f;
+        } else { g_sp.catchUpLogged = 0.f; g_sp.catchUpLeftSeen = -1.f; }
         if (coolNow != g_sp.lastCool) {
             if (d.what == Cool::Freeze) LOG("Pursuit: in cooldown - meter frozen until the other player is in cooldown too");
             else if (d.what == Cool::Reset) LOG("Pursuit: the other player was spotted - we stay in cooldown, meter reset and frozen");

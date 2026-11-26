@@ -443,11 +443,19 @@ TEST(pursuit_shared_place) {
 
 TEST(pursuit_event_escape_signal_needs_their_pursuit_in_this_event) {
     using SharedPursuit::Place; using SharedPursuit::PeerEscapeCounts;
-    CHECK(PeerEscapeCounts(Place::FreeRoam, true, false));         // free roam: as before (safehouse)
-    CHECK(PeerEscapeCounts(Place::None, true, false));
-    CHECK(!PeerEscapeCounts(Place::SameEvent, true, false));       // an escape from before this event
-    CHECK(PeerEscapeCounts(Place::SameEvent, true, true));         // they escaped in this event: ours too
-    CHECK(!PeerEscapeCounts(Place::SameEvent, false, true));
+    CHECK(PeerEscapeCounts(Place::FreeRoam, true, false, true));   // free roam: as before (safehouse)
+    CHECK(PeerEscapeCounts(Place::None, true, false, true));
+    CHECK(!PeerEscapeCounts(Place::SameEvent, true, false, true)); // an escape from before this event
+    CHECK(PeerEscapeCounts(Place::SameEvent, true, true, true));   // they escaped in this event: ours too
+    CHECK(!PeerEscapeCounts(Place::SameEvent, false, true, true));
+}
+
+TEST(pursuit_old_escape_signal_does_not_end_a_later_pursuit) {
+    using SharedPursuit::Place; using SharedPursuit::PeerEscapeCounts;
+    // they escaped earlier and still send EVADED; our pursuit started after theirs had ended
+    CHECK(!PeerEscapeCounts(Place::FreeRoam, true, false, false));
+    CHECK(!PeerEscapeCounts(Place::None, true, false, false));
+    CHECK(!PeerEscapeCounts(Place::SameEvent, true, true, false)); // e.g. after a Restart of the same event
 }
 
 // The reported case: in a Challenge Series pursuit the client lost the cops and its meter ran out

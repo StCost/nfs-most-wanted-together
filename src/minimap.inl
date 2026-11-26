@@ -41,6 +41,7 @@ namespace {
         return obj;
     }
     void PaintLocalPlayer(void* minimap) {
+        if (!g_coopLinked || !Net::Stats().connected) return;   // solo: the game's own arrow, as in vanilla
         uint32_t want = Game::LocalBlipColor();
         if (!want) return;
         if (minimap) {

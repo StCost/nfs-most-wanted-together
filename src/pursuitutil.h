@@ -304,10 +304,12 @@ namespace SharedPursuit {
     inline bool PursuitFrozenForResults(bool inEvent, bool localDone, bool resultsScreen) {
         return resultsScreen || (inEvent && localDone);
     }
-    // Their escape ends ours (ForceEscape) in free roam as before; in an event only once their
-    // pursuit was live in this same event, so an old escape signal can't win the event for us.
-    inline bool PeerEscapeCounts(Place place, bool peerEvaded, bool peerChasedInEvent) {
-        if (!peerEvaded) return false;
+    // Their escape ends ours (ForceEscape) only if their pursuit was live while ours was (the sender
+    // keeps EVADED on the wire after its pursuit is gone, so an escape from an earlier pursuit must
+    // not end a later one of ours); in an event also only once their pursuit was live in this same
+    // event, so an old escape signal can't win the event for us.
+    inline bool PeerEscapeCounts(Place place, bool peerEvaded, bool peerChasedInEvent, bool peerLiveWithOurs) {
+        if (!peerEvaded || !peerLiveWithOurs) return false;
         if (place == Place::SameEvent) return peerChasedInEvent;
         return true;
     }
@@ -328,6 +330,7 @@ namespace SharedPursuit {
         T_COPS_DESTROYED, T_ROADBLOCKS, T_STAT158, T_COPS_DAMAGED, T_STAT168, T_SPIKES,
         T_PROPERTY, T_STAT17C, T_STAT180, T_STAT184, T_STAT188, T_BOUNTY28, T_BOUNTY24, T_COUNT
     };
+    static_assert(T_COUNT == PSTATS_COUNT, "PKT_PSTATS carries one value per tally stat");
     constexpr int32_t TALLY_MAX = 100000000;   // $100M / 100M units: anything above is garbage
     struct TallyShare {
         bool     live = false;          // our pursuit is running

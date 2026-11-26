@@ -271,6 +271,12 @@ namespace {
         float sim = Game::SimTimeSec();
         bool reload = sim + 1.f < g_rbLastSim;
         g_rbLastSim = sim;
+        // leaving the world (a load, the menus) frees its pieces too - before a "removed" packet or a
+        // disconnect could make us destroy objects the game already freed
+        static bool wasInWorld = false;
+        bool inWorld = Game::GameFlowState() == 6;
+        if (wasInWorld && !inWorld) reload = true;
+        wasInWorld = inWorld;
         if (reload) {   // the world was loaded again: its pieces (ours and theirs) are gone with it
             for (int i = 0; i < Roadblock::MAX_PEER; ++i) if (g_rbPeer.e[i].used) RbDestroyPieces(i, true);
             for (auto& o : g_rbOurs) if (o.used && o.rb) { o.rb = nullptr; o.removalLeft = Roadblock::kRemovalRepeats; }

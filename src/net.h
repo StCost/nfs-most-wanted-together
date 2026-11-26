@@ -299,7 +299,8 @@ struct TrailerPacket {
 #pragma pack(pop)
 
 constexpr uint32_t COOP_MAGIC   = 0x4F43574D; // "MWCO"
-constexpr uint16_t COOP_VERSION = 18;   // 18: shared pursuits (CarState heat100 / pursuitFlags / bustSeq / coolLeft10)
+constexpr uint16_t COOP_VERSION = 19;   // 18: shared pursuits (CarState heat100 / pursuitFlags / bustSeq / coolLeft10)
+                                        // 19: pursuit flags READY / EVADED / HIDING (an 18 build drops states carrying them)
 
 struct NetStats {
     bool        connected = false;

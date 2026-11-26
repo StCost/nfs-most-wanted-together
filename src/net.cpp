@@ -38,9 +38,15 @@ namespace {
     bool        g_haveLocalCar = false, g_havePeerCar = false;
     float       g_peerRain = 0, g_peerCloud = 0; uint32_t g_peerWeatherTick = 0;
     uint32_t    g_gridSlotEvent = 0, g_gridSlotTick = 0; float g_gridSlot[3] = {}; bool g_gridSlotRacer = false;
-    uint32_t    g_peerPStatsId = 0, g_peerPStatsCount = 0; int32_t g_peerPStats[PSTATS_COUNT] = {};
+    uint32_t    g_peerPStatsId = 0, g_peerPStatsCount = 0, g_lastPStatsSeq = 0; int32_t g_peerPStats[PSTATS_COUNT] = {};
     uint32_t    g_lastMilestoneId = 0;        // PKT_MILESTONE copies share an id
     uint32_t    g_lastCarSend = 0;
+    // what we kept from the last peer: a new connection (or another peer) starts without it
+    void ResetPeerSessionState() {
+        g_gridSlotEvent = g_gridSlotTick = 0; memset(g_gridSlot, 0, sizeof(g_gridSlot)); g_gridSlotRacer = false;
+        g_peerPStatsId = g_peerPStatsCount = g_lastPStatsSeq = 0; memset(g_peerPStats, 0, sizeof(g_peerPStats));
+        g_lastMilestoneId = 0;
+    }
 
 #ifdef MWT_TESTS
     // test build: a settable millisecond clock and a tap on everything SendRaw would send
@@ -74,12 +80,15 @@ namespace {
 
     void NetSimOnInit() {
         if (!g_simCsInit) { InitializeCriticalSection(&g_simCs); g_simCsInit = true; }
+        // the keep-alive thread of the session being restarted may still be flushing the queue
+        EnterCriticalSection(&g_simCs);
         g_sim = NetSimUtil::ClampSettings({
             g_cfg.netDelayMs, g_cfg.netJitterMs, g_cfg.netLossPercent,
             g_cfg.netDuplicatePercent, g_cfg.netReorderPercent
         });
         g_simOn = NetSimUtil::Enabled(g_sim);
         g_simQ.clear();
+        LeaveCriticalSection(&g_simCs);
         if (g_simOn && !g_simLogged) {
             g_simLogged = true;
             LOG("NetSim: delay %d ms, jitter %d ms, loss %d%%, duplicate %d%%, reorder %d%% (dev only)",
@@ -284,6 +293,7 @@ namespace {
             g_stats.connected = true;
             g_peerSaidBye = false;
             g_lastStateSeq = 0; // the peer may have restarted and begun counting from 1 again
+            ResetPeerSessionState();
             g_ringCount = 0;
             g_latest.valid = g_prev.valid = false;
             g_stats.peerAddr = AddrToStr(from);
@@ -452,6 +462,9 @@ namespace {
             if (len < (int)sizeof(PursuitStatsPacket)) return;
             const PursuitStatsPacket* p = (const PursuitStatsPacket*)buf;
             for (int i = 0; i < PSTATS_COUNT; ++i) if (p->v[i] < 0 || p->v[i] > 100000000) return;
+            // a late copy from an earlier pursuit must not replace a newer one (TallyPeer would credit it again)
+            if (g_peerPStatsCount && h->seq <= g_lastPStatsSeq && g_lastPStatsSeq - h->seq < 300) return;
+            g_lastPStatsSeq = h->seq;
             g_peerPStatsId = p->pursuitId;
             memcpy(g_peerPStats, p->v, sizeof(g_peerPStats));
             ++g_peerPStatsCount;
@@ -1022,6 +1035,7 @@ bool Net::Restart() {
     g_havePeer = false;
     g_lastHello = g_lastPing = 0;
     g_lastStateSeq = 0;
+    ResetPeerSessionState();
     g_stats = NetStats{};
     g_latest = Net::Snapshot{}; g_prev = Net::Snapshot{};
     g_err[0] = 0;
@@ -1048,6 +1062,7 @@ void Net::Test_Reset() {
     g_seq = 0;
     g_lastHello = g_lastPing = 0;
     g_lastStateSeq = 0;
+    ResetPeerSessionState();
     g_stats = NetStats{};
     g_latest = Net::Snapshot{}; g_prev = Net::Snapshot{};
     g_err[0] = 0;
