@@ -103,7 +103,7 @@ namespace {
         if (request) Mem::Read((uintptr_t)request + 8, asked);
         // the other player's copies: up to 40. The game's own cars: their 20 next to the copies in the world
         // (20 + copies, at most 40), so its traffic and cops are as many as in the plain game.
-        bool roomy = g_tablesBig && g_limitPatchOk;
+        bool roomy = RoomForCopiesNow() && g_limitPatchOk;   // free roam only (see CopyCarLimit)
         if (roomy) {
             int copies = 0;
             if (!g_copySpawn) for (void* k : g_keepCars) if (k && ListContains(-1, k)) ++copies;

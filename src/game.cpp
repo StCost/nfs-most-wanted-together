@@ -878,7 +878,11 @@ namespace {
     constexpr int kGameCarLimit = 20, kCopyCarLimit = 40;
     bool g_tablesBig = false;       // every car table has its big buffer now
     bool g_copySpawn = false;       // SpawnVehicle is building one of the other player's cars
-    int  CopyCarLimit() { return g_tablesBig ? kCopyCarLimit : kGameCarLimit; }
+    // The room above 20 is for free roam only. Racing with more than 20 cars crashed the game (twice, a
+    // 15.1.1 sprint started from free roam with 22-25 cars: at its start 0x765305, and as the intro ended,
+    // a call to 0) - something in the race start still has 20. In an event the 20 stays for the copies too.
+    bool RoomForCopiesNow() { return g_tablesBig && Game::CurrentEventHash() == 0; }
+    int  CopyCarLimit() { return RoomForCopiesNow() ? kCopyCarLimit : kGameCarLimit; }
     void* SpawnVehicle(uint32_t carKey, const void* custom, const float pos[3], const float dir[3], int driverClass) {
         uint32_t typeHash = 0;
         ((uint32_t* (__cdecl*)(uint32_t*))Addr::VehicleParamsType)(&typeHash);
