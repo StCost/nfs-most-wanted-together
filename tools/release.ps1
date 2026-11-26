@@ -1,14 +1,12 @@
 # Local release (same result as the GitHub "Build" workflow, without Actions):
-#   tools\release.ps1 -Version 1.7.16           build, package, publish a pre-release on GitHub
-#   tools\release.ps1 -Version 1.7.16 -Final    publish as a normal (latest) release - only these reach the
-#                                               README's releases/latest/download link
+#   tools\release.ps1 -Version 1.7.16           build, package, publish the release on GitHub (marked latest, so
+#                                               README's releases/latest/download link gets it; no pre-releases)
 #   tools\release.ps1 -Version 1.7.16 -DryRun   only build and package (dist\MWTogether-1.7.16.zip)
 #   -ChangesFile notes.md                       the "What changed" part of the release notes (markdown); without
 #                                               it the notes have only the generated commit list
 # Needs: Visual Studio 2022 C++ (x86), and the GitHub CLI (gh) logged in for publishing.
 param(
     [Parameter(Mandatory = $true)][string]$Version,
-    [switch]$Final,
     [switch]$DryRun,
     [string]$ChangesFile
 )
@@ -22,6 +20,8 @@ Set-Location $root
 if (-not $DryRun) {
     if (git status --porcelain) { throw "Uncommitted changes - commit or stash them first." }
     if (git tag --list "v$Version") { throw "Tag v$Version already exists." }
+    gh auth status *> $null
+    if ($LASTEXITCODE -ne 0) { throw "The GitHub CLI isn't logged in - run 'gh auth login' first." }
     git fetch origin --quiet
     if (-not (git branch -r --contains HEAD)) { throw "HEAD is not pushed yet - push it first (the release is tagged on it)." }
 }
@@ -74,7 +74,7 @@ if ($DryRun) { return }
 # 3. GitHub release, which creates the tag on HEAD (so a failed publish leaves no orphan tag): one asset
 # with a fixed name, so README can link releases/latest/download/MWTogether.zip
 $flags = @('--target', (git rev-parse HEAD), '--notes-file', $notes, '--generate-notes', '--title', "NFS MW Together $Version")
-if ($Final) { $flags += '--latest' } else { $flags += '--prerelease' }
+$flags += '--latest'
 gh release create "v$Version" $named @flags
 if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
 git fetch origin --tags --quiet

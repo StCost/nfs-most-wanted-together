@@ -226,8 +226,8 @@ All options are in `scripts\MWTogether.ini`, with a comment on each. Sections:
 - Nothing builds automatically on GitHub. The **Build** workflow under **Actions** runs only when you start it
   by hand: it builds the plugin, runs the tests and packages the zip (the ASI loader is a separate
   required download; see Install). Give it a version number and it also creates the GitHub release.
-- Local release, without Actions: `tools\release.ps1 -Version 0.2.0` publishes a pre-release; add `-Final` for a
-  normal release. `-DryRun` only builds the zip in `dist\`.
+- Local release, without Actions: `tools\release.ps1 -Version 1.7.16` publishes the release (always a normal
+  release marked latest; there are no pre-releases). `-DryRun` only builds the zip in `dist\`.
 - GitHub shows the SHA256 of every release asset, and files built by the workflow carry a build provenance
   attestation: `gh attestation verify MWTogether.zip --repo StCost/nfs-most-wanted-together`.
 

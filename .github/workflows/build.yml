@@ -10,10 +10,6 @@ on:
         description: "Release version (e.g. 1.7.16, no v). Leave empty to only build."
         required: false
         default: ""
-      prerelease:
-        description: "Mark the release as a pre-release"
-        type: boolean
-        default: true
 
 permissions:
   contents: write      # the release
@@ -97,8 +93,6 @@ jobs:
         shell: bash
         run: |
           v="${{ steps.ver.outputs.version }}"
-          flags=""
-          if [ "${{ github.event.inputs.prerelease }}" = "true" ]; then flags="--prerelease"; fi
-          # same asset name as tools\release.ps1, so README can link releases/latest/download/MWTogether.zip
+          # always a normal release marked latest (no pre-releases); same asset name as tools\release.ps1, so README can link releases/latest/download/MWTogether.zip
           cp "dist/MWTogether-$v.zip" dist/MWTogether.zip
-          gh release create "v$v" dist/MWTogether.zip --title "NFS MW Together $v" --notes-file "dist/MWTogether-$v-notes.md" --generate-notes --target "${{ github.sha }}" $flags
+          gh release create "v$v" dist/MWTogether.zip --title "NFS MW Together $v" --notes-file "dist/MWTogether-$v-notes.md" --generate-notes --target "${{ github.sha }}" --latest
