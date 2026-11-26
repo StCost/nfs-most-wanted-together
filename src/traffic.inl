@@ -873,6 +873,18 @@ static void LetGoOfMirror(Mirror& m, bool keepUnseen, int& handed, int& managed,
     void* iv = m.iv;
     bool cop = m.n && (m.s[m.n - 1].e.flags & 1);
     int r = cop ? HAND_FAILED : HandToTrafficAI(iv);
+    if (cop) {   // a cop copy the host dropped, kept on screen with no AI until out of view (reported twitching in place)
+        static int copLetGoLogs = 0;
+        if (copLetGoLogs < 20) {
+            ++copLetGoLogs;
+            void* rb = RigidBodyOf(iv); void* lrb = RigidBodyOf(LocalVehicle());
+            const float* v = rb ? RB_GetVec(rb, RB_GetLinearVelocity) : nullptr;
+            float sp = v ? sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) : -1.f;
+            float d = rb && lrb ? Dist(RB_GetVec(rb, RB_GetPosition), RB_GetVec(lrb, RB_GetPosition)) : -1.f;
+            LOG("Cops: the other player dropped their cop %u (%s) - it stays here with no AI until out of view (%.0f km/h, %.0f m from us, %s)",
+                (unsigned)m.id, VehName(iv), sp * 3.6f, d, keepUnseen ? "they left" : "on screen");
+        }
+    }
     if (r == HAND_FAILED) { Retire(iv, false); ++coasting; }
     else {
         ++handed;

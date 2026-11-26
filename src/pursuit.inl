@@ -753,6 +753,15 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
                 VCall<void(__thiscall*)(void*, float*)>(rb, 13 /*GetForwardVector*/)(rb, fwd);
                 float to[3] = { mp[0] - cp[0], mp[1] - cp[1], mp[2] - cp[2] };
                 float facing = d > 0.01f ? (fwd[0] * to[0] + fwd[1] * to[1] + fwd[2] * to[2]) / d : 1.f;
+                if (d <= SharedPursuit::PATROL_SEES_M) {   // reported: their patrol cops never chase us - why not, when one is close
+                    static DWORD nextNearLog = 0;
+                    if ((int)(now - nextNearLog) >= 0) {
+                        nextNearLog = now + 10000;
+                        LOG("Pursuit: the other player's patrol cop %u is %.0f m from us (%s of it, %.0f km/h, heat %.1f) - %s", (unsigned)m.id, d,
+                            facing >= 0.f ? "in front" : "behind", speed * 3.6f, heat,
+                            SharedPursuit::PatrolCopSpotsPlayer(d, facing, speed, heat) ? "it sees us" : "not speeding / not seen");
+                    }
+                }
                 if (SharedPursuit::PatrolCopSpotsPlayer(d, facing, speed, heat)) {
                     nextSpot = now + 15000;
                     bool ok = DebugForcePursuitImpl();
