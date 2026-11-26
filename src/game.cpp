@@ -1855,14 +1855,6 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
     // Hard-set the exact interpolated transform + velocities every frame. Because consecutive targets
     // come from one smooth curve, the car moves smoothly; setting velocities makes the physics step
     // between our frames carry it along the same path instead of fighting us.
-    // A parked car: sub-millimetre wobble of the received pose is not applied (HitUtil::HoldStill).
-    {
-        static HitUtil::StillHold still; static void* stillOf = nullptr;
-        if (stillOf != g_ghost) { still = HitUtil::StillHold(); stillOf = g_ghost; }
-        if (HitUtil::HoldStill(still, s.pos, s.rot, s.linVel, s.angVel)) {
-            for (int i = 0; i < 3; ++i) { s.linVel[i] = 0; s.angVel[i] = 0; }
-        }
-    }
     RB_SetVec(rb, RB_SetOrientationQuat, s.rot);
     RB_SetVec(rb, RB_SetPosition, s.pos);
     RB_SetVec(rb, RB_SetLinearVelocity, s.linVel);

@@ -203,32 +203,4 @@ namespace HitUtil {
         for (int i = 0; i < 3; ++i) { aa.half[i] *= scale; bb.half[i] *= scale; }
         return ObbsOverlap(aa, bb);
     }
-    // A parked remote car: the received pose still wobbles by a fraction of a millimetre (sensor-level
-    // physics noise on their machine plus float rounding), which shows as a visible shiver. While the car
-    // is stopped (target speed and spin ~0) a pose within 1 mm / ~0.06 deg of the one we hold is not
-    // applied - the car stays put. Any real movement (speed, spin, or a bigger step) takes the new pose.
-    constexpr float STILL_SPEED_MPS = 0.05f;      // 0.18 km/h
-    constexpr float STILL_SPIN_RPS  = 0.02f;
-    constexpr float STILL_DEADBAND_M = 0.001f;    // 1 mm
-    constexpr float STILL_ROT_DOT = 0.9999995f;   // |q . held| above this: under ~0.06 deg apart
-    struct StillHold { bool have = false; float pos[3] = { 0, 0, 0 }; float rot[4] = { 0, 0, 0, 1 }; };
-    // true: keep the held pose (write it into pos / rot); false: the new pose is taken and held from now
-    inline bool HoldStill(StillHold& h, float pos[3], float rot[4], const float lin[3], const float ang[3]) {
-        float v2 = lin[0] * lin[0] + lin[1] * lin[1] + lin[2] * lin[2];
-        float w2 = ang[0] * ang[0] + ang[1] * ang[1] + ang[2] * ang[2];
-        bool still = v2 < STILL_SPEED_MPS * STILL_SPEED_MPS && w2 < STILL_SPIN_RPS * STILL_SPIN_RPS;
-        if (still && h.have) {
-            float dx = pos[0] - h.pos[0], dy = pos[1] - h.pos[1], dz = pos[2] - h.pos[2];
-            float dot = std::fabs(rot[0] * h.rot[0] + rot[1] * h.rot[1] + rot[2] * h.rot[2] + rot[3] * h.rot[3]);
-            if (dx * dx + dy * dy + dz * dz < STILL_DEADBAND_M * STILL_DEADBAND_M && dot > STILL_ROT_DOT) {
-                for (int i = 0; i < 3; ++i) pos[i] = h.pos[i];
-                for (int i = 0; i < 4; ++i) rot[i] = h.rot[i];
-                return true;
-            }
-        }
-        for (int i = 0; i < 3; ++i) h.pos[i] = pos[i];
-        for (int i = 0; i < 4; ++i) h.rot[i] = rot[i];
-        h.have = true;
-        return false;
-    }
 }

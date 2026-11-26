@@ -227,14 +227,8 @@ namespace {
     }
     void OnRoadblockPacket(const Roadblock::Desc& d, int msg, bool ownerDodged) {
         if (!g_rbOn || !g_coopLinked) return;
-        if (msg == Net::RB_MSG_DODGED) {   // they drove through one of ours and counted it: our game must not count it too
-            for (auto& o : g_rbOurs) {
-                if (!o.used || o.d.id != d.id || !o.rb) continue;
-                if (RbIsDodged(o.rb)) return;                       // ours already counted it (and told them)
-                RbSetDodged(o.rb);
-                LOG("Roadblock: the other player drove through our roadblock #%u first - counted there, not again here", d.id);
-                return;
-            }
+        if (msg == Net::RB_MSG_DODGED) {   // (older builds) they drove through one of ours: counted there, ours stays ours
+            LOG("Roadblock: the other player drove through our roadblock #%u - counted there, ours still counts here", d.id);
             return;
         }
         bool alive = msg == Net::RB_MSG_ALIVE;
@@ -267,11 +261,9 @@ namespace {
         bool had = x.haveSide; float prev = x.lastAlong;
         x.haveSide = true; x.lastAlong = along;
         if (!had || x.dodged || !Roadblock::PassedRoadblock(prev, along, across, up)) return;
-        if (x.ownerDodged) {   // one roadblock, one dodge: theirs is already counted (and shared with us)
-            x.dodged = true;
-            LOG("Roadblock: drove through the other player's roadblock #%u - they already dodged it, counted once (theirs)", x.d.id);
-            return;
-        }
+        // personal (1.8.1): every player who drives through counts it for themselves (milestones), whether or
+        // not the other player already dodged it - the pursuit tally no longer shares roadblocks
+        if (x.ownerDodged) LOG("Roadblock: the other player already dodged #%u too - it counts for each of us", x.d.id);
         void* pursuit = PursuitOf(LocalVehicle());
         bool live = pursuit && (g_sp.flags & PURSUIT_ACTIVE) && !(g_sp.flags & PURSUIT_BUSTED);
         if (!live) {
@@ -285,7 +277,6 @@ namespace {
         if (Mem::Read(GManagerPtr, gm) && gm) ((void(__thiscall*)(void*, const char*))GM_IncStat)(gm, (const char*)S_Roadblocks);
         LOG("Roadblock: drove through the other player's roadblock #%u (%.0f m from its centre) - roadblock dodged here (pursuit %d -> %d)",
             x.d.id, std::fabs(across), before, before + 1);
-        Net::SendRoadblockDodged(x.d);   // their game must not count it again when their own car gets there
     }
 
     void RoadblockTickImpl(bool linked) {

@@ -776,25 +776,3 @@ TEST(util_mirror_hit_keeps_speed) {
     CHECK(!HitUtil::MirrorHitKeepSpeed(bad, stopped, n, out));
 }
 
-TEST(util_parked_car_holds_still) {
-    HitUtil::StillHold h;
-    float zero[3] = { 0, 0, 0 };
-    float p[3] = { 10, 0, 20 }, q[4] = { 0, 0, 0, 1 };
-    CHECK(!HitUtil::HoldStill(h, p, q, zero, zero));                  // first pose is taken
-    float p2[3] = { 10.0004f, 0.0002f, 20 }, q2[4] = { 0, 0.0001f, 0, 1 };
-    CHECK(HitUtil::HoldStill(h, p2, q2, zero, zero));                   // 0.4 mm wobble: held
-    CHECK(p2[0] == 10.f && p2[1] == 0.f && q2[1] == 0.f);
-    float p3[3] = { 10.003f, 0, 20 }, q3[4] = { 0, 0, 0, 1 };
-    CHECK(!HitUtil::HoldStill(h, p3, q3, zero, zero));                  // 3 mm: a real move
-    CHECK(p3[0] == 10.003f);
-    float slow[3] = { 0.5f, 0, 0 };
-    float p4[3] = { 10.0031f, 0, 20 }, q4[4] = { 0, 0, 0, 1 };
-    CHECK(!HitUtil::HoldStill(h, p4, q4, slow, zero));                  // moving: never held
-    CHECK(p4[0] == 10.0031f);
-    float spin[3] = { 0, 0.5f, 0 };
-    float p5[3] = { 10.0031f, 0, 20 }, q5[4] = { 0, 0.00005f, 0, 1 };
-    CHECK(!HitUtil::HoldStill(h, p5, q5, zero, spin));                  // turning on the spot: not held
-    float q6[4] = { 0, 0.01f, 0, 0.99995f };
-    float p6[3] = { 10.0031f, 0, 20 };
-    CHECK(!HitUtil::HoldStill(h, p6, q6, zero, zero));                  // ~1 deg turn: taken
-}

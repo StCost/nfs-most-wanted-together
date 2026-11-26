@@ -221,15 +221,17 @@ namespace {
 
 
     // ---- the other player's pursuit bar (pursuit.inl sets it) ----
+    // Drawn like the game's own (bottom centre: an orange striped panel, BUSTED on the left, EVADE on the
+    // right, a light track with a marker), right above it, with the other player's name small on its left.
     Overlay::PeerBar g_peerBar;
     constexpr int LBL_W = 512, LBL_H = 48;
-    IDirect3DTexture9* g_lblTex = nullptr;
-    std::string g_lblText;
-    int g_lblW = 0, g_lblH = 0;
+    struct Label { IDirect3DTexture9* tex = nullptr; std::string text; int w = 0; bool bold = true; };
+    Label g_labels[4];        // 0 BUSTED, 1 EVADE / COOLDOWN, 2 the name, 3 spare
 
-    bool RebuildLabel(IDirect3DDevice9* dev, const std::string& text) {
-        if (!g_lblTex && FAILED(dev->CreateTexture(LBL_W, LBL_H, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &g_lblTex, nullptr))) {
-            g_lblTex = nullptr; return false;
+    bool BuildLabel(IDirect3DDevice9* dev, Label& L, const std::string& text, bool bold) {
+        if (L.tex && L.text == text && L.bold == bold) return true;
+        if (!L.tex && FAILED(dev->CreateTexture(LBL_W, LBL_H, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &L.tex, nullptr))) {
+            L.tex = nullptr; return false;
         }
         HDC dc = CreateCompatibleDC(nullptr);
         BITMAPINFO bi{}; bi.bmiHeader.biSize = sizeof(bi.bmiHeader); bi.bmiHeader.biWidth = LBL_W; bi.bmiHeader.biHeight = -LBL_H;
@@ -238,7 +240,7 @@ namespace {
         HBITMAP bmp = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
         if (!bmp || !bits) { if (bmp) DeleteObject(bmp); DeleteDC(dc); return false; }
         HGDIOBJ oldBmp = SelectObject(dc, bmp);
-        HFONT font = CreateFontA(-34, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+        HFONT font = CreateFontA(-38, 0, 0, 0, bold ? FW_HEAVY : FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                                  CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_SWISS, "Arial");
         HGDIOBJ oldFont = SelectObject(dc, font);
         memset(bits, 0, LBL_W * LBL_H * 4);
@@ -248,20 +250,20 @@ namespace {
         DrawTextA(dc, text.c_str(), -1, &rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
         RECT calc{ 0, 0, LBL_W, LBL_H };
         DrawTextA(dc, text.c_str(), -1, &calc, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX | DT_CALCRECT);
-        g_lblW = (std::min)((int)calc.right + 2, LBL_W); g_lblH = LBL_H;
+        L.w = (std::min)((int)calc.right + 2, LBL_W);
         GdiFlush();
         D3DLOCKED_RECT lr;
-        if (SUCCEEDED(g_lblTex->LockRect(0, &lr, nullptr, 0))) {
+        if (SUCCEEDED(L.tex->LockRect(0, &lr, nullptr, 0))) {
             const uint32_t* src = (const uint32_t*)bits;
             for (int y = 0; y < LBL_H; ++y) {
                 uint32_t* dst = (uint32_t*)((uint8_t*)lr.pBits + y * lr.Pitch);
                 for (int x = 0; x < LBL_W; ++x) dst[x] = ((src[y * LBL_W + x] & 0xFF) << 24) | 0x00FFFFFF;
             }
-            g_lblTex->UnlockRect(0);
+            L.tex->UnlockRect(0);
         }
         SelectObject(dc, oldFont); SelectObject(dc, oldBmp);
         DeleteObject(font); DeleteObject(bmp); DeleteDC(dc);
-        g_lblText = text;
+        L.text = text; L.bold = bold;
         return true;
     }
 
@@ -271,6 +273,33 @@ namespace {
                      { x0 - .5f, y1 - .5f, 0, 1, c, 0, 0 }, { x1 - .5f, y1 - .5f, 0, 1, c, 0, 0 } };
         dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, q, sizeof(Vtx));
     }
+    // a slanted stripe (parallelogram) between y0 and y1, clipped to [xmin, xmax]
+    void Stripe(IDirect3DDevice9* dev, float x, float w, float y0, float y1, float slant, float xmin, float xmax, DWORD c) {
+        float bx0 = x, bx1 = x + w, tx0 = x + slant, tx1 = x + w + slant;
+        auto clip = [&](float v) { return v < xmin ? xmin : v > xmax ? xmax : v; };
+        bx0 = clip(bx0); bx1 = clip(bx1); tx0 = clip(tx0); tx1 = clip(tx1);
+        if (!(bx1 > bx0) && !(tx1 > tx0)) return;
+        Vtx q[4] = { { tx0 - .5f, y0 - .5f, 0, 1, c, 0, 0 }, { tx1 - .5f, y0 - .5f, 0, 1, c, 0, 0 },
+                     { bx0 - .5f, y1 - .5f, 0, 1, c, 0, 0 }, { bx1 - .5f, y1 - .5f, 0, 1, c, 0, 0 } };
+        dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, q, sizeof(Vtx));
+    }
+    // a label at (x, y) with height h; align: 0 left, 1 right (x is the right edge), 2 centre
+    void DrawLabel(IDirect3DDevice9* dev, const Label& L, float x, float y, float h, int align, DWORD color) {
+        if (!L.tex || !L.w) return;
+        float w = L.w * h / LBL_H;
+        if (align == 1) x -= w; else if (align == 2) x -= w / 2;
+        x = (float)(int)x; y = (float)(int)y;
+        float u1 = (float)L.w / LBL_W;
+        dev->SetTexture(0, L.tex);
+        dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+        dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+        Vtx tq[4] = { { x - .5f, y - .5f, 0, 1, color, 0, 0 }, { x + w - .5f, y - .5f, 0, 1, color, u1, 0 },
+                      { x - .5f, y + h - .5f, 0, 1, color, 0, 1 }, { x + w - .5f, y + h - .5f, 0, 1, color, u1, 1 } };
+        dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, tq, sizeof(Vtx));
+        dev->SetTexture(0, nullptr);
+        dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG2);
+        dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2);
+    }
 
     void DrawPeerBar(IDirect3DDevice9* dev, UINT bbW, UINT bbH) {
         Overlay::PeerBar b;
@@ -278,51 +307,54 @@ namespace {
         b = g_peerBar;
         LeaveCriticalSection(&g_textCs);
         if (b.kind <= 0 || !bbW || !bbH) return;
-        std::string label = b.name.empty() ? std::string("Partner") : b.name;
-        if (b.kind == 2) label += "  -  COOLDOWN";
-        else if (b.value >= 100) label += "  -  EVADE";
-        else if (b.value <= -60) label += "  -  BUSTED?";
-        if (!g_lblTex || label != g_lblText) { if (!RebuildLabel(dev, label)) return; }
+        bool cool = b.kind == 2;
+        if (!BuildLabel(dev, g_labels[0], "BUSTED", true) || !BuildLabel(dev, g_labels[1], cool ? "COOLDOWN" : "EVADE", true) ||
+            !BuildLabel(dev, g_labels[2], b.name.empty() ? std::string("Partner") : b.name, false)) return;
 
         IDirect3DStateBlock9* sb = nullptr;
         if (FAILED(dev->CreateStateBlock(D3DSBT_ALL, &sb))) return;
         SetupStates(dev);
         dev->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
         dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
-        const float H = (float)bbH, W = (float)bbW;
-        const float bw = b.width * H, ph = 0.046f * H;
-        const float left = (float)(int)(W / 2 - bw / 2), right = left + bw;
-        const float top = (float)(int)(b.y * H - ph / 2), bottom = top + ph;
-        const float pad = 0.006f * H;
-        const float lblH = 0.022f * H, trackTop = top + pad + lblH + 0.003f * H, trackBot = bottom - pad;
-
         dev->SetTexture(0, nullptr);
         dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG2);
         dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2);
-        FillQuad(dev, left, top, right, bottom, 0xA0000000);                             // panel
-        const float tl = left + pad, tr = right - pad, mid = (float)(int)((tl + tr) / 2), half = (tr - tl) / 2;
-        FillQuad(dev, tl, trackTop, tr, trackBot, 0x50FFFFFF);                            // track
-        float v = (float)(b.value < -100 ? -100 : b.value > 100 ? 100 : b.value) / 100.f;
-        if (b.kind == 2) {
-            FillQuad(dev, tl, trackTop, tl + (tr - tl) * v, trackBot, 0xE03C8CF0);       // cooldown: blue, left to right
-        } else {
-            if (v < 0) FillQuad(dev, mid + half * v, trackTop, mid, trackBot, 0xE0E03030);   // busted: red, to the left
-            if (v > 0) FillQuad(dev, mid, trackTop, mid + half * v, trackBot, 0xE030D060);   // evade: green, to the right
-            FillQuad(dev, mid - 1, trackTop - 0.003f * H, mid + 1, trackBot + 0.003f * H, 0xC0FFFFFF);   // the middle
-            float mx = mid + half * v;
-            FillQuad(dev, mx - 2, trackTop - 0.004f * H, mx + 2, trackBot + 0.004f * H, 0xFFFFFFFF);   // marker
+
+        const float H = (float)bbH, W = (float)bbW;
+        const float bw = b.width * H, ph = 0.052f * H;
+        const float left = (float)(int)(W / 2 - bw / 2), right = left + bw;
+        const float top = (float)(int)(b.y * H - ph / 2), bottom = top + ph;
+        const float pad = 0.007f * H, lblH = 0.024f * H;
+        // the game's panel: dark orange, slanted lighter stripes, a thin light frame
+        FillQuad(dev, left, top, right, bottom, 0xB8522A0C);
+        const float sw = 0.006f * H, step = 0.016f * H, slant = 0.012f * H;
+        for (float x = left - slant; x < right; x += step) Stripe(dev, x, sw, top, bottom, slant, left, right, 0x30E09040);
+        FillQuad(dev, left, top, right, top + 1, 0x90F0C080); FillQuad(dev, left, bottom - 1, right, bottom, 0x90F0C080);
+        FillQuad(dev, left, top, left + 1, bottom, 0x90F0C080); FillQuad(dev, right - 1, top, right, bottom, 0x90F0C080);
+        // BUSTED / EVADE (or COOLDOWN in the middle)
+        const DWORD lbl = 0xE8F4E4C8;
+        if (cool) DrawLabel(dev, g_labels[1], (left + right) / 2, top + pad * 0.6f, lblH, 2, lbl);
+        else {
+            DrawLabel(dev, g_labels[0], left + pad * 1.5f, top + pad * 0.6f, lblH, 0, lbl);
+            DrawLabel(dev, g_labels[1], right - pad * 1.5f, top + pad * 0.6f, lblH, 1, lbl);
         }
-        // label: the other player's name (and the state)
-        float scale = lblH / (float)g_lblH;
-        float lw = g_lblW * scale, lx = tl, ly = top + pad;
-        float u1 = (float)g_lblW / LBL_W;
-        dev->SetTexture(0, g_lblTex);
-        dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
-        dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
-        const DWORD fg = 0xF0FFFFFF;
-        Vtx tq[4] = { { lx - .5f, ly - .5f, 0, 1, fg, 0, 0 }, { lx + lw - .5f, ly - .5f, 0, 1, fg, u1, 0 },
-                      { lx - .5f, ly + lblH - .5f, 0, 1, fg, 0, 1 }, { lx + lw - .5f, ly + lblH - .5f, 0, 1, fg, u1, 1 } };
-        dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, tq, sizeof(Vtx));
+        // the track
+        const float tl = left + pad * 1.5f, tr = right - pad * 1.5f;
+        const float ty0 = bottom - pad - 0.008f * H, ty1 = bottom - pad;
+        const float mid = (float)(int)((tl + tr) / 2), half = (tr - tl) / 2;
+        FillQuad(dev, tl, ty0, tr, ty1, 0x60FFF0D8);
+        float v = (float)(b.value < -100 ? -100 : b.value > 100 ? 100 : b.value) / 100.f;
+        if (cool) {
+            FillQuad(dev, tl, ty0, tl + (tr - tl) * v, ty1, 0xF04CA0F0);                     // the cooldown meter
+        } else {
+            if (v < 0) FillQuad(dev, mid + half * v, ty0, mid, ty1, 0xF0E83A2A);              // busted: red, to the left
+            if (v > 0) FillQuad(dev, mid, ty0, mid + half * v, ty1, 0xF0F0F0F0);              // evade: white, to the right
+            FillQuad(dev, mid - 1, ty0 - 0.004f * H, mid + 1, ty1 + 0.004f * H, 0xD0FFFFFF);   // the middle
+            float mx = mid + half * v;
+            FillQuad(dev, mx - 2, ty0 - 0.006f * H, mx + 2, ty1 + 0.006f * H, 0xFFFFFFFF);     // the marker
+        }
+        // the other player's name, small, left of the panel
+        DrawLabel(dev, g_labels[2], left - pad, top + (ph - lblH * 0.8f) / 2, lblH * 0.8f, 1, 0xF0FFFFFF);
         sb->Apply();
         sb->Release();
     }

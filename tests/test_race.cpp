@@ -562,6 +562,12 @@ TEST(race_team_results_list) {
     CHECK(TeamResultsAction(kFeAccept, 0x1234, 0, 0x1234, true) == kResultsHold);
     CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0, 0x999, true) == kResultsAsIs);
     CHECK(TeamResultsAction(0xE1A57D51u, 0x1234, 0, 0x1234, true) == kResultsAsIs);
+    // the partner's list instead of the photo: its exit ends the race the photo's way / the "raceover" way
+    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x1234, 0, true, 0x1234, 0) == kResultsOutro);
+    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x1234, 0, true, 0, 0x1234) == kResultsEndOut);
+    CHECK(TeamResultsAction(kFeAccept, 0x1234, 0x1234, 0, true, 0x1234, 0) == kResultsNoDialog);
+    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0, 0, true, 0x1234, 0x1234) == kResultsAsIs);   // not a shared win
+    CHECK(TeamResultsAction(kFeExitComplete, 0x1234, 0x1234, 0, false, 0x1234, 0) == kResultsAsIs);  // list not up
 }
 
 TEST(race_host_racers_only_in_our_event) {

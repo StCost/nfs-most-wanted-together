@@ -20,7 +20,7 @@ namespace Overlay {
     // The other player's pursuit bar, drawn above our own (bottom centre). kind 0 hides it, 1 the chase
     // bar (value -100 busted .. +100 evade), 2 the cooldown meter (0 .. 100). y / width: the bar's centre
     // and width as fractions of the screen height.
-    struct PeerBar { int kind = 0; int value = 0; std::string name; float y = 0.8f, width = 0.45f; };
+    struct PeerBar { int kind = 0; int value = 0; std::string name; float y = 0.78f, width = 0.454f; };
     void SetPeerBar(const PeerBar& b);
 
     IDirect3DDevice9* Device();

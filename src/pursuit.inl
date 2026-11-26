@@ -548,6 +548,7 @@ static void SharedTallyTick(void* pursuit, void* perp, bool live, bool joint) {
     uint32_t pid = 0, cnt = 0; int32_t theirs[T_COUNT];
     if (Net::PeerPursuitStats(pid, theirs, cnt) && cnt != g_tallyPeerCount) {
         g_tallyPeerCount = cnt;
+        theirs[T_ROADBLOCKS] = 0;   // personal: each player counts the roadblocks they drove through (roadblock.inl)
         TallyPeer(g_tally, pid, theirs, joint);
     }
     int32_t add[T_COUNT];
@@ -995,11 +996,19 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
 // HUD only (not over menus, the map or a cutscene).
 static void PeerBarTickImpl(bool connected, const Net::Snapshot& peer) {
     static int lastKind = -1;
+    static const char* lastWhy = "";
     Overlay::PeerBar b;
-    bool show = g_cfg.sharedPursuits && connected && g_coopLinked && peer.valid && peer.s.pursuitBarKind &&
-                Game::GameFlowState() == 6 && !NisActive() && LocalVehicle() &&
-                SharedPlaceNow(peer) != SharedPursuit::Place::None &&
-                FEScreens::ListAll().find("pushed: [HUD_SingleRace.fng]") == 0;
+    // (1.8.0 asked FEScreens::ListAll for exactly the plain HUD - never true in a pursuit, so it never showed)
+    const char* why = !g_cfg.sharedPursuits ? "SharedPursuits=0" : !connected || !g_coopLinked ? "not linked"
+                    : !peer.valid ? "no state" : !peer.s.pursuitBarKind ? "they are not chased (or an older build)"
+                    : Game::GameFlowState() != 6 || !LocalVehicle() ? "not in the world" : NisActive() ? "a cutscene"
+                    : SharedPlaceNow(peer) == SharedPursuit::Place::None ? "not in the same place"
+                    : !FEScreens::IsPushed("HUD_SingleRace.fng") ? "no HUD"
+                    : FEScreens::AnyCloseableOverlay() || FEScreens::IsPushed("Pause_Main.fng") || FEScreens::IsPushed("WorldMapMain.fng") ? "a menu is open"
+                    : nullptr;
+    bool show = why == nullptr;
+    if (!show && strcmp(why, lastWhy)) { lastWhy = why; if (peer.valid && peer.s.pursuitBarKind) LOG("Pursuit: the other player's bar not shown - %s", why); }
+    if (show) lastWhy = "";
     if (show) {
         b.kind = peer.s.pursuitBarKind; b.value = peer.s.pursuitBar;
         b.name = Net::Stats().peerName;
