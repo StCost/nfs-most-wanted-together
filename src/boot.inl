@@ -52,6 +52,7 @@ namespace {
     void*    g_mcScreen = nullptr;          // live MC_Main screen object
     int      g_mcScreenKind = -1;
     DWORD    g_mcScreenSeen = 0;
+    uint32_t g_mcLastP2 = 0;                // what messages to that screen carry as p2
 
     // The memory card operation the MC_Main prompt is about (*0x91CBAC & 0x0F000000). We only ever
     // answer 0 (boot autoload / "load complete") and 8 / 9 (autosave notices); never a question.
@@ -69,7 +70,7 @@ namespace {
         return btn;
     }
     // A requested "OK" for one prompt: delivered only to that screen object and button, for the same
-    // operation, while the game is still unfocused, and only within ~1 s of the request.
+    // operation, and only within ~5 s of the request (the screen gets few messages without input).
     struct McConfirm { void* self; uint8_t* btn; uint32_t op; DWORD tick; int step; DWORD stepAt; };
     McConfirm g_mcReq = {};
 
@@ -82,8 +83,9 @@ namespace {
         McConfirm& r = g_mcReq;
         if (!r.step) return;
         DWORD now = GetTickCount();
-        bool stale = r.self != self || (r.step == 1 && now - r.tick > 1000) || (r.step == 2 && now - r.stepAt > 1000)
-                     || Overlay::GameWindow() == GetForegroundWindow();
+        // focused or not: nothing presses Enter for us when the window has focus either (a game started
+        // from a script, a second copy on the same PC), and a real press cancels ours (McNotify)
+        bool stale = r.self != self || (r.step == 1 && now - r.tick > 5000) || (r.step == 2 && now - r.stepAt > 1000);
         uint32_t op = 0;
         if (!stale) stale = McOkButton() != r.btn || !McOpHarmless(&op) || op != r.op;
         if (stale) { r = {}; return; }
@@ -102,7 +104,7 @@ namespace {
     void McNotify(int kind, void* self, uint32_t msg, void* obj, uint32_t p1, uint32_t p2) {
         if (g_boot != Boot::Done) {      // after the boot: pure pass-through
             if (self != g_mcScreen) g_mcReq = {};
-            g_mcScreen = self; g_mcScreenKind = kind; g_mcScreenSeen = GetTickCount();
+            g_mcScreen = self; g_mcScreenKind = kind; g_mcScreenSeen = GetTickCount(); g_mcLastP2 = p2;
             if (g_cfg.bootTrace) {
                 uint32_t h = 0; if (obj && Mem::IsReadable((uint8_t*)obj + 0x10, 4)) Mem::Read((uintptr_t)obj + 0x10, h);
                 static uint32_t lastMsg = 0; static int repeats = 0;
@@ -117,7 +119,7 @@ namespace {
     void __fastcall hk_McNotify0(void* self, void*, uint32_t msg, void* obj, uint32_t p1, uint32_t p2) { McNotify(0, self, msg, obj, p1, p2); }
     void __fastcall hk_McNotify1(void* self, void*, uint32_t msg, void* obj, uint32_t p1, uint32_t p2) { McNotify(1, self, msg, obj, p1, p2); }
     // The boot's profile screen (MC_Main) waits for accept before it loads the profile (memory card
-    // state *0x91CBAC = 0x20, pending step 5 at card+0x40) - focused or not. Focused we press Enter.
+    // state *0x91CBAC = 0x20, pending step 5 at card+0x40) - focused or not.
     // Without focus the pad messages don't reach it, so McNotify delivers the button messages itself.
     // Only for harmless prompts (operation code 0 / 8 / 9), once per prompt - focused or not (a new
     // player without a profile gets real questions here, which are never answered for them).
@@ -242,6 +244,12 @@ namespace {
     bool ConfirmLoadScreen(DWORD shownMs) {
         void* cfeng = nullptr;
         if (shownMs < 500 || !Mem::Read(0x91CADC, cfeng) || !cfeng) return false;
+        // a pending OK and the screen gets no messages (no input at all reaches an unfocused window that
+        // isn't moused over): deliver it from here. MC_Main is up (BootTick checked) and McDeliver checks
+        // it is still the same screen's OK button for the same prompt.
+        if (g_mcReq.step && g_mcReq.self == g_mcScreen && g_mcScreenKind >= 0 && g_origMcNotify[g_mcScreenKind] &&
+            GetTickCount() - g_mcScreenSeen > 300)
+            McDeliver(g_mcScreenKind, g_mcScreen, g_mcLastP2);
         static int profileSaved = -1;
         if (profileSaved < 0) {
             profileSaved = AnyProfileSaved() ? 1 : 0;
@@ -261,7 +269,7 @@ namespace {
         if (GetTickCount() - seenAt < 600) return false;                       // let the box finish appearing
         if (sentAt && GetTickCount() - sentAt < 5000) return false;            // once; again only if it's still there after 5 s
         // Focused and unfocused use the same NotificationMessage path (not a Windows key event).
-        if (g_mcScreenKind < 0 || !g_origMcNotify[g_mcScreenKind] || !g_mcScreen || GetTickCount() - g_mcScreenSeen > 1000) return false;
+        if (g_mcScreenKind < 0 || !g_origMcNotify[g_mcScreenKind] || !g_mcScreen || GetTickCount() - g_mcScreenSeen > 10000) return false;
         sentAt = GetTickCount();
         g_mcReq = { g_mcScreen, btn, op, GetTickCount(), 1, 0 };             // McNotify delivers it with the screen's next message
         return true;
