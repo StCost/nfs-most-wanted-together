@@ -1603,11 +1603,18 @@ static void TakePeerSlotTick(const Net::Snapshot& latest, void* ghostRb) {
         RB_SetVec(ghostRb, RB_SetPosition, latest.s.pos);
         RB_SetVec(ghostRb, RB_SetLinearVelocity, zero); RB_SetVec(ghostRb, RB_SetAngularVelocity, zero);
     }
+    {   // reported: the host saw us drop from above at the start. How high over the road we were and are now.
+        float gFrom = 0, gTo = 0;
+        bool hf = GroundHeightAt(from, gFrom), ht = GroundHeightAt(to, gTo);
+        LOG("Start: height over the road %s m before the move, %s m on the slot (our ride height %.2f m)",
+            hf ? std::to_string(from[1] - gFrom).substr(0, 5).c_str() : "?", ht ? std::to_string(to[1] - gTo).substr(0, 5).c_str() : "?", g_myRide);
+    }
     if (pick == NetUtil::StartSlot::Host)
         LOG("Start: we stood on the host's grid slot - moved to %s (%.1f m)",
             hostRacer ? "the slot the host's race gave our racer" : "the free slot the host gave us", NetUtil::Dist3(from, to));
     else
         LOG("Start: we stood on the host's grid slot - moved to the slot of the host's racer here (%.1f m, no word from the host)", NetUtil::Dist3(from, to));
+    SnapToGroundSafe("on our grid slot");   // the slot's height can be the host car's, above our own road height
 }
 
 static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& prev, bool enabled, char* out, size_t outLen) {
