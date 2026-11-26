@@ -95,6 +95,10 @@ struct CarState {
     uint8_t  bustSeq;       // +1 every time the sender gets busted on its own (the other game follows)
     uint16_t coolLeft10;    // cooldown time left x10 (s) of the sender's pursuit
     uint16_t prologue;      // co-op in the prologue: Prologue::Encode (prologueutil.h); 0 from older builds
+    // the sender's pursuit bar, drawn above ours (SharedPursuit::PursuitBar): kind 0 none, 1 the chase bar
+    // (value -100 busted .. 0 middle .. +100 evade), 2 the cooldown meter (value 0 .. 100 done)
+    int8_t   pursuitBar;
+    uint8_t  pursuitBarKind;
 };
 enum : uint8_t {
     PURSUIT_ACTIVE   = 1,   // in a pursuit that is still running (not busted / escaped)
@@ -300,8 +304,9 @@ struct TrailerPacket {
 #pragma pack(pop)
 
 constexpr uint32_t COOP_MAGIC   = 0x4F43574D; // "MWCO"
-constexpr uint16_t COOP_VERSION = 19;   // 18: shared pursuits (CarState heat100 / pursuitFlags / bustSeq / coolLeft10)
+constexpr uint16_t COOP_VERSION = 20;   // 18: shared pursuits (CarState heat100 / pursuitFlags / bustSeq / coolLeft10)
                                         // 19: pursuit flags READY / EVADED / HIDING (an 18 build drops states carrying them)
+                                        // 20: one cooldown for both, the other player's pursuit bar (CarState pursuitBar)
 
 struct NetStats {
     bool        connected = false;

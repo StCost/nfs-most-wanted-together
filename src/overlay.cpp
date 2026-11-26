@@ -220,6 +220,113 @@ namespace {
     }
 
 
+    // ---- the other player's pursuit bar (pursuit.inl sets it) ----
+    Overlay::PeerBar g_peerBar;
+    constexpr int LBL_W = 512, LBL_H = 48;
+    IDirect3DTexture9* g_lblTex = nullptr;
+    std::string g_lblText;
+    int g_lblW = 0, g_lblH = 0;
+
+    bool RebuildLabel(IDirect3DDevice9* dev, const std::string& text) {
+        if (!g_lblTex && FAILED(dev->CreateTexture(LBL_W, LBL_H, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &g_lblTex, nullptr))) {
+            g_lblTex = nullptr; return false;
+        }
+        HDC dc = CreateCompatibleDC(nullptr);
+        BITMAPINFO bi{}; bi.bmiHeader.biSize = sizeof(bi.bmiHeader); bi.bmiHeader.biWidth = LBL_W; bi.bmiHeader.biHeight = -LBL_H;
+        bi.bmiHeader.biPlanes = 1; bi.bmiHeader.biBitCount = 32;
+        void* bits = nullptr;
+        HBITMAP bmp = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+        if (!bmp || !bits) { if (bmp) DeleteObject(bmp); DeleteDC(dc); return false; }
+        HGDIOBJ oldBmp = SelectObject(dc, bmp);
+        HFONT font = CreateFontA(-34, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                                 CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_SWISS, "Arial");
+        HGDIOBJ oldFont = SelectObject(dc, font);
+        memset(bits, 0, LBL_W * LBL_H * 4);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, RGB(255, 255, 255));
+        RECT rc{ 0, 0, LBL_W, LBL_H };
+        DrawTextA(dc, text.c_str(), -1, &rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+        RECT calc{ 0, 0, LBL_W, LBL_H };
+        DrawTextA(dc, text.c_str(), -1, &calc, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX | DT_CALCRECT);
+        g_lblW = (std::min)((int)calc.right + 2, LBL_W); g_lblH = LBL_H;
+        GdiFlush();
+        D3DLOCKED_RECT lr;
+        if (SUCCEEDED(g_lblTex->LockRect(0, &lr, nullptr, 0))) {
+            const uint32_t* src = (const uint32_t*)bits;
+            for (int y = 0; y < LBL_H; ++y) {
+                uint32_t* dst = (uint32_t*)((uint8_t*)lr.pBits + y * lr.Pitch);
+                for (int x = 0; x < LBL_W; ++x) dst[x] = ((src[y * LBL_W + x] & 0xFF) << 24) | 0x00FFFFFF;
+            }
+            g_lblTex->UnlockRect(0);
+        }
+        SelectObject(dc, oldFont); SelectObject(dc, oldBmp);
+        DeleteObject(font); DeleteObject(bmp); DeleteDC(dc);
+        g_lblText = text;
+        return true;
+    }
+
+    void FillQuad(IDirect3DDevice9* dev, float x0, float y0, float x1, float y1, DWORD c) {
+        if (!(x1 > x0) || !(y1 > y0)) return;
+        Vtx q[4] = { { x0 - .5f, y0 - .5f, 0, 1, c, 0, 0 }, { x1 - .5f, y0 - .5f, 0, 1, c, 0, 0 },
+                     { x0 - .5f, y1 - .5f, 0, 1, c, 0, 0 }, { x1 - .5f, y1 - .5f, 0, 1, c, 0, 0 } };
+        dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, q, sizeof(Vtx));
+    }
+
+    void DrawPeerBar(IDirect3DDevice9* dev, UINT bbW, UINT bbH) {
+        Overlay::PeerBar b;
+        EnterCriticalSection(&g_textCs);
+        b = g_peerBar;
+        LeaveCriticalSection(&g_textCs);
+        if (b.kind <= 0 || !bbW || !bbH) return;
+        std::string label = b.name.empty() ? std::string("Partner") : b.name;
+        if (b.kind == 2) label += "  -  COOLDOWN";
+        else if (b.value >= 100) label += "  -  EVADE";
+        else if (b.value <= -60) label += "  -  BUSTED?";
+        if (!g_lblTex || label != g_lblText) { if (!RebuildLabel(dev, label)) return; }
+
+        IDirect3DStateBlock9* sb = nullptr;
+        if (FAILED(dev->CreateStateBlock(D3DSBT_ALL, &sb))) return;
+        SetupStates(dev);
+        dev->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+        dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+        const float H = (float)bbH, W = (float)bbW;
+        const float bw = b.width * H, ph = 0.046f * H;
+        const float left = (float)(int)(W / 2 - bw / 2), right = left + bw;
+        const float top = (float)(int)(b.y * H - ph / 2), bottom = top + ph;
+        const float pad = 0.006f * H;
+        const float lblH = 0.022f * H, trackTop = top + pad + lblH + 0.003f * H, trackBot = bottom - pad;
+
+        dev->SetTexture(0, nullptr);
+        dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG2);
+        dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2);
+        FillQuad(dev, left, top, right, bottom, 0xA0000000);                             // panel
+        const float tl = left + pad, tr = right - pad, mid = (float)(int)((tl + tr) / 2), half = (tr - tl) / 2;
+        FillQuad(dev, tl, trackTop, tr, trackBot, 0x50FFFFFF);                            // track
+        float v = (float)(b.value < -100 ? -100 : b.value > 100 ? 100 : b.value) / 100.f;
+        if (b.kind == 2) {
+            FillQuad(dev, tl, trackTop, tl + (tr - tl) * v, trackBot, 0xE03C8CF0);       // cooldown: blue, left to right
+        } else {
+            if (v < 0) FillQuad(dev, mid + half * v, trackTop, mid, trackBot, 0xE0E03030);   // busted: red, to the left
+            if (v > 0) FillQuad(dev, mid, trackTop, mid + half * v, trackBot, 0xE030D060);   // evade: green, to the right
+            FillQuad(dev, mid - 1, trackTop - 0.003f * H, mid + 1, trackBot + 0.003f * H, 0xC0FFFFFF);   // the middle
+            float mx = mid + half * v;
+            FillQuad(dev, mx - 2, trackTop - 0.004f * H, mx + 2, trackBot + 0.004f * H, 0xFFFFFFFF);   // marker
+        }
+        // label: the other player's name (and the state)
+        float scale = lblH / (float)g_lblH;
+        float lw = g_lblW * scale, lx = tl, ly = top + pad;
+        float u1 = (float)g_lblW / LBL_W;
+        dev->SetTexture(0, g_lblTex);
+        dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+        dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+        const DWORD fg = 0xF0FFFFFF;
+        Vtx tq[4] = { { lx - .5f, ly - .5f, 0, 1, fg, 0, 0 }, { lx + lw - .5f, ly - .5f, 0, 1, fg, u1, 0 },
+                      { lx - .5f, ly + lblH - .5f, 0, 1, fg, 0, 1 }, { lx + lw - .5f, ly + lblH - .5f, 0, 1, fg, u1, 1 } };
+        dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, tq, sizeof(Vtx));
+        sb->Apply();
+        sb->Release();
+    }
+
     // ---- the Together settings page (together.cpp paints it, we put it on screen) ----
     constexpr int TG_W = 1024, TG_H = 1024;
     IDirect3DTexture9* g_tgTex = nullptr;
@@ -297,6 +404,7 @@ namespace {
 
         D3DSURFACE_DESC bd{}; bb->GetDesc(&bd);
         if (SUCCEEDED(dev->BeginScene())) {
+            DrawPeerBar(dev, bd.Width, bd.Height);
             if (g_visible) DrawOverlay(dev);
             DrawTogether(dev, bd.Width, bd.Height);
             dev->EndScene();
@@ -509,6 +617,11 @@ bool Overlay::InstallHooks() {
 }
 
 void Overlay::SetFrameCallback(FrameCallback cb) { g_cb = cb; }
+void Overlay::SetPeerBar(const PeerBar& b) {
+    EnterCriticalSection(&g_textCs);
+    g_peerBar = b;
+    LeaveCriticalSection(&g_textCs);
+}
 
 void Overlay::SetText(const std::string& text) {
     EnterCriticalSection(&g_textCs);

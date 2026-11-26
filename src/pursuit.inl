@@ -24,15 +24,11 @@
 //  and busted together (a bust fails the event for both: the other game busts its player too). Free
 //  roam: shared heat, the other player's cops on the minimap and the radar detector, ramming one of
 //  their cops starts a pursuit here. Evade bar is personal; busted is personal in free roam.
-//  A player who evades ENTERS cooldown immediately; the meter is frozen until both are in cooldown,
-//  then both run as usual. Escape completes
-//  only when both have finished. If a player is spotted, only they drop back to pursuit; the
-//  other stays in cooldown, their progress is reset to 0 and frozen until the spotted player
-//  evades again. A hidden player is never pulled back into pursuit because the other was spotted.
-//  During a live shared pursuit the safehouse world marker and map/radar icon are hidden, and
-//  entry is blocked, until both are in cooldown. Then either player may enter; the game evades
-//  that player as usual, and PURSUIT_EVADED forces the other player's pursuit to end as an
-//  escape/win. Disconnect: markers and entry go back to vanilla (solo).
+//  The cooldown is one for both: a full evade bar waits at the evade limit until the other player's
+//  is full too, then both enter the cooldown; when either is spotted in it, both leave it (even from a
+//  hiding spot). Escape completes only when both have finished. A safe house (open in the cooldown, as
+//  in the game) evades that player as usual, and PURSUIT_EVADED ends the other player's pursuit as an
+//  escape/win too. The other player's bar is drawn above ours (PursuitBarFor, overlay).
 //  While both are in cooldown the cooldown is one: the one further on sets it for both, and if one
 //  player is in a hiding spot the other's cooldown runs at the hiding-spot speed too.
 // ---------------------------------------------------------------------------
@@ -146,11 +142,15 @@ int16_t Game::LocalPursuitHeat() {
 
 static void PursuitTickImpl(bool connected, const Net::Snapshot& peer);
 static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer);
+static void PeerBarTickImpl(bool connected, const Net::Snapshot& peer);
+static void HidePeerBar() { Overlay::SetPeerBar(Overlay::PeerBar{}); }
 
 void Game::PursuitTick(bool connected, const Net::Snapshot& peer) {
     if (!g_ok) return;
     __try { SharedPursuitTickImpl(connected, peer); }
     __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Pursuit: exception in the shared pursuit"); }
+    __try { PeerBarTickImpl(connected, peer); }
+    __except (EXCEPTION_EXECUTE_HANDLER) { HidePeerBar(); }
     __try { PursuitTickImpl(connected, peer); }
     __except (EXCEPTION_EXECUTE_HANDLER) { g_rtN = 0; LOG("Pursuit: exception"); }
 }
@@ -236,12 +236,7 @@ namespace {
     enum { PS_CHASE = 0, PS_BACKUP = 1, PS_COOLDOWN = 2, PS_BUSTED = 3, PS_EVADED = 4 };
     constexpr uintptr_t DrawCopsCall = 0x59DCFD, DrawCopsFn = 0x579E00;
     constexpr uintptr_t RadarCall = 0x6F2170, RadarFn = 0x6EDE30;
-    // GManager (*0x91E00C)+0x2CF = AllowEngageSafehouse, written by 0x5EBA50 (recomputed each tick).
-    // Vanilla: not racing && (!inPursuit || cooldown). GetIsIconVisible (0x5FDAE0) uses this byte
-    // for type 8 (SAFEHOUSEINDICATOR) — world marker, minimap and world-map icons. Lua / engage
-    // and Jump to Safe House read the same flag (getter 0x605660).
-    constexpr uintptr_t GManagerPtr = 0x91E00C, AllowSafehouseOff = 0x2CF;
-    constexpr uintptr_t WriteAllowSafehouse1 = 0x5EBAEE, WriteAllowSafehouse2 = 0x5EBAFC;
+    constexpr uintptr_t GManagerPtr = 0x91E00C;
     constexpr uint32_t P_EvadeLevel = 0xFC;
     // Hiding spots. The human driver's update (0x4293D0) clears IPerpetrator +0x2C (hidden from cars) and
     // +0x2D (hidden from helicopters) every tick, then sets them while the player stands in a "Car" /
@@ -259,6 +254,8 @@ namespace {
         uint8_t  flags = 0;
         uint8_t  bustSeq = 0;
         uint16_t left10 = 0;
+        int8_t   bar = 0;                // our pursuit bar, sent for the other player's screen (SharedPursuit::PursuitBar)
+        uint8_t  barKind = 0;
         SharedPursuit::HeatTracker heat;
         SharedPursuit::BustTracker bust;
         void*    lastBustedPursuit = nullptr;
@@ -271,9 +268,6 @@ namespace {
         bool     peerCopsEngage = false;   // their cops may start a pursuit on us now (SharedPursuit::PeerCopsEngage)
         int      lastStatus = -2;
         int      lastCool = -1;
-        bool     peerWasCooling = false;   // previous tick, for Reset vs Freeze
-        bool     haveFreeze = false;
-        float    freezeSearch = 0.f, freezeSince = 0.f;
         DWORD    lastCopHit = 0;
         DWORD    peerCopHitAt = 0;        // we rammed one of their cops while chased (counts as seen)
         DWORD    peerSpotLog = 0;
@@ -281,7 +275,6 @@ namespace {
         int      radarCops = -1, mapCops = -1;
         bool     peerCopsShown = false;   // their cops on our minimap / radar detector: same place (free roam or same event)
         bool     sentEvaded = false;     // keep PURSUIT_EVADED on the wire after the pursuit object is gone
-        bool     hideSafehouse = false;
         uint32_t lastEvent = 0;          // our event: a new one clears an old escape signal
         bool     peerChasedInEvent = false;   // their pursuit was live in this same event
         bool     peerLiveWithOurs = false;    // their pursuit was live while this pursuit of ours was
@@ -326,32 +319,6 @@ namespace {
         return Mem::PatchPointer((void*)s2, (void*)&hk_BoardSetIsHiding) && Mem::PatchPointer((void*)s3, (void*)&hk_BoardSetTimeUntilHidden);
     }
 
-    // 0x5EBA50 writes [esi+0x2CF] = al at these two sites. When hideSafehouse is set, store 0 instead.
-    void __declspec(naked) hk_WriteAllowSafehouse() {
-        __asm {
-            cmp byte ptr [g_sp.hideSafehouse], 0
-            je write
-            xor al, al
-        write:
-            mov byte ptr [esi + 0x2CF], al
-            ret
-        }
-    }
-    bool PatchAllowSafehouseWrite(uintptr_t at) {
-        const uint8_t expect[6] = { 0x88, 0x86, 0xCF, 0x02, 0x00, 0x00 };   // mov [esi+0x2CF], al
-        uint8_t bytes[6] = { 0xE8, 0, 0, 0, 0, 0x90 };                     // call hook; nop
-        int32_t rel = (int32_t)((uintptr_t)&hk_WriteAllowSafehouse - (at + 5));
-        memcpy(bytes + 1, &rel, 4);
-        return Mem::PatchBytes(at, expect, bytes, 6);
-    }
-    void ApplySafehouseFlag(bool hide) {
-        g_sp.hideSafehouse = hide;
-        void* gm = nullptr;
-        if (!Mem::Read(GManagerPtr, gm) || !gm) return;
-        uint8_t cur = 1;
-        if (!Mem::Read((uintptr_t)gm + AllowSafehouseOff, cur)) return;
-        if (hide && cur) Mem::Write((uintptr_t)gm + AllowSafehouseOff, (uint8_t)0);
-    }
     template <typename T> T PRead(void* p, uint32_t off) { T v{}; Mem::Read((uintptr_t)p + off, v); return v; }
     template <typename T> void PWrite(void* p, uint32_t off, T v) { Mem::Write((uintptr_t)p + off, v); }
     using namespace SharedPursuit;
@@ -774,7 +741,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     }
 
     // ---- our own pursuit, as the other game sees it ----
-    g_sp.heat100 = 0; g_sp.flags = 0; g_sp.left10 = 0;
+    g_sp.heat100 = 0; g_sp.flags = 0; g_sp.left10 = 0; g_sp.bar = 0; g_sp.barKind = 0;
     {   // a new event (or back to free roam): an escape from before is not news there
         uint32_t ev = Game::CurrentEventHash();
         if (ev != g_sp.lastEvent) { g_sp.lastEvent = ev; g_sp.sentEvaded = false; g_sp.peerChasedInEvent = false; }
@@ -830,6 +797,12 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
                 }
             }
         }
+        {   // our bar for the other player's screen (after the "seen" above: their cops count too)
+            SharedPursuit::Bar b = SharedPursuit::PursuitBar((g_sp.flags & PURSUIT_ACTIVE) != 0, status == PS_COOLDOWN,
+                (g_sp.flags & PURSUIT_SEEN) != 0, PRead<float>(pursuit, P_BustTimer), PRead<float>(pursuit, P_UnseenInState),
+                left, PRead<float>(pursuit, P_CoolNeed));
+            g_sp.bar = b.value; g_sp.barKind = b.kind;
+        }
         if (busted) g_sp.flags |= PURSUIT_BUSTED;
         if (status == PS_EVADED) { g_sp.flags |= PURSUIT_EVADED; g_sp.sentEvaded = true; }
         else if (status != PS_BUSTED && (g_sp.flags & PURSUIT_ACTIVE)) g_sp.sentEvaded = false;
@@ -858,16 +831,15 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     }
     if (!on) {
         // alone again (they left / disconnected): our pursuit is the plain game's from here on
-        if (g_sp.sharedHidePerp || g_sp.peerSpotting || g_sp.haveFreeze || g_sp.peerCopHitAt)
+        if (g_sp.sharedHidePerp || g_sp.peerSpotting || g_sp.peerCopHitAt)
             LOG("Pursuit: the other player is gone - our pursuit and cooldown run as in the plain game");
         g_sp.heat = {}; g_sp.bust = {}; g_sp.pendingBustUntil = 0; g_sp.lastCool = -1; g_sp.peerCopsEngage = false;
         g_sp.sentEvaded = false;
         g_sp.sharedHidePerp = nullptr;
-        g_sp.haveFreeze = false; g_sp.peerWasCooling = false; g_sp.peerCopHitAt = 0; g_sp.peerSpotting = false;
+        g_sp.peerCopHitAt = 0; g_sp.peerSpotting = false;
         ForgetPeerCopsSawUs();
         if (g_tally.live) SharedPursuit::TallyStop(g_tally);
         g_tallyPursuit = nullptr;
-        ApplySafehouseFlag(false);
         return;
     }
     bool peerHere = freeRoam ? PeerInFreeRoam(peer) : sameEvent;
@@ -944,35 +916,22 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     if (!peerEvadedHere) theirs.evaded = false;
     bool peerForCool = peerHere || peerEvadedHere;
     if ((g_sp.flags & PURSUIT_ACTIVE) && peerForCool) {
-        bool was = g_sp.peerWasCooling;
-        Decision d = DecideCooldown(mine, theirs, true, was);
-        if (peerHere) g_sp.peerWasCooling = theirs.cooling;
+        Decision d = peerHere || theirs.evaded ? DecideCooldown(mine, theirs, true) : Decision{ Cool::Free, 0.f };
         coolNow = (int)d.what;
         if (d.what == Cool::ForceEscape) {
-            g_sp.haveFreeze = false;
             ForceLocalEscape(pursuit);
             if (coolNow != g_sp.lastCool) LOG("Pursuit: the other player evaded (safehouse) - ending ours as an escape");
-        } else if (pursuit && status == PS_COOLDOWN && !mine.seen &&
-            (d.what == Cool::Freeze || d.what == Cool::Reset || d.what == Cool::HoldEscape)) {
+        } else if (d.what == Cool::HoldEvade && pursuit && status != PS_COOLDOWN) {
+            // the game starts the cooldown once the unseen time passes 2.5 s: keep it just under
+            if (PRead<float>(pursuit, P_UnseenInState) > HOLD_UNSEEN_S) PWrite<float>(pursuit, P_UnseenInState, HOLD_UNSEEN_S);
+        } else if (d.what == Cool::BackToChase && pursuit && status == PS_COOLDOWN) {
+            PWrite<float>(pursuit, P_SinceSeen, 0.f);   // seen: the game ends the cooldown (as for a spot)
+        } else if (d.what == Cool::HoldEscape && pursuit && status == PS_COOLDOWN && !mine.seen) {
             float search = PRead<float>(pursuit, P_Search), since = PRead<float>(pursuit, P_SinceSeen);
             float need = PRead<float>(pursuit, P_CoolNeed);
-            if (d.what == Cool::Reset) {
-                ResetCooldownProgress(search, since);
-                g_sp.haveFreeze = true; g_sp.freezeSearch = search; g_sp.freezeSince = since;
-            } else if (d.what == Cool::Freeze) {
-                if (!g_sp.haveFreeze) {
-                    if (since < COOLDOWN_FLOOR_S) since = COOLDOWN_FLOOR_S;
-                    g_sp.haveFreeze = true; g_sp.freezeSearch = search; g_sp.freezeSince = since;
-                }
-                FreezeProgress(g_sp.freezeSearch, g_sp.freezeSince, search, since);
-            } else {
-                g_sp.haveFreeze = false;
-                DelayProgress(need, d.left > 0.f ? d.left : ESCAPE_HOLD_LEFT_S, search, since);
-            }
+            DelayProgress(need, d.left > 0.f ? d.left : ESCAPE_HOLD_LEFT_S, search, since);
             PWrite<float>(pursuit, P_Search, search);
             PWrite<float>(pursuit, P_SinceSeen, since);
-        } else {
-            g_sp.haveFreeze = false;
         }
         // both in cooldown: one cooldown (the one further on), and the hiding spot of either counts for both
         if (d.what == Cool::Free && peerHere && !resultsFreeze && pursuit && status == PS_COOLDOWN) {
@@ -992,16 +951,14 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
             if (ShareHidingSpot(mine, theirs, true) && me) hidePerp = Find(me, IPerpetratorHandle);
         } else { g_sp.catchUpLogged = 0.f; g_sp.catchUpLeftSeen = -1.f; }
         if (coolNow != g_sp.lastCool) {
-            if (d.what == Cool::Freeze) LOG("Pursuit: in cooldown - meter frozen until the other player is in cooldown too");
-            else if (d.what == Cool::Reset) LOG("Pursuit: the other player was spotted - we stay in cooldown, meter reset and frozen");
+            if (d.what == Cool::HoldEvade) LOG("Pursuit: our evade bar is full - waiting at the evade limit until the other player's is full too");
+            else if (d.what == Cool::BackToChase) LOG("Pursuit: the other player is not in the cooldown (spotted) - we leave it too, back to the chase%s",
+                                                       mine.hiding ? " (from a hiding spot)" : "");
             else if (d.what == Cool::HoldEscape) LOG("Pursuit: our cooldown is finished - waiting for the other player to finish before we escape");
             else if (d.what != Cool::ForceEscape && theirs.inPursuit) LOG("Pursuit: cooldown runs as usual (%s here, %s there)",
                                            mine.seen ? "seen" : (mine.cooling ? "in cooldown" : "hiding"),
                                            theirs.seen ? "seen" : (theirs.cooling ? "in cooldown" : "hiding"));
         }
-    } else {
-        g_sp.haveFreeze = false;
-        if (!peerHere) g_sp.peerWasCooling = false;
     }
     g_sp.lastCool = coolNow;
     if (hidePerp != g_sp.sharedHidePerp) {
@@ -1019,9 +976,6 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         SharedTallyTick(pursuit, perpAll, live, joint);
     }
 
-    // ---- 6. safehouse markers / entry: hidden until both are in cooldown (solo if they disconnect) ----
-    ApplySafehouseFlag(freeRoam && HideSafehouse(mine, theirs, peerHere));
-
     // status line every 5 s while either of you is chased
     static DWORD nextLog = 0;
     if ((pursuit || (peer.valid && (peer.s.pursuitFlags & PURSUIT_ACTIVE))) && (int)(now - nextLog) > 0) {
@@ -1036,6 +990,27 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
 }
 
 // ---- cops of our pursuit go after whichever player is closer (SharedPursuit::CopChasesPeer) ----
+// ---- the other player's pursuit bar above ours (bottom centre; overlay.cpp draws it) ----
+// Shown while they are chased in the same place as us (free roam, or the same event), over the plain
+// HUD only (not over menus, the map or a cutscene).
+static void PeerBarTickImpl(bool connected, const Net::Snapshot& peer) {
+    static int lastKind = -1;
+    Overlay::PeerBar b;
+    bool show = g_cfg.sharedPursuits && connected && g_coopLinked && peer.valid && peer.s.pursuitBarKind &&
+                Game::GameFlowState() == 6 && !NisActive() && LocalVehicle() &&
+                SharedPlaceNow(peer) != SharedPursuit::Place::None &&
+                FEScreens::ListAll().find("pushed: [HUD_SingleRace.fng]") == 0;
+    if (show) {
+        b.kind = peer.s.pursuitBarKind; b.value = peer.s.pursuitBar;
+        b.name = Net::Stats().peerName;
+    }
+    Overlay::SetPeerBar(b);
+    if (b.kind != lastKind) {
+        lastKind = b.kind;
+        LOG("Pursuit: the other player's bar %s", b.kind == 1 ? "shown (chase)" : b.kind == 2 ? "shown (cooldown)" : "hidden");
+    }
+}
+
 static void PursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     double now = Net::LocalClockMs();
     if (g_nextPursuitCheck - now > 1000) g_nextPursuitCheck = now;   // sim clock restarted
@@ -1138,6 +1113,8 @@ void Game::FillSharedPursuit(CarState& s) {
     s.pursuitFlags = g_sp.flags;
     s.bustSeq = g_sp.bustSeq;
     s.coolLeft10 = g_sp.left10;
+    s.pursuitBar = g_sp.bar;
+    s.pursuitBarKind = g_sp.barKind;
 }
 
 // ---- 2. the other player's cops on the minimap and the radar detector ----
@@ -1235,11 +1212,9 @@ bool Game::InstallPursuitHooks() {
     if (!g_cfg.sharedPursuits) { LOG("Pursuit: SharedPursuits=0 - each player has their own heat and pursuit"); return false; }
     bool m = PatchCallChecked(DrawCopsCall, DrawCopsFn, (void*)&hk_DrawCops);
     bool r = PatchCallChecked(RadarCall, RadarFn, (void*)&hk_RadarDetector);
-    bool s1 = PatchAllowSafehouseWrite(WriteAllowSafehouse1);
-    bool s2 = PatchAllowSafehouseWrite(WriteAllowSafehouse2);
     bool hs = PatchPerpHidden();
     bool hb = PatchBoardHidden();
-    LOG("Pursuit: shared pursuits on (minimap cops %s, radar detector %s, safehouse flag %s/%s, shared hiding spot %s, HIDDEN on the HUD %s)",
-        m ? "hooked" : "NOT hooked", r ? "hooked" : "NOT hooked", s1 ? "ok" : "FAIL", s2 ? "ok" : "FAIL", hs ? "ok" : "FAIL", hb ? "ok" : "FAIL");
-    return m && r && s1 && s2;
+    LOG("Pursuit: shared pursuits on (minimap cops %s, radar detector %s, shared hiding spot %s, HIDDEN on the HUD %s)",
+        m ? "hooked" : "NOT hooked", r ? "hooked" : "NOT hooked", hs ? "ok" : "FAIL", hb ? "ok" : "FAIL");
+    return m && r;
 }

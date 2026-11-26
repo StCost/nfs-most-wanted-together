@@ -107,22 +107,15 @@ namespace SharedPursuit {
     }
 
     // ---- cooldown ----------------------------------------------------------------------------------
-    // Design (1.7.1, refined): evade bar and busted are personal (vanilla: cops see THAT player).
-    // When a player evades they ENTER cooldown immediately. Their cooldown meter does not progress
-    // (frozen) until BOTH are in cooldown; then both meters run as usual. Escape is applied only
-    // when both have finished: the first stays in cooldown (bar full) until the other also finishes.
-    // If a player is spotted during cooldown, ONLY that player drops back to pursuit (vanilla).
-    // The other stays in cooldown; their progress is reset to the start of the meter and frozen
-    // until the spotted player evades and re-enters cooldown. A hidden player is never pulled back
-    // into pursuit because the other was spotted. Disconnect, a busted peer, or a peer who left
-    // the pursuit: solo — unfreeze and escape on your own.
-    //
-    // Safehouse (1.7.1): during a live shared pursuit (both connected, both in a pursuit, neither
-    // busted) the safehouse world marker and map/radar icon stay hidden, and entry is blocked,
-    // until BOTH are in cooldown (meters running or waiting to escape together). Then either
-    // player may enter a safehouse. The game ends that player's pursuit as evaded, and a
-    // PURSUIT_EVADED flag tells the other game to end theirs the same way (escape/win). Disconnect
-    // or a busted / departed peer: solo — markers and entry as vanilla.
+    // Design (1.8): evade bar and busted are personal (vanilla: cops see THAT player), the cooldown is
+    // one for both. A player whose evade bar is full stays at the evade limit - the game is kept from
+    // starting the cooldown - until the other player's bar is full too; then both enter the cooldown.
+    // Nobody is ever in the cooldown alone: when one is spotted in the cooldown, the other leaves it as
+    // well (back to the chase), even from a hiding spot. Escape only when both have finished: the first
+    // stays in cooldown (bar full) until the other also finishes. Disconnect, a busted peer, or a peer
+    // who left the pursuit: solo, vanilla.
+    // As both are always in the cooldown together, the safe house works as in the game (it opens in the
+    // cooldown); entering it ends the other player's pursuit as an escape too (PURSUIT_EVADED).
     //
     // One side of a pursuit as the other game needs it (CarState::pursuitFlags / coolLeft10).
     struct View {
@@ -141,7 +134,7 @@ namespace SharedPursuit {
         v.seen = (flags & PURSUIT_SEEN) != 0;
         v.cooling = (flags & PURSUIT_COOLDOWN) != 0;
         v.left = left10 / 10.f;
-        v.ready = (flags & PURSUIT_READY) != 0 || v.cooling;
+        v.ready = ((flags & PURSUIT_READY) != 0 || v.cooling) && !v.seen;   // seen in the cooldown: spotted
         v.busted = (flags & PURSUIT_BUSTED) != 0;
         v.evaded = (flags & PURSUIT_EVADED) != 0;
         v.hiding = (flags & PURSUIT_HIDING) != 0 && v.cooling;
@@ -155,8 +148,8 @@ namespace SharedPursuit {
 
     enum class Cool {
         Free,        // vanilla: enter cooldown, let the meter run, or escape
-        Freeze,      // we are in cooldown: do not let the meter advance (peer is not in cooldown)
-        Reset,       // we are in cooldown: set the meter back to the start (peer was in cooldown and got spotted)
+        HoldEvade,   // our evade bar is full, theirs not: stay at the evade limit (no cooldown yet)
+        BackToChase, // we are in cooldown, they are not (spotted): leave it too
         HoldEscape,  // our meter is finished: do not escape until the peer has finished too
         ForceEscape, // the peer evaded (safehouse): end ours as an escape/win too
     };
@@ -164,15 +157,37 @@ namespace SharedPursuit {
     // The exe float at 0x890D34: not seen this long in the current state starts cooldown.
     constexpr float COOLDOWN_UNSEEN_S = 2.5f;
     constexpr float WAIT_UNSEEN_SLACK_S = 0.05f;
+    // HoldEvade keeps the unseen time here: under the game's limit by a few frames, over EVADE_READY_S.
+    constexpr float HOLD_UNSEEN_S = COOLDOWN_UNSEEN_S - 0.15f;
+    constexpr float EVADE_READY_S = COOLDOWN_UNSEEN_S - 0.2f;   // the bar counts as full from here
     // Lowest +0x128 that does not look like "seen again" (that would cancel cooldown).
     constexpr float COOLDOWN_FLOOR_S = SEEN_LIMIT_S + 0.1f;
     constexpr float ESCAPE_HOLD_LEFT_S = 0.2f;   // keep this much left so evade level stays < 1
-    // Hidden long enough that vanilla would enter cooldown (or already in it). Seen resets the bar.
-    inline bool EvadeBarFull(bool seen, bool cooling, float unseenInState, float threshold = COOLDOWN_UNSEEN_S) {
+    // Hidden long enough that the cooldown may start (or already in it). Seen resets the bar.
+    inline bool EvadeBarFull(bool seen, bool cooling, float unseenInState, float threshold = EVADE_READY_S) {
         if (seen) return false;
         if (cooling) return true;
         return threshold > 0.f && unseenInState + WAIT_UNSEEN_SLACK_S >= threshold;
     }
+    // The pursuit bar as the HUD shows it, for the other player's screen. In the chase: busted to the left
+    // (the busted timer: cops boxing in a slow car; busted at 5 s, 0x890DA4), evade to the right (time
+    // unseen in this state; full where the cooldown may start). In the cooldown: how far its meter is (left of
+    // needed). kind 0: not chased.
+    constexpr float BUSTED_AT_S = 5.0f;
+    struct Bar { int8_t value; uint8_t kind; };
+    inline Bar PursuitBar(bool active, bool cooling, bool seen, float bustTimer, float unseenInState, float left, float need) {
+        auto clamp01 = [](float f) { return !(f > 0.f) ? 0.f : f > 1.f ? 1.f : f; };
+        if (!active) return { 0, 0 };
+        if (cooling) {
+            float done = need > 0.f ? clamp01(1.f - left / need) : 0.f;
+            return { (int8_t)(done * 100.f + 0.5f), 2 };
+        }
+        float bust = clamp01(bustTimer / BUSTED_AT_S);
+        float evade = seen ? 0.f : clamp01(unseenInState / EVADE_READY_S);   // full: waiting at the evade limit
+        float v = (evade - bust) * 100.f;
+        return { (int8_t)(v < 0.f ? v - 0.5f : v + 0.5f), 1 };
+    }
+
     inline bool CooldownFinished(const View& v, float eps = ESCAPE_HOLD_LEFT_S) {
         return v.cooling && v.left <= eps;
     }
@@ -186,34 +201,21 @@ namespace SharedPursuit {
     inline bool SharedPursuitLive(const View& me, const View& peer, bool peerConnected) {
         return peerConnected && me.inPursuit && peer.inPursuit && !me.busted && !peer.busted;
     }
-    // Vanilla markers / entry, except during a live shared pursuit until both are in cooldown.
-    inline bool SafehouseAllowed(const View& me, const View& peer, bool peerConnected) {
-        if (!SharedPursuitLive(me, peer, peerConnected)) return true;
-        return me.cooling && peer.cooling;
-    }
-    inline bool HideSafehouse(const View& me, const View& peer, bool peerConnected) {
-        return !SafehouseAllowed(me, peer, peerConnected);
-    }
-    inline Decision DecideCooldown(const View& me, const View& peer, bool peerConnected = true,
-                                   bool peerWasCooling = false) {
+    inline Decision DecideCooldown(const View& me, const View& peer, bool peerConnected = true) {
         if (!me.inPursuit) return { Cool::Free, 0.f };
         // Peer entered a safehouse (or otherwise evaded): end ours as an escape, even if we are
-        // still in a chase or a frozen cooldown. A disconnected peer is solo, not a force-escape.
+        // still in a chase. A disconnected peer is solo, not a force-escape.
         if (peerConnected && peer.evaded && !me.busted) return { Cool::ForceEscape, 0.f };
-        if (!me.cooling) return { Cool::Free, 0.f };   // enter immediately when vanilla wants
-        if (me.seen) return { Cool::Free, 0.f };       // we were spotted: vanilla drops us; do not freeze ourselves
-        if (PeerAllowsSolo(peer, peerConnected)) return { Cool::Free, 0.f };  // disconnect / busted / left: unfreeze
-        if (!peer.cooling) return { peerWasCooling ? Cool::Reset : Cool::Freeze, 0.f };
+        if (PeerAllowsSolo(peer, peerConnected)) return { Cool::Free, 0.f };  // disconnect / busted / left: vanilla
+        if (!me.cooling) {
+            // our bar is full, theirs not: wait at the evade limit (both enter the cooldown together)
+            if (me.ready && !me.seen && !peer.ready) return { Cool::HoldEvade, 0.f };
+            return { Cool::Free, 0.f };
+        }
+        if (me.seen) return { Cool::Free, 0.f };       // we were spotted: vanilla drops us
+        if (!peer.ready) return { Cool::BackToChase, 0.f };   // they were spotted (or never got there): both chase
         if (CooldownFinished(me) && !CooldownFinished(peer)) return { Cool::HoldEscape, ESCAPE_HOLD_LEFT_S };
         return { Cool::Free, 0.f };
-    }
-    inline void ResetCooldownProgress(float& accum, float& sinceSeen) {
-        accum = 0.f;
-        sinceSeen = COOLDOWN_FLOOR_S;
-    }
-    inline void FreezeProgress(float frozenAccum, float frozenSince, float& accum, float& sinceSeen) {
-        accum = frozenAccum;
-        sinceSeen = frozenSince < COOLDOWN_FLOOR_S ? COOLDOWN_FLOOR_S : frozenSince;
     }
     // Fill the cooldown meter so evade level reaches 1 (vanilla then ends the pursuit as evaded).
     inline void CompleteCooldown(float required, float& accum, float& sinceSeen) {

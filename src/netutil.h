@@ -353,7 +353,8 @@ namespace NetUtil {
                FiniteWithin(&s.racePct, 1, 101.f) && s.racePct >= -1.f &&
                FiniteWithin(&s.lapPct, 1, 101.f) && s.lapPct >= -1.f &&
                s.laps >= 0 && s.laps <= 200 && s.checkpoints >= 0 && s.checkpoints <= 2000 &&
-               s.heat100 <= MAX_HEAT100 && s.coolLeft10 <= MAX_COOL_LEFT10 && !(s.pursuitFlags & ~PURSUIT_KNOWN_BITS);
+               s.heat100 <= MAX_HEAT100 && s.coolLeft10 <= MAX_COOL_LEFT10 && !(s.pursuitFlags & ~PURSUIT_KNOWN_BITS) &&
+               s.pursuitBar >= -100 && s.pursuitBar <= 100 && s.pursuitBarKind <= 2;
     }
     inline bool ValidTrafficEntry(const TrafficEntry& e) {
         return ValidMotion(e.pos, e.rot, e.linVel, e.angVel);
