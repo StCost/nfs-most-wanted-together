@@ -217,23 +217,29 @@ namespace {
             g_rgGated = RivalGate::Gated(on, g_rgBin, g_rgReady, g_rgIdx, peerBin, peer);
             if (g_rgForce) g_rgGated = g_rgKnown && g_rgBossN > 0;
             bool waits = RivalGate::PartnerWaits(on, g_rgBin, g_rgReady, g_rgIdx, peerBin, peer);
+            // The notices wait until the state has held for 3 s: right after a won rival race the other
+            // game's career update arrives a moment after ours (seen: "not ready" for 0.5 s at the win).
+            static DWORD gatedSince = 0; static bool toldThisGate = false;
+            static DWORD toldGatedAt = 0; static int toldGatedBin = 0;   // said once a minute at most
             if (g_rgGated != lastGated) {
                 lastGated = g_rgGated;
                 LOG("Rival: rival race #%d %s (ours: open %d race %d, theirs: Blacklist #%d open %d race %d)", g_rgBin,
                     g_rgGated ? "waits for the other player" : "open again", (int)g_rgReady, g_rgIdx, peerBin, (int)peer.ready, peer.idx);
-                // said once a minute at most (the other game's state comes and goes while it loads)
-                static DWORD toldGatedAt = 0; static int toldGatedBin = 0;
-                if (g_rgGated) {
-                    if (toldGatedBin != g_rgBin || now - toldGatedAt > 60000) {
-                        toldGatedBin = g_rgBin; toldGatedAt = now;
-                        Game::QueueNotice(RgPeerName() + " is not ready for the rival race yet - Challenge Rival waits for them", true);
-                    }
-                } else {
+                if (g_rgGated) { gatedSince = now ? now : 1; toldThisGate = false; }
+                else {
                     RgRefreshIcons();
-                    if (on && g_rgReady && peer.known && peer.ready && peerBin == g_rgBin) {
+                    if (toldThisGate && on && g_rgReady && peer.known && peer.ready && peerBin == g_rgBin) {
                         toldGatedAt = 0;
                         Game::QueueNotice(RgPeerName() + " is ready - Challenge Rival is on", false);
                     }
+                    gatedSince = 0; toldThisGate = false;
+                }
+            }
+            if (g_rgGated && gatedSince && !toldThisGate && now - gatedSince >= 3000) {
+                toldThisGate = true;
+                if (toldGatedBin != g_rgBin || now - toldGatedAt > 60000) {
+                    toldGatedBin = g_rgBin; toldGatedAt = now;
+                    Game::QueueNotice(RgPeerName() + " is not ready for the rival race yet - Challenge Rival waits for them", true);
                 }
             }
             if (waits != lastWaits) {
