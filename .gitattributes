@@ -1,2 +1,7 @@
 # cmd mis-parses labels in batch files with LF-only line ends
 *.bat text eol=crlf
+# binary art: no line-ending conversion, no text diffs
+*.pdn binary
+*.dds binary
+*.png binary
+*.jpg binary

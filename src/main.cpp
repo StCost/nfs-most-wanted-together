@@ -229,7 +229,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         // Test commands ([Debug] TestKeys=1): one command per line in scripts\MWTogether.cmd, the file is
         // deleted once read. Lets tests drive the game while it runs in the background.
         //   event <id> | events | restart | autopilot | cop | uncop | pursuit | clone | unclone | notice <text> | shot <file> | accept <package>
-        //   | skipnis | story | story <movie> | milestones | milestone | speedtrap | flash | rivalgate [force|auto]
+        //   | skipnis | story | story <movie> | milestones | milestone | speedtrap | rivalgate [force|auto]
         //   | roadblock [plain|spikes|list]
         static DWORD lastCmdCheck = 0;
         if (g_cfg.testKeys && g_gameOk && GetTickCount() - lastCmdCheck >= 500) {

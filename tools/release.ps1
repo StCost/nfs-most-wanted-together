@@ -1,8 +1,10 @@
 # Local release (same result as the GitHub "Build" workflow, without Actions):
-#   tools\release.ps1 -Version 0.2.0            build, package, publish a pre-release on GitHub
-#   tools\release.ps1 -Version 0.2.0 -Final     publish as a normal (latest) release
-#   tools\release.ps1 -Version 0.2.0 -DryRun    only build and package (dist\MWTogether-0.2.0.zip)
-#   -ChangesFile notes.md                       the "What changed" part of the release notes (markdown)
+#   tools\release.ps1 -Version 1.7.16           build, package, publish a pre-release on GitHub
+#   tools\release.ps1 -Version 1.7.16 -Final    publish as a normal (latest) release - only these reach the
+#                                               README's releases/latest/download link
+#   tools\release.ps1 -Version 1.7.16 -DryRun   only build and package (dist\MWTogether-1.7.16.zip)
+#   -ChangesFile notes.md                       the "What changed" part of the release notes (markdown); without
+#                                               it the notes have only the generated commit list
 # Needs: Visual Studio 2022 C++ (x86), and the GitHub CLI (gh) logged in for publishing.
 param(
     [Parameter(Mandatory = $true)][string]$Version,
@@ -11,20 +13,29 @@ param(
     [string]$ChangesFile
 )
 $ErrorActionPreference = 'Stop'
+# three numbers, no 'v' ("v1.7.16" would tag vv1.7.16); a -suffix only for unpublished builds (CI's 0.0.0-<sha>)
+if ($Version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$') { throw "Version must look like 1.7.16 (no 'v'): '$Version'" }
+if (-not $DryRun -and $Version -match '-') { throw "A published version is three numbers only: '$Version'" }
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 
 if (-not $DryRun) {
     if (git status --porcelain) { throw "Uncommitted changes - commit or stash them first." }
     if (git tag --list "v$Version") { throw "Tag v$Version already exists." }
+    git fetch origin --quiet
+    if (-not (git branch -r --contains HEAD)) { throw "HEAD is not pushed yet - push it first (the release is tagged on it)." }
 }
 
 # 1. build with the version stamped in; MWT_RELEASE leaves the test commands and debug tools out
 $env:MWT_VERSION = $Version
 $env:MWT_RELEASE = '1'
-& (Join-Path $root "build.bat")
-if ($LASTEXITCODE -ne 0) { throw "build failed" }
-Remove-Item Env:MWT_VERSION, Env:MWT_RELEASE
+try {
+    & (Join-Path $root "build.bat")
+    if ($LASTEXITCODE -ne 0) { throw "build failed" }
+} finally {
+    # never leave MWT_RELEASE set in this session: later build.bat runs would make release builds
+    Remove-Item Env:MWT_VERSION, Env:MWT_RELEASE -ErrorAction SilentlyContinue
+}
 
 # 2. package: scripts\MWTogether.asi / default.ini / logo + README, LICENSE, notices (no dinput8.dll)
 # Ultimate ASI Loader is a required separate download: see README Install.
@@ -52,8 +63,7 @@ Write-Host "MWTogether.asi SHA256 $((Get-FileHash (Join-Path $pkg 'scripts\MWTog
 $repo = 'https://github.com/StCost/nfs-most-wanted-together'
 $notes = Join-Path $dist "MWTogether-$Version-notes.md"
 $lines = @("# [Click Me to Download NFS MW Together $Version]($repo/releases/download/v$Version/MWTogether.zip)", '')
-$lines += '### What changed', ''
-if ($ChangesFile) { $lines += Get-Content $ChangesFile } else { $lines += '- (fill in)' }
+if ($ChangesFile) { $lines += '### What changed', ''; $lines += Get-Content $ChangesFile }
 Set-Content $notes $lines -Encoding utf8
 Get-Content $notes | Write-Host
 # unversioned name (README / CI); DryRun also writes it, so a local package is ready without tagging
@@ -61,10 +71,11 @@ $named = Join-Path $dist 'MWTogether.zip'
 Copy-Item $zip $named -Force
 if ($DryRun) { return }
 
-# 3. tag + GitHub release: one asset with a fixed name, so README can link releases/latest/download/MWTogether.zip
-git tag "v$Version"
-git push origin "v$Version"
-$flags = @('--notes-file', $notes, '--generate-notes', '--title', "NFS MW Together $Version")
+# 3. GitHub release, which creates the tag on HEAD (so a failed publish leaves no orphan tag): one asset
+# with a fixed name, so README can link releases/latest/download/MWTogether.zip
+$flags = @('--target', (git rev-parse HEAD), '--notes-file', $notes, '--generate-notes', '--title', "NFS MW Together $Version")
 if ($Final) { $flags += '--latest' } else { $flags += '--prerelease' }
 gh release create "v$Version" $named @flags
+if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
+git fetch origin --tags --quiet
 Write-Host "Released v$Version"

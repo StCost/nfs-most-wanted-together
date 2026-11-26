@@ -233,18 +233,6 @@ XXXXXXXX - no free racer of that model here`, and the rival drives exactly where
 race C logs `the racer that followed host opponent N is a new car now - binding again` (or a fresh `now follows`)
 and `AI: ... is a new car with a new AI` at most once; the rival never drives on its own AI next to H's rival.
 
-## Headlight flash (`[Coop] FlashLights`)
-
-Both PCs in free roam, linked, near each other, `NoSpeedbreaker=1`. At start-up both logs show
-`Lights: hold the speedbreaker bind to flash the headlights in co-op (render hooks installed)`.
-
-| Check | How | Pass |
-|---|---|---|
-| Flash | H: hold the speedbreaker key / pad button (or `flash`) | H `Lights: flashing our headlights (speedbreaker bind held, 1 so far)`; H's own headlight flares grow and brighten while held and go back when released. C: `Lights: the other player flashes their headlights (1 so far)`; H's car on C's screen flashes at the same moment. Nothing slows down (`Co-op: speedbreaker switched off` may show, as before). |
-| Keyboard and pad | try both binds, and a re-bound key from the game's controls menu | each flashes; releasing stops it within a frame |
-| Daylight | flash where the game shows no headlight glow | the flares appear while held |
-| Solo | not connected (or `FlashLights=0`) | the speedbreaker works as in the plain game, no `Lights:` flash lines |
-
 ## Story scenes (`SyncStoryScenes`)
 
 Both PCs in free roam, linked, `TestKeys=1`, `AutoPilot=0`. `story <movie>` stands in for the career
