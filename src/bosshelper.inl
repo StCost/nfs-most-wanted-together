@@ -106,6 +106,69 @@ namespace {
         if (g_skillRacer && IsHelperRacer(g_skillRacer)) return false;   // a normal racer's catch-up
         return ((bool(__thiscall*)(void*))IsBossRaceFn)(parms);
     }
+
+    // ---- the helper's spot on the start line ----
+    // A rival race's grid has slots for its own two cars; the game put the helper (racer slot 2) well ahead
+    // of everyone (reported: "too far forward, while we all got behind"). The race script saves every car's
+    // spot (Lua SaveStartPositions 0x604E90, registered at 0x61EA13) before the intro and puts them back
+    // after it (RestoreStartPositions 0x60AA50 -> 0x5E96D0 from GRacerInfo +0x170): right before that save
+    // a helper that stands ahead of our row goes to a free slot of the grid behind us instead.
+    constexpr uintptr_t SaveStartReg = 0x61EA13, SaveStartFn = 0x604E90;
+    void FixHelperGridSpot() {
+        if (!g_helperOn || g_helperSlot < 0) return;
+        void* me = LocalVehicle();
+        void* lrb = RigidBodyOf(me);
+        char* rs = RaceStatusPtr();
+        if (!lrb || !rs) return;
+        void* helperRi = rs + 0x18 + g_helperSlot * 0x194;
+        void* helper = nullptr;
+        void** b = nullptr;
+        for (int i = 0, total = ListSize(VL_ALL, &b); i < total && !helper; ++i) {
+            void* iv = ListGet(VL_ALL, i);
+            if (iv && iv != me && IsVehicle(iv) && RacerInfoOf(iv) == helperRi) helper = iv;
+        }
+        char cars[512]; GridCarsText(lrb, cars, sizeof(cars));
+        LOG("Race: start grid before the intro (m ahead/right of us): %s", cars);
+        void* hrb = helper ? RigidBodyOf(helper) : nullptr;
+        if (!hrb) { LOG("Race: the helper racer has no car yet - its start spot stays the game's"); return; }
+        float f[3];
+        VCall<void(__thiscall*)(void*, float*)>(lrb, 13 /*GetForwardVector*/)(lrb, f);
+        const float* p = RB_GetVec(lrb, RB_GetPosition);
+        const float* h = RB_GetVec(hrb, RB_GetPosition);
+        float fl = sqrtf(f[0] * f[0] + f[2] * f[2]);
+        if (!(fl > 0.1f)) return;
+        float fx = f[0] / fl, fz = f[2] / fl, rx = fz, rz = -fx;
+        float hAlong = (h[0] - p[0]) * fx + (h[2] - p[2]) * fz, hSide = (h[0] - p[0]) * rx + (h[2] - p[2]) * rz;
+        if (hAlong <= 3.f && fabsf(h[1] - p[1]) < 4.f) {
+            LOG("Race: the helper racer starts %.1f m ahead / %.1f m right of us - in our grid, kept", hAlong, hSide);
+            return;
+        }
+        // the grid around us without the helper (the other player's racer counts: it has a slot)
+        CoopRace::GridCar gc[24]; int n = 0;
+        for (int i = 0, total = ListSize(VL_ALL, &b); i < total && n < 24; ++i) {
+            void* iv = ListGet(VL_ALL, i);
+            if (!iv || iv == me || iv == helper || !IsVehicle(iv)) continue;
+            void* orb = RigidBodyOf(iv);
+            const float* q = orb ? RB_GetVec(orb, RB_GetPosition) : nullptr;
+            if (!q) continue;
+            float dx = q[0] - p[0], dy = q[1] - p[1], dz = q[2] - p[2];
+            if (fabsf(dy) > 4.f || dx * dx + dz * dz > 40.f * 40.f) continue;
+            gc[n].along = dx * fx + dz * fz; gc[n].side = dx * rx + dz * rz; ++n;
+        }
+        float along = 0.f, side = 0.f;
+        bool found = CoopRace::GridSlotFor(gc, n, along, side);
+        float to[3] = { p[0] + fx * along + rx * side, p[1] + 0.05f, p[2] + fz * along + rz * side }, zero[3] = { 0, 0, 0 };
+        RB_SetVec(hrb, RB_SetPosition, to);
+        RB_SetVec(hrb, RB_SetOrientationQuat, RB_GetVec(lrb, RB_GetOrientation));   // grid slots face the same way
+        RB_SetVec(hrb, RB_SetLinearVelocity, zero); RB_SetVec(hrb, RB_SetAngularVelocity, zero);
+        LOG("Race: the helper racer stood %.1f m ahead / %.1f m right of us - moved to %s %.1f m %s, %.1f m %s of us",
+            hAlong, hSide, found ? "a free grid slot" : "behind us (no free slot read)",
+            fabsf(along), along < 0 ? "behind" : "ahead", fabsf(side), side < 0 ? "left" : "right");
+    }
+    void __cdecl hk_SaveStartPositions() {
+        __try { FixHelperGridSpot(); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Race: exception moving the helper to the grid"); }
+        ((void(__cdecl*)())SaveStartFn)();
+    }
 }
 
 // The game composites a racer's paint and vinyls into one of 4 skin slots (DUMMY_SKIN1..4, picked from a
@@ -130,6 +193,10 @@ static void InstallBossHelper() {
     bool n = PatchCallChecked(RivalNameCall, RivalNameFn, (void*)&hk_RivalName);
     bool s = PatchCallChecked(SkillCall, SkillFn, (void*)&hk_RacerSkill) &&
              PatchCallChecked(SkillBossCall, IsBossRaceFn, (void*)&hk_SkillIsBossRace);
-    LOG("Race: rival-race helper hooked (%s; own name %s, normal catch-up %s)", g_cfg.bossHelper ? "on" : "off in the ini",
-        n ? "yes" : "NO", s ? "yes" : "NO");
+    uint8_t expect[5] = { 0x68, 0, 0, 0, 0 }, repl[5] = { 0x68, 0, 0, 0, 0 };     // push SaveStartPositions (Lua binding)
+    uint32_t fnOld = SaveStartFn, fnNew = (uint32_t)(uintptr_t)&hk_SaveStartPositions;
+    memcpy(expect + 1, &fnOld, 4); memcpy(repl + 1, &fnNew, 4);
+    bool g = Mem::PatchBytes(SaveStartReg, expect, repl, 5);
+    LOG("Race: rival-race helper hooked (%s; own name %s, normal catch-up %s, start spot %s)", g_cfg.bossHelper ? "on" : "off in the ini",
+        n ? "yes" : "NO", s ? "yes" : "NO", g ? "yes" : "NO");
 }

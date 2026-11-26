@@ -742,6 +742,7 @@ namespace {
     // at its height, facing the same way; with no cars around, one car length (6 m) straight behind it.
     // False when every slot it knows is taken (out: behind it all the same).
     bool FreeGridSlotNear(void* rb, float out[3], float& along, float& side, int& n) {
+        void* exclude = nullptr;
         along = -CoopRace::kGridDefaultRow; side = 0.f; n = 0;
         float f[3];
         VCall<void(__thiscall*)(void*, float*)>(rb, 13 /*GetForwardVector*/)(rb, f);
@@ -755,7 +756,7 @@ namespace {
         int total = ListSize(VL_ALL, &b);
         for (int i = 0; i < total && n < 24; ++i) {
             void* iv = ListGet(VL_ALL, i);
-            if (!iv || iv == self || iv == g_ghost || !IsVehicle(iv)) continue;
+            if (!iv || iv == self || iv == g_ghost || iv == exclude || !IsVehicle(iv)) continue;
             void* orb = RigidBodyOf(iv);
             if (!orb) continue;
             const float* q = RB_GetVec(orb, RB_GetPosition);
