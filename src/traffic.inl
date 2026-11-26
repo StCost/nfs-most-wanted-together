@@ -772,6 +772,35 @@ static bool IsRaceTrafficMirror(const Mirror& m) {
     return m.bound || (SharedRaceTraffic() && m.n);
 }
 
+// Client, every 30 s: how much of the traffic around us is shared. Within 150 m: the host's cars shown
+// here, the host's cars we know of but don't show (waiting for a car / a spot), and our own traffic cars
+// that are on our screen only (the host doesn't see them). Reported: "some cars are synced, some only local".
+static void TrafficSyncSummary(double now, const float* myPos) {
+    if (g_cfg.isHost || !myPos) return;
+    static double next = 0;
+    if (next - now > 60000) next = now;              // the sim clock restarted (world reload)
+    if (now < next) return;
+    next = now + 30000;
+    int shown = 0, notShown = 0, shownFar = 0, ownOnly = 0, cops = 0;
+    for (auto& m : g_mirrors) {
+        if (!m.used || m.racer) continue;
+        if (m.n && (m.s[m.n - 1].e.flags & 1)) { ++cops; continue; }
+        if (m.iv) {
+            void* rb = RigidBodyOf(m.iv);
+            if (rb && Dist(RB_GetVec(rb, RB_GetPosition), myPos) < 150.f) ++shown; else ++shownFar;
+        } else ++notShown;
+    }
+    void** b = nullptr;
+    for (int i = 0, cnt = ListSize(VL_AITRAFFIC, &b); i < cnt; ++i) {
+        void* t = ListGet(VL_AITRAFFIC, i);
+        if (!t || t == g_ghost || IsMirrorCar(t) || !IsVehicle(t)) continue;
+        void* rb = RigidBodyOf(t);
+        if (rb && Dist(RB_GetVec(rb, RB_GetPosition), myPos) < 150.f) ++ownOnly;
+    }
+    LOG("Traffic: sync - within 150 m: %d of the host's cars shown, %d of our own cars only on this screen; %d host cars further away, %d host cars not shown yet, %d host cops (%s)",
+        shown, ownOnly, shownFar, notShown, cops, g_clientRacing ? "race" : "free roam");
+}
+
 static int g_raceBindLogs = 0;   // binding lines logged in this race (only the first few)
 static int g_raceLastBound = -1, g_raceLastWaiting = -1;   // last logged status line
 
@@ -1437,6 +1466,7 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
                 LOG("Traffic: in a race - mirroring the host's traffic (%d cars, %d of the host's without a car here)", bound, waiting);
             }
         }
+        TrafficSyncSummary(now, myPos);
         return;
     }
     g_suppressTraffic = isNear;   // no own traffic / patrol spawns near the host (pursuit spawns stay)
@@ -1485,6 +1515,7 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
                 ownInView, g_hoWaiting, shownByOurs, g_hoKeptOnExpiry, g_hoRetiredGone);
         }
     }
+    TrafficSyncSummary(now, myPos);
 }
 
 // Hitting a car the OTHER game owns (their traffic, cops, race opponents shown here as mirrors): the

@@ -70,7 +70,8 @@ Things we know about but can't fix yet:
 
 - **Traffic popping in for the joining player.** Sometimes a traffic car appears right in front of the joining player's car, which can cause a sudden collision.
 - **Traffic vanishing.** The other way round, a traffic car can disappear right in front of you.
-- **Semi trucks with trailers.** A semi truck with a trailer might not be synced between the two games.
+- **Traffic not fully synced.** Some traffic cars are shared, others exist only on one player's screen. This is most visible during races, where the joining player only sees the host's traffic through their own traffic cars. Semi trucks with trailers are often affected.
+- **Joining player's spot on the start line.** At a race start the joining player can be placed slightly behind, instead of in a free spot on the line.
 
 
 </details>

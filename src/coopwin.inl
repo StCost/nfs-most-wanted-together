@@ -967,7 +967,44 @@ namespace {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Split time to the leader (diagnostics). Seen in co-op knockouts: the client 2nd behind the host and
+// the split read -5:00, the whole race time - the leader's recorded times are wrong for the other
+// player. The HUD's split (0x57AB10, called by the race timer widget at 0x58C56E while its +0x44 flag
+// is set) reads the widget's rows (0x78 each from +0x58: progress float, then 29 time samples from
+// +0x5C), [+0x40] our row, [+0x3C] a sample count: split = our row's time at our sample - row 0's
+// (leading: row 1's at its sample - ours). Logged each time a split is shown, to find which time is off.
+// ---------------------------------------------------------------------------
+namespace {
+    using SplitShowFn = bool(__thiscall*)(void*, void*);
+    void LogSplitRows(void* w) {
+        int cnt = 0, our = 0;
+        Mem::Read((uintptr_t)w + 0x3C, cnt); Mem::Read((uintptr_t)w + 0x40, our);
+        LOG("Split: shown - our row %d, sample count %d, peer in race %d", our, cnt, (int)(Net::Latest().valid && Net::Latest().s.inRace));
+        for (int r = 0; r < 4; ++r) {
+            uintptr_t row = (uintptr_t)w + 0x58 + r * 0x78;
+            float prog = 0; Mem::Read(row, prog);
+            char buf[400]; size_t len = 0; int set = 0;
+            for (int i = 0; i < 29; ++i) {
+                float t = 0; Mem::Read(row + 4 + i * 4, t);
+                if (t != 0.f) ++set;
+                int wr = _snprintf_s(buf + len, sizeof(buf) - len, _TRUNCATE, "%s%.1f", i ? " " : "", t);
+                if (wr < 0) break;
+                len += (size_t)wr;
+            }
+            LOG("Split: row %d progress %.3f, %d time(s) set: %s", r, prog, set, buf);
+        }
+    }
+    bool __fastcall hk_SplitShow(void* w, void*, void* arg) {
+        bool shown = ((SplitShowFn)0x57AB10)(w, arg);
+        __try { if (shown && w) LogSplitRows(w); } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        return shown;
+    }
+}
+
 bool Game::InstallCatchUp() {
+    bool sp = PatchCallChecked(0x58C56E, 0x57AB10, (void*)&hk_SplitShow);
+    LOG("Split: diagnostics %s", sp ? "hooked" : "NOT hooked (call site differs)");
     bool st = PatchCallChecked(0x602D67, 0x5E92E0, (void*)&hk_RacerUpdate);
     Net::OnRaceProg = [](const RaceProgEntry* e, int n) { OnHostRaceProg(e, n); };
     LOG("Race: standings use the other player's own progress %s", st ? "hooked" : "NOT hooked (call site differs)");

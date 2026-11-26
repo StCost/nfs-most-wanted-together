@@ -768,6 +768,35 @@ namespace {
         out[0] = p[0] + fx * along + rx * side; out[1] = p[1]; out[2] = p[2] + fz * along + rz * side;
         return found;
     }
+    // The cars around this one for the log: "ahead/right" in metres per car (negative: behind / left),
+    // so a log shows the grid a start slot was picked from.
+    void GridCarsText(void* rb, char* out, size_t cap) {
+        out[0] = 0;
+        if (!rb || cap < 8) return;
+        float f[3];
+        VCall<void(__thiscall*)(void*, float*)>(rb, 13 /*GetForwardVector*/)(rb, f);
+        const float* p = RB_GetVec(rb, RB_GetPosition);
+        float fl = sqrtf(f[0] * f[0] + f[2] * f[2]);
+        if (!p || !(fl > 0.1f)) return;
+        float fx = f[0] / fl, fz = f[2] / fl, rx = fz, rz = -fx;
+        void* self = LocalVehicle();
+        void** b = nullptr;
+        size_t len = 0;
+        for (int i = 0, total = ListSize(VL_ALL, &b); i < total; ++i) {
+            void* iv = ListGet(VL_ALL, i);
+            if (!iv || iv == self || !IsVehicle(iv)) continue;
+            void* orb = RigidBodyOf(iv);
+            const float* q = orb ? RB_GetVec(orb, RB_GetPosition) : nullptr;
+            if (!q) continue;
+            float dx = q[0] - p[0], dy = q[1] - p[1], dz = q[2] - p[2];
+            if (fabsf(dy) > 4.f || dx * dx + dz * dz > 40.f * 40.f) continue;
+            int w = _snprintf_s(out + len, cap - len, _TRUNCATE, "%s%.1f/%.1f%s", len ? " " : "",
+                                dx * fx + dz * fz, dx * rx + dz * rz, iv == g_ghost ? "(them)" : "");
+            if (w < 0) break;
+            len += (size_t)w;
+        }
+        if (!len) _snprintf_s(out, cap, _TRUNCATE, "none");
+    }
     uint32_t WorldIdOf(void* iv) {            // ISimable slot 28 (0x686AF0): unique per car, never reused
         // only a live car: calling into a deleted one ran whatever its freed memory held (an event start
         // deletes most cars at once) and crashed past the __try below
@@ -1506,6 +1535,7 @@ static void HostGridSlotTick(const Net::Snapshot& latest) {
             memcpy(g_clientSlot, freeSlot, sizeof(g_clientSlot));
         }
         g_clientSlotEvent = ev; g_clientSlotRacer = fromRacer; sendUntil = now + 60000; nextSend = 0;
+        { char cars[512]; GridCarsText(lrb, cars, sizeof(cars)); LOG("Start: cars around us (m ahead/right): %s", cars); }
         if (fromRacer) LOG("Start: the client starts on the slot our race gave their racer %.1f %.1f %.1f - telling them", g_clientSlot[0], g_clientSlot[1], g_clientSlot[2]);
         else LOG("Start: the client starts on a free slot of our grid, %.1f m %s, %.1f m %s of us (%d car(s) around) - telling them",
                  fabsf(along), along < 0 ? "behind" : "ahead", fabsf(side), side < 0 ? "left" : "right", n);
@@ -1558,6 +1588,13 @@ static void TakePeerSlotTick(const Net::Snapshot& latest, void* ghostRb) {
     // same grid (level within 1 m) keep our own settled height, else the car dropped onto the road at the start
     float slotY = fabsf(slot[1] - lp[1]) < 1.f ? lp[1] : slot[1] + 0.05f;
     float to[3] = { slot[0], slotY, slot[2] }, zero[3] = { 0, 0, 0 };
+    {   // the grid as we see it (from the player's spot, before the move) and where the slot is on it
+        char cars[512]; GridCarsText(lrb, cars, sizeof(cars));
+        float f[3]; VCall<void(__thiscall*)(void*, float*)>(lrb, 13 /*GetForwardVector*/)(lrb, f);
+        float fl = sqrtf(f[0] * f[0] + f[2] * f[2]), dx = to[0] - from[0], dz = to[2] - from[2];
+        if (fl > 0.1f) LOG("Start: grid around the player's spot (m ahead/right): %s; our slot %.1f/%.1f", cars,
+                           (dx * f[0] + dz * f[2]) / fl, (dx * f[2] - dz * f[0]) / fl);
+    }
     RB_SetVec(lrb, RB_SetPosition, to);                 // grid slots face the same way: keep our heading
     RB_SetVec(lrb, RB_SetLinearVelocity, zero); RB_SetVec(lrb, RB_SetAngularVelocity, zero);
     if (ghostRb) {                                      // their car onto the slot we left (where they are)
