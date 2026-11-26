@@ -885,12 +885,11 @@ bool Game::InstallRestartSync() {
                 // busted in this run (also when the other player's bust busted us): the race-over menu is up, and the
                 // same ERestartRace would crash there - the player presses Restart on it
                 if (fin || LocalBustedThisRun() || FEScreens::IsPushed("PostRace_Results.fng") || FEScreens::IsPushed("InGamePhotoMaster.fng")) {
-                    if (PressRestartOnResults()) { g_restartFromPeer = true; g_restartFromPeerAt = GetTickCount(); LOG("Race: peer restarted - pressing Restart on our results screen too"); }
+                    if (PressRestartOnResults()) { g_peerBackPressed = true; g_restartFromPeer = true; g_restartFromPeerAt = GetTickCount(); LOG("Race: peer restarted - pressing Restart on our results screen too"); }
                     else { LOG("Race: peer restarted, but our race is already over and no results screen is up - Restart there to join"); g_restartIgnoredNotice = true; }
                     return;
                 }
             }
-            if (hash && EventHashOf(parms) != hash) { LOG("Race: peer restarted a different event - ignored"); return; }
             g_restartFromPeer = true; g_restartFromPeerAt = 0;
             if (!TriggerRestart()) { g_restartFromPeer = false; LOG("Race: restart failed"); return; }
             LOG("Race: peer restarted the race - restarting here too");

@@ -326,6 +326,7 @@ namespace {
     // the owner (emulated physics, flag 8), or far from the owner's player, where its game has no world
     // collision (the host's traffic around the client: it never had full physics there, so it has no
     // ride height of its own - the model's, or the car's shape, then).
+    uint32_t ModelKeyOf(void* iv);
     void GroundMirror(Mirror& m, void* rb, float* pos, const float* vel, const float* ownPosBefore) {
         const TrafficEntry& e = m.s[m.n - 1].e;
         const Net::Snapshot& owner = Net::Latest();
@@ -339,7 +340,8 @@ namespace {
         if (ownPosBefore && !m.ownSampled) {      // our own car, on our ground, just took this host car over
             m.ownSampled = true;
             float gy, zero = 0;
-            if (mr && GroundHeightAt(ownPosBefore, gy) && Ground::Learn(ownPosBefore[1], gy, zero, mr->ride, mr->known)) ++g_groundLearned;
+            // only when our car is that model (a takeover may pair another model): else it's not that model's height
+            if (mr && ModelKeyOf(m.iv) == e.model && GroundHeightAt(ownPosBefore, gy) && Ground::Learn(ownPosBefore[1], gy, zero, mr->ride, mr->known)) ++g_groundLearned;
         }
         float target = 0;
         if (!floating) {

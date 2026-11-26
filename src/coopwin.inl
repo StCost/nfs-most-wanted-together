@@ -57,6 +57,7 @@ static bool BustedThisEventRun() {
 }
 namespace {
     bool g_coopWinLogged = false;
+    uint32_t g_runGen = 0;     // +1 for every new run of an event (new event, restart here or there)
     uint32_t g_peerWonEvent = 0;    // event the other player has won (kept until our event changes)
     bool g_peerRacedHere = false;   // the other player was seen racing (not finished) in this run of the event:
                                     // a "finished" left over from their previous run of the same event is ignored
@@ -284,6 +285,7 @@ static void CoopWinLatchTick(bool connected, const Net::Snapshot& peer) {
     if (ev != lastEvent || (restart && !lastRestart) || (lastPeerFin && !pfin && sameEvent && peer.s.inRace)) {
         g_coopWinLogged = false; g_peerWonEvent = 0; g_peerRacedHere = false; g_teamWinEvent = 0; g_outWinEvent = 0; g_swapEvent = 0;
         g_bustedEvent = 0;   // a new run: not busted in it (yet)
+        ++g_runGen;
     }
     lastEvent = ev; lastRestart = restart; lastPeerFin = pfin;
     // their win counts only for a race we drove together: they were racing while our race was running too,
@@ -486,6 +488,7 @@ namespace {
     bool     g_koHeld = false;        // our results screen waits for the other player
     uint32_t g_koEvent = 0;
     DWORD    g_koSince = 0;
+    uint32_t g_koGen = 0;          // the run it was held in (a restart keeps the event hash)
 
     bool PeerStillRacing() {
         if (!g_cfg.sharedWins || !g_coopLinked || !Net::Stats().connected) return false;
@@ -507,7 +510,7 @@ namespace {
     void __cdecl hk_ShowLosingKO() {
         __try {
             if (KnockoutHoldWanted()) {
-                g_koHeld = true; g_koEvent = Game::CurrentEventHash(); g_koSince = GetTickCount();
+                g_koHeld = true; g_koEvent = Game::CurrentEventHash(); g_koSince = GetTickCount(); g_koGen = g_runGen;
                 LOG("Race: knocked out while the other player still races - the results screen waits for them");
                 return;
             }
@@ -567,7 +570,7 @@ static void KnockoutNoticeTick() {
 static void KnockoutReleaseTickImpl() {
     if (!g_koHeld) return;
     uint32_t ev = Game::CurrentEventHash();
-    if (ev != g_koEvent || Game::GameFlowState() != 6) { g_koHeld = false; return; }   // restarted / left
+    if (ev != g_koEvent || g_koGen != g_runGen || Game::GameFlowState() != 6) { g_koHeld = false; return; }   // restarted / left
     static DWORD stoppedAt = 0; static uint32_t stoppedFor = 0;
     bool racing = PeerStillRacing();
     const Net::Snapshot& p = Net::Latest();
@@ -596,11 +599,11 @@ static void KnockoutReleaseTickImpl() {
 // list (PostRace_Results) - closes (EUnPause, as the game's own Start / Continue) and the winner's photo naming
 // them comes instead. The list's own end of the race is held back meanwhile (hk_ResultsNotify). Once per run
 // of the event.
-namespace { uint32_t g_loseToWinEvent = 0; DWORD g_loseToWinAt = 0; const char* g_loseToWinFrom = ""; }
+namespace { uint32_t g_loseToWinEvent = 0, g_loseToWinGen = 0; DWORD g_loseToWinAt = 0; const char* g_loseToWinFrom = ""; }
 static void LoseScreenWinTickImpl() {
     uint32_t ev = Game::CurrentEventHash();
     if (g_loseToWinAt) {                                           // step 2: the screen has gone (or 1.5 s passed)
-        if (ev != g_loseToWinEvent || Game::GameFlowState() != 6) { g_loseToWinAt = 0; return; }
+        if (ev != g_loseToWinEvent || g_loseToWinGen != g_runGen || Game::GameFlowState() != 6) { g_loseToWinAt = 0; g_swapEvent = 0; return; }
         if ((FEScreens::IsPushed("Pause_Main.fng") || FEScreens::IsPushed("PostRace_Results.fng")) &&
             GetTickCount() - g_loseToWinAt < 1500) return;
         g_loseToWinAt = 0; g_swapEvent = 0;
@@ -612,11 +615,11 @@ static void LoseScreenWinTickImpl() {
     void* ri = RacerInfoOfLocal(); int rank = 0; uint8_t fin = 0;
     if (ri) { Mem::Read((uintptr_t)ri + 0x10, rank); Mem::Read((uintptr_t)ri + 0x21, fin); }
     CoopRace::OutWin step = CoopRace::OutOfRaceWin(g_koHeld, true, RacingMode(), LocalRacerOut(),
-                                                   fin && rank == 1, g_loseToWinEvent == ev || g_outWinEvent == ev,
+                                                   fin && rank == 1, (g_loseToWinEvent == ev && g_loseToWinGen == g_runGen) || g_outWinEvent == ev,
                                                    FEScreens::IsPushed("Pause_Main.fng"),
                                                    FEScreens::IsPushed("PostRace_Results.fng"), FEScreens::IsPushed("InGamePhotoMaster.fng"));
     if (step == CoopRace::OutWin::None) return;
-    g_loseToWinEvent = ev;
+    g_loseToWinEvent = ev; g_loseToWinGen = g_runGen;
     bool list = step == CoopRace::OutWin::ViaResults;
     if (list && !g_photoOutOk) { CreditTeamWinOut("the results list"); return; }   // (no photo: the list stays, now a won race)
     g_loseToWinFrom = list ? "the results list" : "the Restart / Quit screen";

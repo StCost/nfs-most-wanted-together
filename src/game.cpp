@@ -1487,8 +1487,12 @@ static void HostGridSlotTick(const Net::Snapshot& latest) {
             }
             float racerD = NetUtil::Dist3(lp, g_peerSlot), freeD = haveFree ? NetUtil::Dist3(lp, freeSlot) : 1e9f;
             if (taken || (haveFree && freeD + 1.f < racerD) || !(racerD < 40.f)) {
-                LOG("Start: the slot our race gave the client's racer is %.1f m from us%s - %s", racerD,
-                    taken ? " with a car on it" : "", haveFree ? "a nearer free slot of our grid instead" : "no free slot either");
+                static uint32_t rejectLoggedFor = 0;   // this runs every frame until a slot is decided
+                if (rejectLoggedFor != ev) {
+                    rejectLoggedFor = ev;
+                    LOG("Start: the slot our race gave the client's racer is %.1f m from us%s - %s", racerD,
+                        taken ? " with a car on it" : "", haveFree ? "a nearer free slot of our grid instead" : "no free slot either");
+                }
                 fromRacer = false;
             }
         }
