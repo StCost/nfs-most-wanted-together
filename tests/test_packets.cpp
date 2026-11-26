@@ -535,7 +535,7 @@ TEST(packets_grid_slot_ignored_by_the_host) {
 
 // ---- police roadblocks (PKT_ROADBLOCK, both directions) ------------------------------------------
 namespace {
-    struct RbSeen { int calls = 0; bool alive = false; Roadblock::Desc d{}; };
+    struct RbSeen { int calls = 0; bool alive = false; int msg = -1; bool ownerDodged = false; Roadblock::Desc d{}; };
     RbSeen g_rb;
     Roadblock::Desc SampleRoadblock() {
         Roadblock::Desc d{};
@@ -555,13 +555,15 @@ namespace {
 }
 TEST(packets_roadblock_round_trip_and_bad_values) {
     Roadblock::Desc d = SampleRoadblock();
-    Datagrams dg = SerializeOnHost([&] { Net::SendRoadblock(d, true); Net::SendRoadblock(d, false); });
-    REQUIRE(dg.size() == 2);
+    Datagrams dg = SerializeOnHost([&] { Net::SendRoadblock(d, true); Net::SendRoadblock(d, false);
+                                         Net::SendRoadblock(d, true, true); Net::SendRoadblockDodged(d); });
+    REQUIRE(dg.size() == 6);                                                   // the dodge notice goes 3 times
     CHECK_EQ(dg[0].size(), sizeof(RoadblockPacket));
     NetFixture client(false);
     Connect("Host");
     g_rb = RbSeen{};
-    Net::OnRoadblock = [](const Roadblock::Desc& x, bool alive) { ++g_rb.calls; g_rb.alive = alive; g_rb.d = x; };
+    Net::OnRoadblock = [](const Roadblock::Desc& x, int msg, bool ownerDodged) {
+        ++g_rb.calls; g_rb.alive = msg == Net::RB_MSG_ALIVE; g_rb.msg = msg; g_rb.ownerDodged = ownerDodged; g_rb.d = x; };
     DeliverToClient({ dg[0] });
     REQUIRE(g_rb.calls == 1);
     CHECK(g_rb.alive);
@@ -569,6 +571,11 @@ TEST(packets_roadblock_round_trip_and_bad_values) {
     CHECK_EQ(Roadblock::CountKind(g_rb.d, Roadblock::PIECE_SPIKES), 2);
     DeliverToClient({ dg[1] });
     CHECK(g_rb.calls == 2 && !g_rb.alive && g_rb.d.id == 7);                   // removed
+    DeliverToClient({ dg[2] });
+    CHECK(g_rb.calls == 3 && g_rb.alive && g_rb.ownerDodged);                  // there, and its owner dodged it
+    DeliverToClient({ dg[3] });
+    CHECK(g_rb.calls == 4 && g_rb.msg == Net::RB_MSG_DODGED && !g_rb.ownerDodged && g_rb.d.id == 7);   // "we drove through #7"
+    g_rb.calls = 2;
     // bad ones never reach the game
     RoadblockPacket bad{};
     bad.h = Hdr(PKT_ROADBLOCK, 70); bad.alive = 1; bad.d = d; bad.d.p[0].m[12] = std::numeric_limits<float>::quiet_NaN();
@@ -583,8 +590,8 @@ TEST(packets_roadblock_round_trip_and_bad_values) {
     Inject(bad);                                                               // no id
     bad.h = Hdr(PKT_ROADBLOCK, 75); bad.d = d; bad.d.setup = 40;
     Inject(bad);                                                               // no such setup
-    bad.h = Hdr(PKT_ROADBLOCK, 76); bad.d = d; bad.alive = 2;
-    Inject(bad);                                                               // alive is 0 or 1
+    bad.h = Hdr(PKT_ROADBLOCK, 76); bad.d = d; bad.alive = 3;
+    Inject(bad);                                                               // alive is 0, 1 or 2
     bad.h = Hdr(PKT_ROADBLOCK, 77); bad.d = d; bad.alive = 1; bad.d.p[0].m[0] = 3.f;
     Inject(bad);                                                               // not an orientation
     RoadblockPacket ok{};

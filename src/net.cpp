@@ -486,9 +486,9 @@ namespace {
         case PKT_ROADBLOCK: {
             if (len < (int)sizeof(RoadblockPacket)) return;
             RoadblockPacket p; memcpy(&p, buf, sizeof(p));
-            if (p.alive > 1) return;
-            if (p.alive ? !Roadblock::ValidDesc(p.d) : !p.d.id) return;
-            if (Net::OnRoadblock) Net::OnRoadblock(p.d, p.alive != 0);
+            if (p.alive > Net::RB_MSG_DODGED) return;
+            if (p.alive == Net::RB_MSG_ALIVE ? !Roadblock::ValidDesc(p.d) : !p.d.id) return;
+            if (Net::OnRoadblock) Net::OnRoadblock(p.d, p.alive, p.alive == Net::RB_MSG_ALIVE && p.ownerDodged != 0);
             break;
         }
         case PKT_WEATHER: {
@@ -783,7 +783,7 @@ double (*Net::LocalClockMs)() = &Net::NowMs;
 void (*Net::OnEvent)(uint32_t, const char*) = nullptr;
 void (*Net::OnRoster)(const RosterPacket&) = nullptr;
 void (*Net::OnRacerName)(uint16_t, const char*) = nullptr;
-void (*Net::OnRoadblock)(const Roadblock::Desc&, bool) = nullptr;
+void (*Net::OnRoadblock)(const Roadblock::Desc&, int, bool) = nullptr;
 void (*Net::OnRestart)(uint32_t, uint32_t) = nullptr;
 void (*Net::OnNisSkip)(uint32_t) = nullptr;
 
@@ -852,13 +852,24 @@ bool Net::PeerGridSlot(uint32_t eventHash, float* pos, bool* fromRacer) {
     if (fromRacer) *fromRacer = g_gridSlotRacer;
     return true;
 }
-void Net::SendRoadblock(const Roadblock::Desc& d, bool alive) {
+void Net::SendRoadblock(const Roadblock::Desc& d, bool alive, bool ownerDodged) {
     if (!g_stats.connected || !d.id) return;
     RoadblockPacket p{};
     FillHeader(p.h, PKT_ROADBLOCK);
-    p.alive = alive ? 1 : 0;
+    p.alive = alive ? RB_MSG_ALIVE : RB_MSG_REMOVED;
+    p.ownerDodged = alive && ownerDodged ? 1 : 0;
     p.d = d;
     SendRaw(&p, sizeof(p));
+}
+void Net::SendRoadblockDodged(const Roadblock::Desc& d) {
+    if (!g_stats.connected || !d.id) return;
+    for (int i = 0; i < 3; ++i) {          // UDP: a few copies (the owner acts on the first)
+        RoadblockPacket p{};
+        FillHeader(p.h, PKT_ROADBLOCK);
+        p.alive = RB_MSG_DODGED;
+        p.d = d;
+        SendRaw(&p, sizeof(p));
+    }
 }
 bool Net::PeerWeather(float& rain, float& cloud) {
     if (!g_stats.connected || !g_peerWeatherTick || Tick32() - g_peerWeatherTick > 3000) return false;

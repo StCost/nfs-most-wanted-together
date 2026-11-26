@@ -91,6 +91,7 @@ namespace Roadblock {
         bool     haveSide = false; // our car's last place along the road, seen from it (PassedRoadblock)
         float    lastAlong = 0.f;
         bool     dodged = false;   // we drove through it: counted once
+        bool     ownerDodged = false; // the owner's player drove through it first: their game counted it (shared)
     };
 
     // ---- driving through one of theirs counts as a roadblock dodged here too --------------------

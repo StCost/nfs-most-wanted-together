@@ -89,8 +89,8 @@ namespace {
             g_sink += r.custom[CUSTOM_RECORD_SIZE - 1] + (uint32_t)strlen(r.name);
         };
         Net::OnNisSkip = [](uint32_t h) { ++g_c.nisSkip; g_sink += h; };
-        Net::OnRoadblock = [](const Roadblock::Desc& d, bool alive) {
-            if (alive && !Roadblock::ValidDesc(d)) CHECK(!"an invalid roadblock reached the game layer");
+        Net::OnRoadblock = [](const Roadblock::Desc& d, int msg, bool) {
+            if (msg == Net::RB_MSG_ALIVE && !Roadblock::ValidDesc(d)) CHECK(!"an invalid roadblock reached the game layer");
             if (!d.id) CHECK(!"a roadblock with id 0 reached the game layer");
             g_sink += d.id + d.nPieces;
         };

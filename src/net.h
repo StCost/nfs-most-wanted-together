@@ -170,8 +170,9 @@ struct GridSlotPacket {
 // PKT_TRAFFIC (TrafficEntry flag TE_ROADBLOCK); the receiver builds the pieces itself (roadblock.inl).
 struct RoadblockPacket {
     PacketHeader h;
-    uint8_t  alive;
-    uint8_t  pad[3];
+    uint8_t  alive;       // Net::RoadblockMsg: 0 removed, 1 there, 2 "we drove through your roadblock d.id"
+    uint8_t  ownerDodged; // with 1: the owner's own player has already driven through it (it counted it)
+    uint8_t  pad[2];
     Roadblock::Desc d;
 };
 struct WeatherPacket {
@@ -358,8 +359,12 @@ namespace Net {
     bool PeerPursuitStats(uint32_t& pursuitId, int32_t* v, uint32_t& recvCount);
     void SendGridSlot(uint32_t eventHash, const float* pos, bool fromRacer);   // host
     bool PeerGridSlot(uint32_t eventHash, float* pos, bool* fromRacer = nullptr);   // client: the host's slot for us in this event
-    void SendRoadblock(const Roadblock::Desc& d, bool alive);
-    extern void (*OnRoadblock)(const Roadblock::Desc& d, bool alive);
+    // alive: still there (ownerDodged: the owner's player has driven through it), or removed
+    void SendRoadblock(const Roadblock::Desc& d, bool alive, bool ownerDodged = false);
+    // to the owner: our player drove through its roadblock d.id (counted here; its game must not count it again)
+    void SendRoadblockDodged(const Roadblock::Desc& d);
+    enum RoadblockMsg { RB_MSG_REMOVED = 0, RB_MSG_ALIVE = 1, RB_MSG_DODGED = 2 };
+    extern void (*OnRoadblock)(const Roadblock::Desc& d, int msg, bool ownerDodged);
     bool PeerWeather(float& rain, float& cloud);              // the host's, if one came in the last 3 s      // a repeat carries the same seq
     void SendNisSkip(uint32_t sceneHash);
     void SendCarHit(uint16_t id, const float* dv);

@@ -55,6 +55,10 @@ namespace {
     int  g_rbForce = 0;              // test: 1 force a plain roadblock, 2 one with spike strips
 
     struct RbOurs { bool used; void* rb; Roadblock::Desc d; DWORD lastSend; int removalLeft; };
+    // IRoadBlock slot 8 / 9: the game's "dodged" flag (+0x2C). UpdateRoadBlocks 0x439EE0 counts a roadblock
+    // only while it is clear and sets it at the dodge, so one roadblock counts once.
+    bool RbIsDodged(void* rb) { return rb && VCall<bool(__thiscall*)(void*)>(rb, 0x24 / 4)(rb); }
+    void RbSetDodged(void* rb) { if (rb) VCall<void(__thiscall*)(void*, bool)>(rb, 0x20 / 4)(rb, true); }
     RbOurs g_rbOurs[Roadblock::MAX_OURS] = {};
     uint32_t g_rbNextId = 0;
 
@@ -221,8 +225,19 @@ namespace {
         RbDestroyPieces(i, worldGone);
         g_rbPeer.e[i] = Roadblock::PeerEntry{};
     }
-    void OnRoadblockPacket(const Roadblock::Desc& d, bool alive) {
+    void OnRoadblockPacket(const Roadblock::Desc& d, int msg, bool ownerDodged) {
         if (!g_rbOn || !g_coopLinked) return;
+        if (msg == Net::RB_MSG_DODGED) {   // they drove through one of ours and counted it: our game must not count it too
+            for (auto& o : g_rbOurs) {
+                if (!o.used || o.d.id != d.id || !o.rb) continue;
+                if (RbIsDodged(o.rb)) return;                       // ours already counted it (and told them)
+                RbSetDodged(o.rb);
+                LOG("Roadblock: the other player drove through our roadblock #%u first - counted there, not again here", d.id);
+                return;
+            }
+            return;
+        }
+        bool alive = msg == Net::RB_MSG_ALIVE;
         int i = g_rbPeer.Find(d.id);
         if (!alive) { if (i >= 0) RbForget(i, false, "was removed in their game - removed here"); return; }
         // the same id for another roadblock (their game restarted): build the new one
@@ -240,6 +255,7 @@ namespace {
             LOG("Roadblock: the other player's game built roadblock #%u at %.1f %.1f %.1f", d.id, d.centre[0], d.centre[1], d.centre[2]);
         }
         g_rbPeer.e[i].lastMs = GetTickCount() ? GetTickCount() : 1;
+        if (ownerDodged) g_rbPeer.e[i].ownerDodged = true;
     }
 
     // we drove through one of theirs: a roadblock dodged here, as the game counts its own
@@ -251,6 +267,11 @@ namespace {
         bool had = x.haveSide; float prev = x.lastAlong;
         x.haveSide = true; x.lastAlong = along;
         if (!had || x.dodged || !Roadblock::PassedRoadblock(prev, along, across, up)) return;
+        if (x.ownerDodged) {   // one roadblock, one dodge: theirs is already counted (and shared with us)
+            x.dodged = true;
+            LOG("Roadblock: drove through the other player's roadblock #%u - they already dodged it, counted once (theirs)", x.d.id);
+            return;
+        }
         void* pursuit = PursuitOf(LocalVehicle());
         bool live = pursuit && (g_sp.flags & PURSUIT_ACTIVE) && !(g_sp.flags & PURSUIT_BUSTED);
         if (!live) {
@@ -264,6 +285,7 @@ namespace {
         if (Mem::Read(GManagerPtr, gm) && gm) ((void(__thiscall*)(void*, const char*))GM_IncStat)(gm, (const char*)S_Roadblocks);
         LOG("Roadblock: drove through the other player's roadblock #%u (%.0f m from its centre) - roadblock dodged here (pursuit %d -> %d)",
             x.d.id, std::fabs(across), before, before + 1);
+        Net::SendRoadblockDodged(x.d);   // their game must not count it again when their own car gets there
     }
 
     void RoadblockTickImpl(bool linked) {
@@ -297,7 +319,7 @@ namespace {
                 uintptr_t vb = 0, ve = 0;
                 if (Mem::Read((uintptr_t)o.rb + 0x0C, vb) && Mem::Read((uintptr_t)o.rb + 0x10, ve) && ve >= vb && ve - vb <= 32)
                     o.d.nCars = (uint8_t)((ve - vb) / 4);
-                Net::SendRoadblock(o.d, true);
+                Net::SendRoadblock(o.d, true, RbIsDodged(o.rb));
                 o.lastSend = now;
             }
         }
@@ -403,8 +425,8 @@ static void InstallRoadblockSync() {
     bool wmap = g_rbOn && PatchWorldMapRoadblocks();
     LOG("Roadblock: shared roadblocks %s (create %d/2, setup %s, pieces %s/%s, place %s, map icons %s)", g_rbOn ? "on" : "OFF",
         calls, pick ? "ok" : "FAIL", saw ? "ok" : "FAIL", spk ? "ok" : "FAIL", place ? "ok" : "FAIL", wmap ? "ok" : "FAIL");
-    Net::OnRoadblock = [](const Roadblock::Desc& d, bool alive) {
-        __try { OnRoadblockPacket(d, alive); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Roadblock: exception on a packet"); }
+    Net::OnRoadblock = [](const Roadblock::Desc& d, int msg, bool ownerDodged) {
+        __try { OnRoadblockPacket(d, msg, ownerDodged); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Roadblock: exception on a packet"); }
     };
 }
 
@@ -450,6 +472,8 @@ std::string Game::DebugRoadblock(const char* arg) {
         n += sprintf_s(buf + n, sizeof(buf) - n, "; theirs:");
         for (auto& x : g_rbPeer.e) if (x.used) n += sprintf_s(buf + n, sizeof(buf) - n, " #%u%s", x.d.id, x.placed ? "(shown)" : "(not here yet)");
         n += sprintf_s(buf + n, sizeof(buf) - n, "; built %d, shown %d, held %d", g_rbBuilt, g_rbShown, g_rbSuppressed);
+        if (void* pursuit = PursuitOf(LocalVehicle()))
+            n += sprintf_s(buf + n, sizeof(buf) - n, "; roadblocks dodged in our pursuit %d", PRead<int32_t>(pursuit, 0x154));
         return buf;
     }
     int force = a == "spikes" ? 2 : 1;
