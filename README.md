@@ -94,7 +94,7 @@ Things we know about but can't fix yet:
 - [x] Status overlay on F8 (remembers if you hid it)
 - [x] **Together** in the game's own menus: one screen from Main menu > Together, the pause menu, and Options > Together (Connection, Connect to IP when joining, Reconnect on launch, Start Host / Connect); the main menu's profile box shows both profile names (yours and your partner's) while connected. If this `speed.exe` differs, the menus stay as they are and the page below is used
 - [x] Main menu logo from `scripts\MWTogether-logo.dds` if it is there (no game files changed); the logo object is made taller so the original lettering stays the same size
-- [x] In-game **Together** overlay page (hold BACK on a pad): host or join, host IP, remaining menu options, your IP address and the connection state. Saving reconnects right away when needed
+- [x] In-game **Together** overlay page (hold BACK on a pad in the menus): host or join, host IP, remaining menu options, your IP address and the connection state. Saving reconnects right away when needed
 - [x] Join / leave notices, even with the overlay hidden
 - [x] Notices use the game's own message line in the middle of the screen: joins and leaves in green, problems (connection, firewall, prologue) in orange. Long ones come in parts. In cutscenes and menus the EA Trax song banner shows them
 - [x] Notices stay up for 10 seconds (`[UI] NoticeSeconds`)

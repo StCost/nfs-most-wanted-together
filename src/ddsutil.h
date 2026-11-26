@@ -9,6 +9,7 @@
 namespace DdsUtil {
 
 constexpr uint32_t FMT_A8R8G8B8 = 21;                 // D3DFMT_A8R8G8B8
+constexpr uint32_t FMT_X8R8G8B8 = 22;                 // D3DFMT_X8R8G8B8 (32-bit, the 4th byte is not alpha)
 constexpr uint32_t FMT_DXT1 = 0x31545844, FMT_DXT3 = 0x33545844, FMT_DXT5 = 0x35545844;   // the FourCCs
 
 struct Info {
@@ -42,7 +43,8 @@ inline bool Parse(const uint8_t* p, size_t n, Info& out, std::string& err) {
         i.format = fourCC;
     } else if ((pfFlags & 0x40) && bits == 32 && u32(92) == 0x00FF0000 && u32(96) == 0x0000FF00 && u32(100) == 0x000000FF
                && ((pfFlags & 1) ? u32(104) == 0xFF000000 : true)) {
-        i.format = FMT_A8R8G8B8;                      // (no alpha mask: opaque, still 32 bits per pixel)
+        // no alpha flag: opaque - its 4th byte is often 0, which as alpha would draw nothing
+        i.format = (pfFlags & 1) ? FMT_A8R8G8B8 : FMT_X8R8G8B8;
     } else { err = "unsupported pixel format - use DXT1/3/5 or 32-bit ARGB"; return false; }
     if (!i.width || !i.height || i.width > 4096 || i.height > 4096 || i.mips > 13) { err = "bad size"; return false; }
     size_t need = i.dataOffset;

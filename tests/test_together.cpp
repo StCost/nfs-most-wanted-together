@@ -301,6 +301,9 @@ TEST(logo_dds_parse) {
     CHECK(DdsUtil::Parse(a.data(), a.size(), i, err));
     CHECK(i.width == 512 && i.height == 128 && i.mips == 1 && i.format == DdsUtil::FMT_A8R8G8B8);
     CHECK(a.size() == 128 + 512 * 128 * 4);
+    std::vector<uint8_t> x = a; x[80] = 0x40;                           // RGB without the alpha flag: X8R8G8B8
+    CHECK(DdsUtil::Parse(x.data(), x.size(), i, err));
+    CHECK(i.format == DdsUtil::FMT_X8R8G8B8);
     std::vector<uint8_t> b = MakeDds(1024, 256, 11, true);
     CHECK(DdsUtil::Parse(b.data(), b.size(), i, err));
     CHECK(i.mips == 11 && i.format == DdsUtil::FMT_DXT5);

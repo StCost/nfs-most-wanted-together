@@ -29,6 +29,7 @@ namespace {
     bool     g_setupDone = true;
     bool     g_autoConnect = true;     // [Network] AutoConnect as it was at start
     bool     g_autoShown = false;
+    bool     g_openedAtStart = false;  // the page opened by itself at start, in place of connecting
     bool     g_native = false;         // the game's own menus have the Together entries
     bool     g_planned = false;
     NativeUtil::StartPlan g_plan = { false, false, true };
@@ -119,9 +120,13 @@ namespace {
         if (!g_open) return;
         g_open = false; g_padEdit = false; g_dirty = true;
         g_swallowKb = g_swallowPad = true;
-        if (!g_netRunning && !g_netChange) {     // opened at start instead of connecting: connect now as saved
+        // opened at start instead of connecting (or Save & Play): connect now as saved. A Cancel of a page
+        // the player opened (BACK held, nothing running - e.g. after Stop Host) must not start a session.
+        bool saved = strcmp(why, "saved") == 0;
+        if (!g_netRunning && !g_netChange && (g_openedAtStart || saved)) {
             g_pendingNet = g_cur; g_netChange = true; g_chosen = true;
         }
+        g_openedAtStart = false;
         LOG("Together: settings page closed (%s)", why);
     }
 
@@ -270,8 +275,8 @@ namespace {
         for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i) if (XInputGetState(i, &st) == ERROR_SUCCESS) { b = st.Gamepad.wButtons; any = true; break; }
         if (!any || !b) g_swallowPad = false;
         if (!any) { g_padPrev = 0; g_backAt = 0; return; }
-        if (!g_open) {   // hold BACK for a second to open
-            if (b & XINPUT_GAMEPAD_BACK) { if (!g_backAt) g_backAt = GetTickCount(); else if (GetTickCount() - g_backAt > 1000) { g_backAt = 0; Open(); } }
+        if (!g_open) {   // hold BACK for a second to open - in the menus only, never while driving
+            if ((b & XINPUT_GAMEPAD_BACK) && g_flow == 3) { if (!g_backAt) g_backAt = GetTickCount(); else if (GetTickCount() - g_backAt > 1000) { g_backAt = 0; Open(); } }
             else g_backAt = 0;
             g_padPrev = b; return;
         }
@@ -344,7 +349,7 @@ void Together::OnKeyboard(const uint8_t* k) {
 
 void Together::Tick(int flow) {
     if (flow != g_flow) { g_flow = flow; g_dirty = true; }
-    if (g_planned && g_plan.openPage && !g_autoShown && flow == 3 && Overlay::GameWindow()) { g_autoShown = true; Open(); }
+    if (g_planned && g_plan.openPage && !g_autoShown && flow == 3 && Overlay::GameWindow()) { g_autoShown = true; Open(); g_openedAtStart = g_open; }
     bool hint = !g_open && flow == 3 && !g_native;
     if (hint != g_hint) { g_hint = hint; g_dirty = true; }
     if (Focused()) PadTick(); else { g_padPrev = 0; g_backAt = 0; g_swallowPad = false; }

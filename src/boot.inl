@@ -478,6 +478,12 @@ void Game::BootTick() {
 #else
     const bool pressStart = false;
 #endif
+    __try {   // [Start] LastProfile: remember the profile loaded last (release builds too, not only with SkipLoadComplete)
+        if (GameFlowState() == 3) {
+            uint8_t* fedb = nullptr; Mem::Read(0x91CF90, fedb);
+            if (fedb && fedb[3]) RememberLoadedProfile(fedb);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
     if (!g_cfg.skipLoadComplete && !pressStart) return;
     __try {
         if (g_cfg.bootTrace && GameFlowState() == 3) {      // [Debug] BootTrace: what the memory card / pad state does
@@ -515,7 +521,6 @@ void Game::BootTick() {
 #endif
         if (!g_cfg.skipLoadComplete) return;
         // "load complete" (MC_Main) waits for a key: confirm it when SkipLoadComplete is on.
-        if (fedb && fedb[3]) RememberLoadedProfile(fedb);
         if (fe && bfm && ((bool(__thiscall*)(void*, const char*))0x516B50)(fe, "MC_Main.fng")) {
             static DWORD since = 0, lastTap = 0;
             if (!since) since = GetTickCount();
