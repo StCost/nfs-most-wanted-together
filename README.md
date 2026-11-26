@@ -228,6 +228,12 @@ All options are in `scripts\MWTogether.ini`, with a comment on each. Sections:
   required download; see Install). Give it a version number and it also creates the GitHub release.
 - Local release, without Actions: `tools\release.ps1 -Version 1.7.16` publishes the release (always a normal
   release marked latest; there are no pre-releases). `-DryRun` only builds the zip in `dist\`.
+- After every release, update the mod pages so only the newest version is listed:
+  - Nexus Mods: upload the zip as an **Update** of the current main file, with "Archive existing file" ticked, "Update mod
+    version" ticked and the changelog filled in; archive any other older file still under Main / Optional / Update.
+    Archive, never delete.
+  - NFSMods: Edit the mod, set the version, upload the zip (it becomes "Latest Version"). The site has no way to hide or
+    archive old files per file, so the older ones stay listed as "Old Version".
 - GitHub shows the SHA256 of every release asset, and files built by the workflow carry a build provenance
   attestation: `gh attestation verify MWTogether.zip --repo StCost/nfs-most-wanted-together`.
 
