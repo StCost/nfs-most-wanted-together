@@ -11,7 +11,7 @@
 // ---------------------------------------------------------------------------
 namespace {
     constexpr uint32_t kChevronHash = 0x1A6D3D2C;      // "ARROW_SKINNIER" (FEng-style hash, h*33+c from ~0)
-    constexpr float kMarkerHeight = 1.5f;              // over the car's centre, metres
+    constexpr float kMarkerHeight = 1.0f;              // over the car's centre, metres
 
     void* ChevronTexture() {
         void* ti = ((void*(__cdecl*)(uint32_t, int, int))0x503400)(kChevronHash, 0, 0);
