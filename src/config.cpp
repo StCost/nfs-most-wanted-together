@@ -90,6 +90,7 @@ void Config::Load(const char* ini) {
 #endif
     gameNotices = ReadInt(ini, "UI", "GameNotices", 1) != 0;
     hideHudKey = ReadInt(ini, "UI", "HideHudKey", 0x70);
+    friendMarker = ReadInt(ini, "UI", "FriendMarker", 1) != 0;
     noticeSeconds = ReadInt(ini, "UI", "NoticeSeconds", 10);
     if (noticeSeconds < 2) noticeSeconds = 2;
     if (noticeSeconds > 60) noticeSeconds = 60;

@@ -1402,6 +1402,8 @@ bool Game::ReadLocalCarInfo(CarInfo& out) {
 #include "worldmap.inl"
 #include "hud.inl"
 #include "pursuit.inl"
+#include "peerbar.inl"
+#include "marker.inl"
 #include "stream.inl"
 static char g_dataDir[MAX_PATH] = "";
 void Game::SetDataDir(const char* dir) { strncpy_s(g_dataDir, dir, _TRUNCATE); }

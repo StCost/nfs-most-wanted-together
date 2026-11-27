@@ -8,6 +8,7 @@
 #include "game.h"
 #include <cstdint>
 #include <algorithm>
+#include <cmath>
 
 // speed.exe v1.3: import address table slot for d3d9!Direct3DCreate9
 static constexpr uintptr_t IAT_Direct3DCreate9 = 0x8904A8;
@@ -220,145 +221,6 @@ namespace {
     }
 
 
-    // ---- the other player's pursuit bar (pursuit.inl sets it) ----
-    // Drawn like the game's own (bottom centre: an orange striped panel, BUSTED on the left, EVADE on the
-    // right, a light track with a marker), right above it, with the other player's name small on its left.
-    Overlay::PeerBar g_peerBar;
-    constexpr int LBL_W = 512, LBL_H = 48;
-    struct Label { IDirect3DTexture9* tex = nullptr; std::string text; int w = 0; bool bold = true; };
-    Label g_labels[4];        // 0 BUSTED, 1 EVADE / COOLDOWN, 2 the name, 3 spare
-
-    bool BuildLabel(IDirect3DDevice9* dev, Label& L, const std::string& text, bool bold) {
-        if (L.tex && L.text == text && L.bold == bold) return true;
-        if (!L.tex && FAILED(dev->CreateTexture(LBL_W, LBL_H, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &L.tex, nullptr))) {
-            L.tex = nullptr; return false;
-        }
-        HDC dc = CreateCompatibleDC(nullptr);
-        BITMAPINFO bi{}; bi.bmiHeader.biSize = sizeof(bi.bmiHeader); bi.bmiHeader.biWidth = LBL_W; bi.bmiHeader.biHeight = -LBL_H;
-        bi.bmiHeader.biPlanes = 1; bi.bmiHeader.biBitCount = 32;
-        void* bits = nullptr;
-        HBITMAP bmp = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
-        if (!bmp || !bits) { if (bmp) DeleteObject(bmp); DeleteDC(dc); return false; }
-        HGDIOBJ oldBmp = SelectObject(dc, bmp);
-        HFONT font = CreateFontA(-38, 0, 0, 0, bold ? FW_HEAVY : FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                                 CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_SWISS, "Arial");
-        HGDIOBJ oldFont = SelectObject(dc, font);
-        memset(bits, 0, LBL_W * LBL_H * 4);
-        SetBkMode(dc, TRANSPARENT);
-        SetTextColor(dc, RGB(255, 255, 255));
-        RECT rc{ 0, 0, LBL_W, LBL_H };
-        DrawTextA(dc, text.c_str(), -1, &rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
-        RECT calc{ 0, 0, LBL_W, LBL_H };
-        DrawTextA(dc, text.c_str(), -1, &calc, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX | DT_CALCRECT);
-        L.w = (std::min)((int)calc.right + 2, LBL_W);
-        GdiFlush();
-        D3DLOCKED_RECT lr;
-        if (SUCCEEDED(L.tex->LockRect(0, &lr, nullptr, 0))) {
-            const uint32_t* src = (const uint32_t*)bits;
-            for (int y = 0; y < LBL_H; ++y) {
-                uint32_t* dst = (uint32_t*)((uint8_t*)lr.pBits + y * lr.Pitch);
-                for (int x = 0; x < LBL_W; ++x) dst[x] = ((src[y * LBL_W + x] & 0xFF) << 24) | 0x00FFFFFF;
-            }
-            L.tex->UnlockRect(0);
-        }
-        SelectObject(dc, oldFont); SelectObject(dc, oldBmp);
-        DeleteObject(font); DeleteObject(bmp); DeleteDC(dc);
-        L.text = text; L.bold = bold;
-        return true;
-    }
-
-    void FillQuad(IDirect3DDevice9* dev, float x0, float y0, float x1, float y1, DWORD c) {
-        if (!(x1 > x0) || !(y1 > y0)) return;
-        Vtx q[4] = { { x0 - .5f, y0 - .5f, 0, 1, c, 0, 0 }, { x1 - .5f, y0 - .5f, 0, 1, c, 0, 0 },
-                     { x0 - .5f, y1 - .5f, 0, 1, c, 0, 0 }, { x1 - .5f, y1 - .5f, 0, 1, c, 0, 0 } };
-        dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, q, sizeof(Vtx));
-    }
-    // a slanted stripe (parallelogram) between y0 and y1, clipped to [xmin, xmax]
-    void Stripe(IDirect3DDevice9* dev, float x, float w, float y0, float y1, float slant, float xmin, float xmax, DWORD c) {
-        float bx0 = x, bx1 = x + w, tx0 = x + slant, tx1 = x + w + slant;
-        auto clip = [&](float v) { return v < xmin ? xmin : v > xmax ? xmax : v; };
-        bx0 = clip(bx0); bx1 = clip(bx1); tx0 = clip(tx0); tx1 = clip(tx1);
-        if (!(bx1 > bx0) && !(tx1 > tx0)) return;
-        Vtx q[4] = { { tx0 - .5f, y0 - .5f, 0, 1, c, 0, 0 }, { tx1 - .5f, y0 - .5f, 0, 1, c, 0, 0 },
-                     { bx0 - .5f, y1 - .5f, 0, 1, c, 0, 0 }, { bx1 - .5f, y1 - .5f, 0, 1, c, 0, 0 } };
-        dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, q, sizeof(Vtx));
-    }
-    // a label at (x, y) with height h; align: 0 left, 1 right (x is the right edge), 2 centre
-    void DrawLabel(IDirect3DDevice9* dev, const Label& L, float x, float y, float h, int align, DWORD color) {
-        if (!L.tex || !L.w) return;
-        float w = L.w * h / LBL_H;
-        if (align == 1) x -= w; else if (align == 2) x -= w / 2;
-        x = (float)(int)x; y = (float)(int)y;
-        float u1 = (float)L.w / LBL_W;
-        dev->SetTexture(0, L.tex);
-        dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
-        dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
-        Vtx tq[4] = { { x - .5f, y - .5f, 0, 1, color, 0, 0 }, { x + w - .5f, y - .5f, 0, 1, color, u1, 0 },
-                      { x - .5f, y + h - .5f, 0, 1, color, 0, 1 }, { x + w - .5f, y + h - .5f, 0, 1, color, u1, 1 } };
-        dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, tq, sizeof(Vtx));
-        dev->SetTexture(0, nullptr);
-        dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG2);
-        dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2);
-    }
-
-    void DrawPeerBar(IDirect3DDevice9* dev, UINT bbW, UINT bbH) {
-        Overlay::PeerBar b;
-        EnterCriticalSection(&g_textCs);
-        b = g_peerBar;
-        LeaveCriticalSection(&g_textCs);
-        if (b.kind <= 0 || !bbW || !bbH) return;
-        bool cool = b.kind == 2;
-        if (!BuildLabel(dev, g_labels[0], "BUSTED", true) || !BuildLabel(dev, g_labels[1], cool ? "COOLDOWN" : "EVADE", true) ||
-            !BuildLabel(dev, g_labels[2], b.name.empty() ? std::string("Partner") : b.name, false)) return;
-
-        IDirect3DStateBlock9* sb = nullptr;
-        if (FAILED(dev->CreateStateBlock(D3DSBT_ALL, &sb))) return;
-        SetupStates(dev);
-        dev->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
-        dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
-        dev->SetTexture(0, nullptr);
-        dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG2);
-        dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2);
-
-        const float H = (float)bbH, W = (float)bbW;
-        const float bw = b.width * H, ph = 0.052f * H;
-        const float left = (float)(int)(W / 2 - bw / 2), right = left + bw;
-        const float top = (float)(int)(b.y * H - ph / 2), bottom = top + ph;
-        const float pad = 0.007f * H, lblH = 0.024f * H;
-        // the game's panel: dark orange, slanted lighter stripes, a thin light frame
-        FillQuad(dev, left, top, right, bottom, 0xB8522A0C);
-        const float sw = 0.006f * H, step = 0.016f * H, slant = 0.012f * H;
-        for (float x = left - slant; x < right; x += step) Stripe(dev, x, sw, top, bottom, slant, left, right, 0x30E09040);
-        FillQuad(dev, left, top, right, top + 1, 0x90F0C080); FillQuad(dev, left, bottom - 1, right, bottom, 0x90F0C080);
-        FillQuad(dev, left, top, left + 1, bottom, 0x90F0C080); FillQuad(dev, right - 1, top, right, bottom, 0x90F0C080);
-        // BUSTED / EVADE (or COOLDOWN in the middle)
-        const DWORD lbl = 0xE8F4E4C8;
-        if (cool) DrawLabel(dev, g_labels[1], (left + right) / 2, top + pad * 0.6f, lblH, 2, lbl);
-        else {
-            DrawLabel(dev, g_labels[0], left + pad * 1.5f, top + pad * 0.6f, lblH, 0, lbl);
-            DrawLabel(dev, g_labels[1], right - pad * 1.5f, top + pad * 0.6f, lblH, 1, lbl);
-        }
-        // the track
-        const float tl = left + pad * 1.5f, tr = right - pad * 1.5f;
-        const float ty0 = bottom - pad - 0.008f * H, ty1 = bottom - pad;
-        const float mid = (float)(int)((tl + tr) / 2), half = (tr - tl) / 2;
-        FillQuad(dev, tl, ty0, tr, ty1, 0x60FFF0D8);
-        float v = (float)(b.value < -100 ? -100 : b.value > 100 ? 100 : b.value) / 100.f;
-        if (cool) {
-            FillQuad(dev, tl, ty0, tl + (tr - tl) * v, ty1, 0xF04CA0F0);                     // the cooldown meter
-        } else {
-            if (v < 0) FillQuad(dev, mid + half * v, ty0, mid, ty1, 0xF0E83A2A);              // busted: red, to the left
-            if (v > 0) FillQuad(dev, mid, ty0, mid + half * v, ty1, 0xF0F0F0F0);              // evade: white, to the right
-            FillQuad(dev, mid - 1, ty0 - 0.004f * H, mid + 1, ty1 + 0.004f * H, 0xD0FFFFFF);   // the middle
-            float mx = mid + half * v;
-            FillQuad(dev, mx - 2, ty0 - 0.006f * H, mx + 2, ty1 + 0.006f * H, 0xFFFFFFFF);     // the marker
-        }
-        // the other player's name, small, left of the panel
-        DrawLabel(dev, g_labels[2], left - pad, top + (ph - lblH * 0.8f) / 2, lblH * 0.8f, 1, 0xF0FFFFFF);
-        sb->Apply();
-        sb->Release();
-    }
-
     // ---- the Together settings page (together.cpp paints it, we put it on screen) ----
     constexpr int TG_W = 1024, TG_H = 1024;
     IDirect3DTexture9* g_tgTex = nullptr;
@@ -418,6 +280,79 @@ namespace {
         sb->Release();
     }
 
+    // ---- the friend marker (marker.inl sets it every frame) ----
+    // The game's thin chevron (ARROW_SKINNIER, white with a dark rim; its tip is on the texture's left
+    // edge) tinted with the friend's paint colour, see-through: over their car pointing down, or at the
+    // edge of the screen pointing at them. Without the texture, a drawn chevron of the same shape.
+    Overlay::Marker g_marker;
+    constexpr DWORD kMarkerAlpha = 0x99;     // ~60 %
+    void DrawMarker(IDirect3DDevice9* dev, UINT bbW, UINT bbH) {
+        Overlay::Marker m;
+        EnterCriticalSection(&g_textCs);
+        m = g_marker;
+        LeaveCriticalSection(&g_textCs);
+        if (!m.show || !bbW || !bbH) return;
+        const float W = (float)bbW, H = (float)bbH;
+        const float size = 0.06f * H * m.scale, s = size / 2;
+        float cx, cy, fx, fy;                                       // centre, and the way the tip points
+        if (m.onScreen) { cx = m.x * W; cy = m.y * H - s; fx = 0; fy = 1; }
+        else {
+            fx = m.dirX * W; fy = m.dirY * H;
+            float len = sqrtf(fx * fx + fy * fy);
+            if (!(len > 1e-3f)) return;
+            fx /= len; fy /= len;
+            // from the centre along the direction to an inset rectangle
+            // (the bottom stops above the pursuit bars, the top below the rear-view mirror)
+            const float mx = W / 2 - 0.06f * H, myUp = H / 2 - 0.22f * H, myDown = H / 2 - 0.34f * H;
+            float t = 1e9f;
+            if (fabsf(fx) > 1e-4f) t = (std::min)(t, mx / fabsf(fx));
+            if (fabsf(fy) > 1e-4f) t = (std::min)(t, (fy > 0 ? myDown : myUp) / fabsf(fy));
+            cx = W / 2 + fx * t; cy = H / 2 + fy * t;
+        }
+        const float px = -fy, py = fx;                              // across the chevron
+        DWORD rgb = m.color ? (m.color & 0x00FFFFFF) : 0x00FFFFFF;
+        DWORD col = (kMarkerAlpha << 24) | rgb;
+
+        IDirect3DStateBlock9* sb = nullptr;
+        if (FAILED(dev->CreateStateBlock(D3DSBT_ALL, &sb))) return;
+        SetupStates(dev);
+        dev->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+        dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+        dev->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
+        dev->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+        dev->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+        auto P = [&](float u, float v, float& x, float& y) {        // texture (u, v) -> screen; u = 0 is the tip
+            x = cx + fx * (s - 2 * s * u) + px * (2 * s * v - s);
+            y = cy + fy * (s - 2 * s * u) + py * (2 * s * v - s);
+        };
+        if (m.tex) {
+            Vtx q[4];
+            const float uv[4][2] = { {0, 0}, {1, 0}, {0, 1}, {1, 1} };
+            for (int i = 0; i < 4; ++i) { P(uv[i][0], uv[i][1], q[i].x, q[i].y); q[i].x -= .5f; q[i].y -= .5f;
+                                          q[i].z = 0; q[i].rhw = 1; q[i].color = col; q[i].u = uv[i][0]; q[i].v = uv[i][1]; }
+            dev->SetTexture(0, (IDirect3DBaseTexture9*)m.tex);
+            dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, q, sizeof(Vtx));
+            dev->SetTexture(0, nullptr);
+        } else {
+            // two slanted bars meeting at the tip, a dark rim first
+            dev->SetTexture(0, nullptr);
+            dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG2);
+            dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2);
+            auto Arm = [&](float vTop, DWORD c, float grow) {
+                // a parallelogram from the tip (u 0.15, v 0.5) to the back corner (u 0.75, v vTop), 0.22 thick along u
+                float pts[4][2] = { {0.15f - grow, 0.5f}, {0.37f + grow, 0.5f}, {0.75f - grow, vTop}, {0.97f + grow, vTop} };
+                Vtx q[4];
+                for (int i = 0; i < 4; ++i) { P(pts[i][0], pts[i][1], q[i].x, q[i].y); q[i].z = 0; q[i].rhw = 1; q[i].color = c; q[i].u = q[i].v = 0; }
+                dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, q, sizeof(Vtx));
+            };
+            DWORD rim = (kMarkerAlpha << 24);
+            Arm(0.08f, rim, 0.05f); Arm(0.92f, rim, 0.05f);
+            Arm(0.12f, col, 0.f);   Arm(0.88f, col, 0.f);
+        }
+        sb->Apply();
+        sb->Release();
+    }
+
     // Draw onto the back buffer right before the frame is presented, so it is always on top and
     // always on screen, no matter which offscreen targets the game used during the frame.
     void DrawOnBackBuffer(IDirect3DDevice9* dev) {
@@ -436,7 +371,7 @@ namespace {
 
         D3DSURFACE_DESC bd{}; bb->GetDesc(&bd);
         if (SUCCEEDED(dev->BeginScene())) {
-            DrawPeerBar(dev, bd.Width, bd.Height);
+            DrawMarker(dev, bd.Width, bd.Height);
             if (g_visible) DrawOverlay(dev);
             DrawTogether(dev, bd.Width, bd.Height);
             dev->EndScene();
@@ -556,7 +491,7 @@ namespace {
             ++g_frames;
             if (g_cb) g_cb(dev);
             if (!g_shotPath.empty() && !g_shotOverlay) { SaveBackBuffer(dev, g_shotPath); g_shotPath.clear(); }   // before our overlay
-            if (g_visible || Together::Visible() || g_peerBar.kind > 0) DrawOnBackBuffer(dev);   // the partner bar draws with the overlay hidden too
+            if (g_visible || Together::Visible() || g_marker.show) DrawOnBackBuffer(dev);   // the friend marker draws with the overlay hidden too
             if (!g_shotPath.empty() && g_shotOverlay) { SaveBackBuffer(dev, g_shotPath); g_shotPath.clear(); }
         }
         HRESULT hr = o_Present(dev, src, dst, wnd, dirty);
@@ -649,9 +584,9 @@ bool Overlay::InstallHooks() {
 }
 
 void Overlay::SetFrameCallback(FrameCallback cb) { g_cb = cb; }
-void Overlay::SetPeerBar(const PeerBar& b) {
+void Overlay::SetMarker(const Marker& m) {
     EnterCriticalSection(&g_textCs);
-    g_peerBar = b;
+    g_marker = m;
     LeaveCriticalSection(&g_textCs);
 }
 

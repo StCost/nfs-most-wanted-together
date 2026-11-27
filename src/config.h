@@ -29,6 +29,7 @@ struct Config {
     std::string iniFile;                 // the ini this was loaded from (the mod writes LastProfile there)
     bool        gameNotices = true;       // [UI] GameNotices - notices in the game's message line (centre of the screen; banner in cutscenes / menus)
     int         hideHudKey = 0x70;       /* VK_F1 */      // [UI] HideHudKey - hides the minimap (with heat) and the speedometer; 0 = off
+    bool        friendMarker = true;      // [UI] FriendMarker - a see-through chevron in the friend's car colour over their car, at the screen edge when off screen
     int         noticeSeconds = 10;       // [UI] NoticeSeconds - how long a notice stays on screen (2..60)
     bool        gamepadHotplug = true;    // [Input] GamepadHotplug - pick up pads connected while the game runs
     bool        keepPadBindings = true;   // [Input] KeepPadBindings - starting without the pad keeps its bindings

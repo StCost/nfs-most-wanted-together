@@ -28,7 +28,7 @@
 //  is full too, then both enter the cooldown; when either is spotted in it, both leave it (even from a
 //  hiding spot). Escape completes only when both have finished. A safe house (open in the cooldown, as
 //  in the game) evades that player as usual, and PURSUIT_EVADED ends the other player's pursuit as an
-//  escape/win too. The other player's bar is drawn above ours (PursuitBarFor, overlay).
+//  escape/win too. The other player's bar is drawn above ours (peerbar.inl: a copy of the game's own meter).
 //  While both are in cooldown the cooldown is one: the one further on sets it for both, and if one
 //  player is in a hiding spot the other's cooldown runs at the hiding-spot speed too.
 // ---------------------------------------------------------------------------
@@ -143,7 +143,9 @@ int16_t Game::LocalPursuitHeat() {
 static void PursuitTickImpl(bool connected, const Net::Snapshot& peer);
 static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer);
 static void PeerBarTickImpl(bool connected, const Net::Snapshot& peer);
-static void HidePeerBar() { Overlay::SetPeerBar(Overlay::PeerBar{}); }
+static bool PeerBarNativeSet(int kind, int value);      // peerbar.inl: the copy of the game's own meter (guards itself)
+static bool PeerBarForced(int* kind, int* value);       // test: DebugPeerBar
+static void HidePeerBar() { PeerBarNativeSet(0, 0); }
 
 void Game::PursuitTick(bool connected, const Net::Snapshot& peer) {
     if (!g_ok) return;
@@ -991,18 +993,21 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
 }
 
 // ---- cops of our pursuit go after whichever player is closer (SharedPursuit::CopChasesPeer) ----
-// ---- the other player's pursuit bar above ours (bottom centre; overlay.cpp draws it) ----
+// ---- the other player's pursuit bar above ours (bottom centre; peerbar.inl: a copy of the game's own meter) ----
 // Shown while they are chased in the same place as us (free roam, or the same event), over the plain
 // HUD only (not over menus, the map or a cutscene).
 static void PeerBarTickImpl(bool connected, const Net::Snapshot& peer) {
     static int lastKind = -1;
     static const char* lastWhy = "";
-    Overlay::PeerBar b;
+    struct { int kind = 0, value = 0; } b;
+    int forceKind = 0, forceValue = 0;
+    bool forced = PeerBarForced(&forceKind, &forceValue);     // test: a fixed bar, no partner needed
     // (1.8.0 asked FEScreens::ListAll for exactly the plain HUD - never true in a pursuit, so it never showed)
-    const char* why = !g_cfg.sharedPursuits ? "SharedPursuits=0" : !connected || !g_coopLinked ? "not linked"
-                    : !peer.valid ? "no state" : !peer.s.pursuitBarKind ? "they are not chased (or an older build)"
-                    : Game::GameFlowState() != 6 || !LocalVehicle() ? "not in the world" : NisActive() ? "a cutscene"
-                    : SharedPlaceNow(peer) == SharedPursuit::Place::None ? "not in the same place"
+    const char* why = forced ? nullptr : !g_cfg.sharedPursuits ? "SharedPursuits=0" : !connected || !g_coopLinked ? "not linked"
+                    : !peer.valid ? "no state" : !peer.s.pursuitBarKind ? "they are not chased (or an older build)" : nullptr;
+    if (!why) why = Game::GameFlowState() != 6 || !LocalVehicle() ? "not in the world" : NisActive() ? "a cutscene"
+                    : g_sp.lastStatus == PS_BUSTED ? "we are busted"
+                    : !forced && SharedPlaceNow(peer) == SharedPursuit::Place::None ? "not in the same place"
                     : !FEScreens::IsPushed("HUD_SingleRace.fng") ? "no HUD"
                     : FEScreens::AnyCloseableOverlay() || FEScreens::IsPushed("Pause_Main.fng") || FEScreens::IsPushed("WorldMapMain.fng") ? "a menu is open"
                     : nullptr;
@@ -1010,10 +1015,9 @@ static void PeerBarTickImpl(bool connected, const Net::Snapshot& peer) {
     if (!show && strcmp(why, lastWhy)) { lastWhy = why; if (peer.valid && peer.s.pursuitBarKind) LOG("Pursuit: the other player's bar not shown - %s", why); }
     if (show) lastWhy = "";
     if (show) {
-        b.kind = peer.s.pursuitBarKind; b.value = peer.s.pursuitBar;
-        b.name = Net::Stats().peerName;
+        b.kind = forced ? forceKind : peer.s.pursuitBarKind; b.value = forced ? forceValue : peer.s.pursuitBar;
     }
-    Overlay::SetPeerBar(b);
+    if (!PeerBarNativeSet(b.kind, b.value)) b.kind = 0;      // no copy of the meter (said in the log once): nothing shown
     if (b.kind != lastKind) {
         lastKind = b.kind;
         LOG("Pursuit: the other player's bar %s", b.kind == 1 ? "shown (chase)" : b.kind == 2 ? "shown (cooldown)" : "hidden");

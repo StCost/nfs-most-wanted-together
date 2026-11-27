@@ -268,6 +268,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                     else if (c.rfind("key 0x", 0) == 0) { Input::TapBackground((unsigned char)strtoul(c.c_str() + 4, nullptr, 16)); r = "key pressed (background)"; }
                     else if (c.rfind("together ", 0) == 0) r = Together::DebugCommand(c.substr(9));
                     else if (c.rfind("native ", 0) == 0) r = NativeUI::DebugCommand(c.substr(7));
+                    else if (c.rfind("peerbar", 0) == 0) r = Game::DebugPeerBar(c.size() > 8 ? c.substr(8).c_str() : "");
                     else if (c.rfind("tp ", 0) == 0) r = Game::DebugTeleport(c.substr(3).c_str());
                     else if (c == "skipnis") r = Game::DebugNisSkip();
                     else if (c == "story") r = Game::DebugStory("");
@@ -463,6 +464,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         }
         { Perf::Scope p(Perf::Traffic); if (g_netOk && g_gameOk) Game::TrafficTick(linked, Net::Latest()); }
         { Perf::Scope p(Perf::Pursuit); if (g_netOk && g_gameOk) Game::PursuitTick(linked, Net::Latest()); }
+        { Perf::Scope p(Perf::Pursuit); if (g_gameOk) Game::MarkerTick(g_netOk && linked && Net::Stats().connected); }
         { Perf::Scope p(Perf::Pursuit); if (g_netOk && g_gameOk) Game::RoadblockTick(linked && Net::Stats().connected); }
         { Perf::Scope perfRules(Perf::Rules);
         if (g_netOk && g_gameOk) Game::EventTick(linked);
