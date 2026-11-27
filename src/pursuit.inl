@@ -1087,6 +1087,8 @@ static void PeerBarTickImpl(bool connected, const Net::Snapshot& peer) {
         int st = PRead<int>(mp, P_Status);
         own = st == PS_COOLDOWN ? 2 : st == PS_BACKUP ? 3 : st == PS_CHASE ? 1 : 0;
     }
+    // in an event with no pursuit of ours the game shows no police HUD (a race): theirs neither
+    if (b.kind && !forced && own == 0 && Game::CurrentEventHash()) b.kind = 0;
     if (!PeerBarNativeSet(b.kind, b.value, own)) b.kind = 0;      // no copy of the meter (said in the log once): nothing shown
     if (b.kind != lastKind) {
         lastKind = b.kind;

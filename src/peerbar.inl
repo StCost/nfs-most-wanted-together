@@ -332,9 +332,11 @@ namespace PB {
             LOG("Pursuit: partner bar - cloned the game's meter (%d objects, copy %p, segments %.0f / %.0f)",
                 g.objects, g.cChase, g.wFar, g.wNear);
         }
-        bool show = kind == 1 && own != 2;          // with our cooldown up: none (the cooldown is shared)
-        ShowGroup(g.cChase, show);
         bool ownUp = own == 1 || own == 3;          // our chase meter up: only the strip, under ours
+        // the game keeps our chase meter hidden (a race hides the police HUD: FEngSetInvisible, +0x1C bit 0): none
+        bool gameHides = ownUp && (*(uint32_t*)(B(g.chase) + 0x1C) & 1);
+        bool show = kind == 1 && own != 2 && !gameHides;   // with our cooldown up: none (the cooldown is shared)
+        ShowGroup(g.cChase, show);
         if (!show) { g.shownAt = 0; return 0; }
         MoveTo(g.cChase, g.upChase, ownUp ? -kStripDown : 0.f);
         MakeVisible(g.cChase, 0);
