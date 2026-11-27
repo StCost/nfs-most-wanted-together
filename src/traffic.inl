@@ -143,6 +143,7 @@ namespace {
         // free roam (SmoothHandover): one of our own cars took this host car over and glides from where
         // it was to the host car's place instead of jumping there
         bool     blendPending = false; // start the glide at the next drive (from where the car is then)
+        DWORD    localSince = 0, localUntil = 0;   // a hit: our physics moves it until localUntil (TakeLocalHits)
         DWORD    blendT0 = 0;    // GetTickCount when the glide started (0 = none)
         float    blendOff[3] = {};
         float    blendRot[4] = {};
@@ -392,6 +393,11 @@ namespace {
         if (!m.iv || m.n == 0) return;
         void* rb = RigidBodyOf(m.iv);
         if (!rb) return;
+        if (m.localSince) {   // we hit it: our physics moves it for a moment, then it glides back to the owner's place
+            if ((int)(GetTickCount() - m.localUntil) < 0) return;
+            m.localSince = m.localUntil = 0;
+            m.blendPending = true; m.groundFix = 0;
+        }
         const MirrorSample* a = nullptr; const MirrorSample* b = nullptr;
         for (int i = m.n - 1; i >= 0; --i) {
             if (m.s[i].sendMs <= renderSendMs) { a = &m.s[i]; b = (i + 1 < m.n) ? &m.s[i + 1] : nullptr; break; }
@@ -1606,6 +1612,30 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
     TrafficSyncSummary(now, myPos);
 }
 
+// About to hit a car the other game owns: our physics takes the copy over for a moment (HitUtil::TakeLocalOnApproach).
+// Their race opponents are left to the network (they race on both screens).
+static void TakeLocalHits(void* lrb, DWORD now) {
+    if ((int)(g_noHitUntil - now) > 0) return;
+    const float* lp = RB_GetVec(lrb, RB_GetPosition);
+    const float* lv = RB_GetVec(lrb, RB_GetLinearVelocity);
+    for (auto& m : g_mirrors) {
+        if (!m.used || !m.iv || m.racer || m.n == 0) continue;
+        void* rb = RigidBodyOf(m.iv);
+        if (!rb) continue;
+        const float* cp = RB_GetVec(rb, RB_GetPosition);
+        if (m.localSince) {   // ours already: a little longer while we still touch it
+            if (HitUtil::StillTouching(lp, cp) && now - m.localSince < HitUtil::LOCAL_HIT_MAX_MS && (int)(m.localUntil - (now + 600)) < 0)
+                m.localUntil = now + 600;
+            continue;
+        }
+        if (!HitUtil::TakeLocalOnApproach(lp, lv, cp, RB_GetVec(rb, RB_GetLinearVelocity))) continue;
+        m.localSince = now | 1; m.localUntil = now + HitUtil::LOCAL_HIT_MS; m.blendT0 = 0; m.blendPending = false;
+        float dx = cp[0] - lp[0], dz = cp[2] - lp[2];
+        LOG("Collision: about to hit the other player's car %u (%s, %.1f m, %.0f km/h) - our physics moves it for a moment",
+            (unsigned)m.id, VehName(m.iv), sqrtf(dx * dx + dz * dz), sqrtf(lv[0] * lv[0] + lv[2] * lv[2]) * 3.6f);
+    }
+}
+
 // Hitting a car the OTHER game owns (their traffic, cops, race opponents shown here as mirrors): the
 // mirror is moved by the network, so only our car reacts. Measure what our car lost in the impact
 // (250 ms from the first abrupt change) and send it to the owner, who pushes the real car.
@@ -1627,6 +1657,7 @@ static void MirrorHitTick() {
         memcpy(lastPos, lp, 12); have = true;
     }
     if ((int)(g_noHitUntil - now) > 0) t0 = 0;
+    TakeLocalHits(lrb, now);
     void* grb0 = RigidBodyOf(g_ghost);
     bool playerNear = grb0 && Dist(RB_GetVec(grb0, RB_GetPosition), lp) < 6.f;    // then it is the player-to-player case
     if (!t0 && !playerNear && (int)(g_noHitUntil - now) <= 0 && prevT && now - prevT < 100 && now - lastSent > 600) {
@@ -1644,8 +1675,9 @@ static void MirrorHitTick() {
             if (id && !(grb && Dist(RB_GetVec(grb, RB_GetPosition), lp) < best)) {
                 t0 = now; target = id; memcpy(v0, prevV, 12);
                 // the copy is a wall to our physics: keep the speed a hit on a real car would leave us
+                // (not when our physics moves it right now - then the hit was a real one)
                 Mirror* hm = FindMirror(id);
-                void* hrb = (hm && !hm->racer && hm->iv) ? RigidBodyOf(hm->iv) : nullptr;
+                void* hrb = (hm && !hm->racer && hm->iv && !hm->localSince) ? RigidBodyOf(hm->iv) : nullptr;
                 if (hrb) {
                     const float* hp = RB_GetVec(hrb, RB_GetPosition);
                     float n[3] = { hp[0] - lp[0], 0.f, hp[2] - lp[2] }, nv[3];

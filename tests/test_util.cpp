@@ -766,6 +766,30 @@ TEST(util_collide_gate_and_hitch) {
     CHECK(!HitUtil::WantPlayerCollide(false, false, false, false, true));
 }
 
+TEST(util_mirror_take_local_on_approach) {
+    using namespace HitUtil;
+    float me[3] = { 0, 0, 0 }, still[3] = { 0, 0, 0 };
+    float fast[3] = { 0, 0, 40 };                       // 144 km/h along +z
+    float ahead[3] = { 0, 0, 8 }, aheadFar[3] = { 0, 0, 20 }, nextLane[3] = { 3.5f, 0, 8 }, behind[3] = { 0, 0, -6 };
+    CHECK(TakeLocalOnApproach(me, fast, ahead, still));              // a stopped car ahead, contact in 0.1 s
+    CHECK(!TakeLocalOnApproach(me, fast, aheadFar, still));          // still far
+    CHECK(!TakeLocalOnApproach(me, fast, nextLane, fast));           // same speed in the next lane
+    float slowNext[3] = { 0, 0, 10 };
+    CHECK(!TakeLocalOnApproach(me, fast, behind, still));            // going away from it
+    CHECK(!TakeLocalOnApproach(me, still, ahead, still));            // nobody moves
+    float sideCar[3] = { 6, 0, 30 };
+    CHECK(!TakeLocalOnApproach(me, fast, sideCar, slowNext));        // passing a slower car 6 m to the side
+    float roadblock[3] = { 1.5f, 0, 6 };
+    float slow[3] = { 0, 0, 12 };
+    CHECK(TakeLocalOnApproach(me, slow, roadblock, still));          // into a roadblock car off center
+    float above[3] = { 0, 6, 6 };
+    CHECK(!TakeLocalOnApproach(me, fast, above, still));             // a bridge above
+    float nan3[3] = { NAN, 0, 0 };
+    CHECK(!TakeLocalOnApproach(nan3, fast, ahead, still));
+    CHECK(StillTouching(me, ahead) == false);
+    float touching[3] = { 0, 0.2f, 4.5f };
+    CHECK(StillTouching(me, touching));
+}
 TEST(util_mirror_hit_keeps_speed) {
     float n[3] = { 0, 0, 1 };                       // the copy straight ahead
     float before[3] = { 0, 0, 30 }, stopped[3] = { 0, 0, 1 }, out[3];

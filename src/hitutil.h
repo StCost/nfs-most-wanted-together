@@ -176,6 +176,33 @@ namespace HitUtil {
     // other one. False when the hit took nothing back to give (or the data is bad).
     constexpr float MIRROR_HIT_KEEP_INTO = 0.5f;
     constexpr float MIRROR_HIT_MIN_LOSS_MPS = 3.f;
+    // About to hit a car the other game owns (its traffic or cops, shown here as a copy moved by the network):
+    // a copy forced to the network's position every frame is a wall to our physics - we stop dead and it
+    // moves only when the owner's push comes back. So shortly before the contact our physics takes the copy
+    // over (the network no longer moves it), the hit happens as with a real car, and after a moment
+    // (LOCAL_HIT_MS, longer while we still touch it, at most LOCAL_HIT_MAX_MS) it glides back to the
+    // owner's position. Closing in (> 2 m/s), contact within ~0.25 s and a line of approach that meets it
+    // (miss < 3 m, a car's width plus margin): passing traffic in the next lane is left alone.
+    constexpr unsigned LOCAL_HIT_MS = 1200, LOCAL_HIT_MAX_MS = 3000;
+    inline bool TakeLocalOnApproach(const float* myPos, const float* myVel, const float* carPos, const float* carVel) {
+        if (!Finite3(myPos) || !Finite3(myVel) || !Finite3(carPos) || !Finite3(carVel)) return false;
+        float dx = carPos[0] - myPos[0], dz = carPos[2] - myPos[2];
+        if (std::fabs(carPos[1] - myPos[1]) > 3.f) return false;   // a bridge above / a road below
+        float dist = std::sqrt(dx * dx + dz * dz);
+        if (!(dist > 0.01f) || dist > 9.f) return false;
+        float rx = myVel[0] - carVel[0], rz = myVel[2] - carVel[2];
+        float closing = (rx * dx + rz * dz) / dist;
+        if (!(closing > 2.f)) return false;
+        float miss = std::fabs(rx * dz - rz * dx) / std::sqrt(rx * rx + rz * rz);
+        if (miss > 3.f) return false;
+        return dist - closing * 0.25f < 5.f;
+    }
+    // still in touch with it (keeps our physics on it a little longer)
+    inline bool StillTouching(const float* myPos, const float* carPos) {
+        if (!Finite3(myPos) || !Finite3(carPos)) return false;
+        float dx = carPos[0] - myPos[0], dy = carPos[1] - myPos[1], dz = carPos[2] - myPos[2];
+        return dx * dx + dz * dz < 5.5f * 5.5f && std::fabs(dy) < 3.f;
+    }
     inline bool MirrorHitKeepSpeed(const float* before, const float* after, const float* n, float* out) {
         if (!Finite3(before) || !Finite3(after) || !Finite3(n)) return false;
         float nx = n[0], nz = n[2], nl = std::sqrt(nx * nx + nz * nz);
