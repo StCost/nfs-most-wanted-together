@@ -450,12 +450,13 @@ namespace NetUtil {
     inline float MarkerScale(float distM) {
         return distM <= 60.f ? 1.f : distM >= 400.f ? 0.7f : 1.f - 0.3f * (distM - 60.f) / 340.f;
     }
-    // The box the marker stays in (pixels): clear of the screen sides, below the rear-view mirror, above the
-    // pursuit bars. On screen the chevron's centre is liftPx over the place, then clamped into the box (so
+    // The box the marker stays in (pixels): the whole screen, inset by half a chevron so it stays whole at
+    // the very edge (top and bottom too; nothing is kept clear - a partner straight behind is at the bottom). On screen the chevron's centre is liftPx over the place, then clamped into the box (so
     // leaving the screen doesn't jump); off screen it is where the line from the centre along (dirX, dirY)
     // meets the box. Out: the centre and the unit direction the tip points (down over a car). False: none.
+    constexpr float MARKER_EDGE = 0.03f;          // half the chevron (overlay.cpp: 0.06 x the screen height)
     inline bool MarkerOnBox(const MarkerPlace& p, float W, float H, float liftPx, float* cx, float* cy, float* fx, float* fy) {
-        const float left = 0.06f * H, right = W - 0.06f * H, top = 0.22f * H, bottom = 0.66f * H;
+        const float e = MARKER_EDGE * H, left = e, right = W - e, top = e, bottom = H - e;
         if (p.onScreen) {
             *cx = p.x * W; *cy = p.y * H - liftPx; *fx = 0.f; *fy = 1.f;
             *cx = *cx < left ? left : *cx > right ? right : *cx;

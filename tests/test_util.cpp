@@ -811,18 +811,18 @@ TEST(util_marker_box_and_scale) {
     MarkerPlace mid{ true, 0.5f, 0.5f, 0.f, 0.f };
     CHECK(MarkerOnBox(mid, 1920.f, 1080.f, lift, &cx, &cy, &fx, &fy));
     CHECK_NEAR(cy, 540.f - lift, 1e-3f); CHECK_NEAR(fy, 1.f, 1e-6f);   // the drawn place: lifted, not clamped
-    MarkerPlace low{ true, 0.5f, 0.97f, 0.f, 0.f };        // on screen at the very bottom: kept above the bars
+    MarkerPlace low{ true, 0.5f, 1.0f, 0.f, 0.f };         // on screen at the very bottom: kept whole at the edge
     CHECK(MarkerOnBox(low, 1920.f, 1080.f, lift, &cx, &cy, &fx, &fy));
-    CHECK_NEAR(cx, 960.f, 1e-3f); CHECK_NEAR(cy, 0.66f * 1080.f, 1e-2f);
+    CHECK_NEAR(cx, 960.f, 1e-3f); CHECK_NEAR(cy, 0.97f * 1080.f, 1e-2f);
     MarkerPlace down{ false, 0.f, 0.f, 0.f, 1.f };          // just off the bottom: drawn at the same place, no jump
     CHECK(MarkerOnBox(down, 1920.f, 1080.f, lift, &cx, &cy, &fx, &fy));
-    CHECK_NEAR(cx, 960.f, 1e-3f); CHECK_NEAR(cy, 0.66f * 1080.f, 1e-2f);
-    MarkerPlace high{ true, 0.5f, 0.23f, 0.f, 0.f };        // lifted above the box top: clamped under the mirror
+    CHECK_NEAR(cx, 960.f, 1e-3f); CHECK_NEAR(cy, 0.97f * 1080.f, 1e-2f);
+    MarkerPlace high{ true, 0.5f, 0.04f, 0.f, 0.f };        // lifted above the top edge: kept whole at the edge
     CHECK(MarkerOnBox(high, 1920.f, 1080.f, lift, &cx, &cy, &fx, &fy));
-    CHECK_NEAR(cy, 0.22f * 1080.f, 1e-2f);
+    CHECK_NEAR(cy, 0.03f * 1080.f, 1e-2f);
     MarkerPlace left{ false, 0.f, 0.f, -1.f, 0.f };
     CHECK(MarkerOnBox(left, 1920.f, 1080.f, lift, &cx, &cy, &fx, &fy));
-    CHECK_NEAR(cx, 0.06f * 1080.f, 1e-2f); CHECK_NEAR(cy, 540.f, 1e-3f); CHECK_NEAR(fx, -1.f, 1e-6f);
+    CHECK_NEAR(cx, 0.03f * 1080.f, 1e-2f); CHECK_NEAR(cy, 540.f, 1e-3f); CHECK_NEAR(fx, -1.f, 1e-6f);
     MarkerPlace none{ false, 0.f, 0.f, 0.f, 0.f };
     CHECK(!MarkerOnBox(none, 1920.f, 1080.f, lift, &cx, &cy, &fx, &fy));
     CHECK_NEAR(MarkerScale(10.f), 1.f, 1e-6f);
