@@ -126,6 +126,7 @@ namespace {
         double   lastSeen = 0; // local ms
         int      fails = 0;
         double   noSpawnUntil = 0; // local ms: the game just deleted our copy to make room - don't build it again at once
+        double   swapNotBefore = 0; // local ms: we just swapped a car of another model here - not again at once
         bool     racer = false; // a race opponent of the host: drives one of our own racers (no spawn)
         uint32_t wid = 0;       // racer: world id of our racer it drives (a new race may build another car at that address)
         double   unboundSince = 0;   // racer: local ms since it waits for one of our racers
@@ -987,14 +988,18 @@ static bool PlaceHostCar(Mirror& m, const NetUtil::CamView& cam, const float* lp
 // Never in a race (race scripts own some traffic cars; removing one crashed the game, 0x5FD94A) -
 // a Challenge Series pursuit counts as free roam here, as for the traffic sync.
 int g_rbRoomMade = 0;
-static void MakeRoomForRoadblockCop() {
-    static DWORD last = 0;
-    if (GetTickCount() - last < 500) return;
+// a race (or one that just ended) may own some of our traffic cars: removing one crashed the game (0x5FD94A)
+static bool RaceMayOwnCars() {
     void* rs = nullptr; int mode = 0; void* parms = nullptr; int type = -1;
     if (Mem::Read(0x91E000, rs) && rs && Mem::Read((uintptr_t)rs + 0x1960, mode) && mode == 1 &&
         Mem::Read((uintptr_t)rs + 0x1968, parms) && parms)
         type = ((int(__thiscall*)(void*))0x5FAA20)(parms);
-    if (CoopRace::ClientTrafficAsRace(mode, type) || g_clientRacing || (g_raceEndedTick && GetTickCount() - g_raceEndedTick < 8000)) return;
+    return CoopRace::ClientTrafficAsRace(mode, type) || g_clientRacing || (g_raceEndedTick && GetTickCount() - g_raceEndedTick < 8000);
+}
+static void MakeRoomForRoadblockCop() {
+    static DWORD last = 0;
+    if (GetTickCount() - last < 500) return;
+    if (RaceMayOwnCars()) return;
     void* lrb = RigidBodyOf(LocalVehicle());
     if (!lrb) return;
     const float* me = RB_GetVec(lrb, RB_GetPosition);
@@ -1021,9 +1026,9 @@ static int MaintainMirrors(double now) {
     {   // how often copies were put on the ground (every 10 s while it happens)
         static DWORD last = 0; static int lastLearned = 0;
         if (GetTickCount() - last > 10000) {
-            if (g_groundFixed) LOG("Traffic: %d frame(s) of copies put on the ground (largest correction %.2f m; %d of them shown by a car of another model, largest %.2f m), %d ride height sample(s)",
+            if (g_groundFixed) LOG("Traffic: grounded %d frame(s), max %.2f m (other model: %d, max %.2f m), %d ride sample(s)",
                                    g_groundFixed, g_groundMaxFix, g_groundFixedOther, g_groundMaxFixOther, g_groundLearned - lastLearned);
-            if (g_modelSwaps || g_modelOtherFrames) LOG("Traffic: models - %d frame(s) a host car was shown by one of our cars of another model, %d swapped for a copy of the right model once out of view",
+            if (g_modelSwaps || g_modelOtherFrames) LOG("Traffic: other model shown %d frame(s), %d swapped for the right one",
                                    g_modelOtherFrames, g_modelSwaps);
             last = GetTickCount(); lastLearned = g_groundLearned; g_groundFixed = 0; g_groundMaxFix = 0;
             g_groundFixedOther = 0; g_groundMaxFixOther = 0; g_modelSwaps = 0; g_modelOtherFrames = 0;
@@ -1088,14 +1093,22 @@ static int MaintainMirrors(double now) {
         // one of our own cars of ANOTHER model shows this host car (the only one in its spot, or nearby while the
         // spot was in view - so it didn't pop in): once nobody sees it, it goes and a copy of the host's model is
         // built in its place. (In a race our cars stand in for good: nothing is spawned or removed there.)
+        // Only where a new car may appear unseen (MaySpawnUnseen: not right behind us in the mirror), with room
+        // for the copy, never in or just after a race (0x5FD94A), and at most every few seconds per host car.
         if (m.bound && m.iv && m.n && !m.racer && ModelKeyOf(m.iv) != m.model) {
             ++g_modelOtherFrames;
-            if (!SharedRaceTraffic() && OffScreenS(m.iv) > NetUtil::HANDOVER_OFFSCREEN_S) {
+            void* srb = RigidBodyOf(m.iv);
+            void** lb = nullptr;
+            if (smooth && srb && !SharedRaceTraffic() && !RaceMayOwnCars() && now >= m.swapNotBefore &&
+                OffScreenS(m.iv) > NetUtil::HANDOVER_OFFSCREEN_S && NetUtil::MaySpawnUnseen(cam, RB_GetVec(srb, RB_GetPosition), lp) &&
+                ListSize(VL_ALL, &lb) < CopyCarLimit()) {
                 if (g_modelSwaps < 3) LOG("Traffic: host car %u (model %08X) was shown by our %s (%08X) - out of view now, building the right model",
                                           (unsigned)m.id, m.model, VehName(m.iv), ModelKeyOf(m.iv));
                 KillVehicle(m.iv);
                 m.iv = nullptr; m.bound = false; m.groundFix = 0; m.rideKnown = false; m.ownSampled = false;
+                m.swapNotBefore = now + 5000.0;
                 ++g_modelSwaps;
+                continue;                           // built next frame (the removed car is not rebound meanwhile)
             }
         }
         if (IsRaceTrafficMirror(m)) {

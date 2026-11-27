@@ -398,8 +398,10 @@ static int FixedListsScan() {
 }
 std::string Game::DebugFixedLists() { int n = FixedListsScan(); return n < 0 ? "scan failed" : "fixed tables: " + std::to_string(n) + " (listed in the log)"; }
 // ---- the car model memory pool ----
-//  At boot (0x664A24) the game sizes its main heap as 0x7EF4000 + *0x8F7EF0 KB and gives the "Cars" pool
-//  (CarLoader::SetMemoryPoolSize 0x75C550) *0x8F7EF0 KB: 50000 KB, made for 20 cars. With more cars - the
+//  At boot (0x664A24) the game reads *0x8F7EF0 (KB), shifts it to bytes (<<10), sizes its main heap as
+//  0x7EF4000 + that and gives it to the "Cars" pool (CarLoader::SetMemoryPoolSize 0x75C550): 50000 KB, made
+//  for 20 cars. A second reader (0x666EC1, SetMemoryPoolSize at 0x666EEA) takes *0x8F7EF4 instead in one
+//  mode (split screen); that one is left alone. With more cars - the
 //  partner's traffic adds its own models - a new model often didn't fit and the budget evicted cars that
 //  were in use (cops vanished and came back). Set before the game reads it (DllMain): +32 MB with MaxCars > 20.
 void Game::InstallCarPoolSize() {
