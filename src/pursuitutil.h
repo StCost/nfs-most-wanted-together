@@ -199,17 +199,19 @@ namespace SharedPursuit {
         return f;
     }
 
-    // From the game's own meter value (TimeUntilBusted: +1 busted .. -1 evaded, <= -1 the cooldown):
+    // From the game's own meter value (TimeUntilBusted: +1 busted .. -1 evaded); kind 2 only in the cooldown:
     // on the wire as -100 busted .. +100 evade, so older builds read it as before.
     inline Bar BarFromMeter(bool active, bool cooling, bool busted, float timeUntilBusted, float left, float need) {
         if (!active) return { 0, 0 };
         float t = timeUntilBusted == timeUntilBusted ? timeUntilBusted : 0.f;
         float v = busted ? 1.f : (t < 0.99f ? t : 0.99f);
-        if (cooling || !(v > -1.f)) {
+        if (cooling) {
             float done = need > 0.f ? 1.f - left / need : 0.f;
             done = !(done > 0.f) ? 0.f : done > 1.f ? 1.f : done;
             return { (int8_t)(done * 100.f + 0.5f), 2 };
         }
+        // (still in the chase, unseen long enough: TimeUntilBusted is already -1 there, 0x444907 - a full evade)
+        if (v < -1.f) v = -1.f;
         float w = -v * 100.f;
         return { (int8_t)(w < 0.f ? w - 0.5f : w + 0.5f), 1 };
     }
@@ -225,6 +227,11 @@ namespace SharedPursuit {
         if (now != d.stable && nowMs - d.since >= holdMs) d.stable = now;
         return d.stable;
     }
+
+    // For COOLDOWN_GRACE_MS after we entered the cooldown, the partner being seen doesn't pull us back to the
+    // chase (both enter a moment apart; a sighting right then flapped us straight out again).
+    constexpr uint32_t COOLDOWN_GRACE_MS = 1000;
+    inline bool InCooldownGrace(bool cooling, uint32_t sinceEnteredMs) { return cooling && sinceEnteredMs < COOLDOWN_GRACE_MS; }
 
     inline bool CooldownFinished(const View& v, float eps = ESCAPE_HOLD_LEFT_S) {
         return v.cooling && v.left <= eps;

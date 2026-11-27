@@ -23,7 +23,7 @@
 //  us, a patrol one we speed past, ramming one, or their pursuit starting close to us starts one here),
 //  and busted together (a bust fails the event for both: the other game busts its player too). Free
 //  roam: shared heat, the other player's cops on the minimap and the radar detector, ramming one of
-//  their cops starts a pursuit here. Evade bar is personal; busted is personal in free roam.
+//  their cops starts a pursuit here. Evade bar is personal; a bust in a pursuit we share busts both.
 //  The cooldown is one for both: a full evade bar waits at the evade limit until the other player's
 //  is full too, then both enter the cooldown; when either is spotted in it, both leave it (even from a
 //  hiding spot). Escape completes only when both have finished. A safe house (open in the cooldown, as
@@ -259,7 +259,8 @@ namespace {
         int8_t   bar = 0;                // our pursuit bar, sent for the other player's screen (SharedPursuit::BarFromMeter)
         uint8_t  barKind = 0;
         bool     localBusted = false;
-        SharedPursuit::ReadyDebounce peerReady;   // the partner's ready, debounced (shared cooldown decisions)    // our own pursuit is busted right now (any pursuit: free roam, event, prologue)
+        SharedPursuit::ReadyDebounce peerReady;
+        DWORD    coolEnteredAt = 0;       // when our cooldown began (SharedPursuit::InCooldownGrace)   // the partner's ready, debounced (shared cooldown decisions)    // our own pursuit is busted right now (any pursuit: free roam, event, prologue)
         SharedPursuit::HeatTracker heat;
         SharedPursuit::BustTracker bust;
         void*    lastBustedPursuit = nullptr;
@@ -818,12 +819,13 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     } else if (g_sp.sentEvaded) {
         g_sp.flags |= PURSUIT_EVADED;   // pursuit object already gone: keep the escape signal on the wire
     }
+    if (status == PS_COOLDOWN && g_sp.lastStatus != PS_COOLDOWN) g_sp.coolEnteredAt = now;
     if (status != g_sp.lastStatus) {
         if (on && (status >= 0 || g_sp.lastStatus >= 0))
             LOG("Pursuit: ours %s -> %s", StatusName(g_sp.lastStatus < -1 ? -1 : g_sp.lastStatus), StatusName(status));
         g_sp.lastStatus = status;
     }
-    // ---- 4. busted: count our own busts (personal; the other game is not busted with us) ----
+    // ---- 4. busted: count our own busts (the other game busts its player too if it shares this pursuit) ----
     if (!(g_sp.flags & PURSUIT_ACTIVE)) ForgetPeerCopsSawUs();   // a new pursuit: their cops have to find us again
     if (!pursuit || !busted) g_sp.lastBustedPursuit = nullptr;   // the next pursuit may get the same address
     if (pursuit && busted && pursuit != g_sp.lastBustedPursuit) {
@@ -879,7 +881,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
                 g_sp.nextForce = 0;
                 LOG("Pursuit: the other player was busted in event %08X - %s", ev,
                     pursuitAll ? "busting us too (the event is lost for both)" : "no pursuit here, starting one to bust us too");
-            } else if (g_cfg.sharedPursuits && BustTogetherInFreeRoam(ev, ourLive, g_sp.peerLiveWithOurs, resultsFreeze, bustedHere)) {
+            } else if (BustTogetherInFreeRoam(ev, ourLive, g_sp.peerLiveWithOurs, resultsFreeze, bustedHere)) {
                 g_sp.pendingBustUntil = now + SHARED_BUST_TRY_MS; g_sp.pendingStarted = false; g_sp.pendingEvent = 0;
                 g_sp.nextForce = 0;
                 LOG("Pursuit: the other player was busted in our shared pursuit - busting us too");
@@ -938,6 +940,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     bool peerForCool = peerHere || peerEvadedHere;
     if ((g_sp.flags & PURSUIT_ACTIVE) && peerForCool) {
         Decision d = peerHere || theirs.evaded ? DecideCooldown(mine, theirs, true) : Decision{ Cool::Free, 0.f };
+        if (d.what == Cool::BackToChase && InCooldownGrace(status == PS_COOLDOWN, now - g_sp.coolEnteredAt)) d = Decision{ Cool::Free, 0.f };
         coolNow = (int)d.what;
         if (d.what == Cool::ForceEscape) {
             ForceLocalEscape(pursuit);

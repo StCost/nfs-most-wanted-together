@@ -42,6 +42,7 @@ namespace PB {
     // a copy that failed (the HUD mid-load, a race HUD, an exception) is tried again this much later - never given
     // up for good: the same addresses come back with every race (a pursuit from a race kept no strip after it)
     constexpr DWORD kRetryMs = 10000;
+    constexpr int kMaxTries = 3;            // then not for this package any more (a failure that repeats isn't transient)
     // the shown value follows the partner's at this rate (1/s; the packets come ~every 50 ms, in steps)
     constexpr float kFollowRate = 12.f;
     constexpr uint32_t kLabelPanel = 0xBAE10529, kLabelBusted = 0x6BF5C681, kLabelEvade = 0x0B3DF9DF;
@@ -62,7 +63,7 @@ namespace PB {
         int objects = 0;
         bool ready = false;
         void* deadPkg = nullptr; void* deadChase = nullptr;     // cloning failed for this package: tried again kRetryMs later
-        DWORD deadAt = 0;
+        DWORD deadAt = 0; int deadTries = 0;                    // failures in a row for this package
         void* recopiedPkg = nullptr; void* recopiedChase = nullptr;   // copied a second time here once already
         bool forced = false; int forceKind = 0, forceValue = 0; // test: DebugPeerBar
     } g;
@@ -201,15 +202,20 @@ namespace PB {
     void Forget() {             // the package is gone: nothing of ours is left to touch
         State keep = g;
         g = State{}; g.forced = keep.forced; g.forceKind = keep.forceKind; g.forceValue = keep.forceValue;
-        g.deadPkg = keep.deadPkg; g.deadChase = keep.deadChase; g.deadAt = keep.deadAt;
+        g.deadPkg = keep.deadPkg; g.deadChase = keep.deadChase; g.deadAt = keep.deadAt; g.deadTries = keep.deadTries;
         g.recopiedPkg = keep.recopiedPkg; g.recopiedChase = keep.recopiedChase;
     }
 
+    void MarkDead(void* pkg, void* chase) {
+        g.deadTries = (pkg == g.deadPkg && chase == g.deadChase) ? g.deadTries + 1 : 1;
+        g.deadPkg = pkg; g.deadChase = chase; g.deadAt = GetTickCount();
+    }
     const char* Setup(void* pkg) {
         Forget();
         g.pkg = pkg;
         g.chase = Find(pkg, kChase, 5);
-        if (pkg == g.deadPkg && g.chase == g.deadChase && GetTickCount() - g.deadAt < kRetryMs) return nullptr;   // failed just now, said so then
+        if (pkg == g.deadPkg && g.chase == g.deadChase && (g.deadTries >= kMaxTries || GetTickCount() - g.deadAt < kRetryMs))
+            return nullptr;                         // failed just now (or too often here), said so then
         if (!g.chase) return "the meter's group is not in the HUD (another HUD?)";
         if (!FindParent(*(void**)(B(pkg) + 0x4C), nullptr, g.chase, &g.parChase, 0)) return "the meter's group is not in the package's tree";
         void* a = CloneGroup(g.chase);
@@ -316,7 +322,7 @@ namespace PB {
             bool again = samePlace && g.recopiedPkg == pkg && g.recopiedChase == chase;
             Forget();
             if (again) {
-                g.deadPkg = pkg; g.deadChase = chase; g.deadAt = GetTickCount();
+                MarkDead(pkg, chase);
                 *why = "the copies went missing again";
                 return -1;
             }
@@ -326,9 +332,10 @@ namespace PB {
             if (!kind) return 0;                    // copied when first needed
             const char* err = Setup(pkg);
             if (!g.ready) {
-                if (err) { g.deadPkg = pkg; g.deadChase = g.chase; g.deadAt = GetTickCount(); *why = err; }
+                if (err) { MarkDead(pkg, g.chase); *why = err; }
                 return -1;
             }
+            g.deadPkg = g.deadChase = nullptr; g.deadTries = 0;   // a good copy: earlier failures were passing
             LOG("Pursuit: partner bar - cloned the game's meter (%d objects, copy %p, segments %.0f / %.0f)",
                 g.objects, g.cChase, g.wFar, g.wNear);
         }
@@ -366,7 +373,7 @@ namespace PB {
             void* pkg = g.pkg; void* chase = g.chase;
             CleanUpGuarded();
             Forget();
-            g.deadPkg = pkg; g.deadChase = chase; g.deadAt = GetTickCount();
+            MarkDead(pkg, chase);
             *why = "exception";
             return -1;
         }

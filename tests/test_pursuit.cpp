@@ -616,11 +616,11 @@ TEST(pursuit_bar_from_the_game_meter) {
     using namespace SharedPursuit;
     Bar a = BarFromMeter(false, false, false, 0.5f, 0.f, 0.f); CHECK_EQ((int)a.kind, 0);
     Bar b = BarFromMeter(true, false, false, 0.3f, 0.f, 0.f);  CHECK_EQ((int)b.kind, 1); CHECK_EQ((int)b.value, -30);   // towards busted
-    Bar c = BarFromMeter(true, false, true, 0.2f, 0.f, 0.f);   CHECK_EQ((int)c.value, -99 - 1);                      // busted: full
+    Bar c = BarFromMeter(true, false, true, 0.2f, 0.f, 0.f);   CHECK_EQ((int)c.value, -100);                         // busted: full
     Bar d = BarFromMeter(true, false, false, -0.6f, 0.f, 0.f); CHECK_EQ((int)d.value, 60);                           // towards evade
     Bar e = BarFromMeter(true, false, false, 1.4f, 0.f, 0.f);  CHECK_EQ((int)e.value, -99);                          // capped at 0.99
     Bar f = BarFromMeter(true, true, false, -1.f, 30.f, 60.f); CHECK_EQ((int)f.kind, 2); CHECK_EQ((int)f.value, 50); // cooldown
-    Bar g = BarFromMeter(true, false, false, -1.f, 0.f, 0.f);  CHECK_EQ((int)g.kind, 2);                             // -1: the cooldown
+    Bar g = BarFromMeter(true, false, false, -1.f, 0.f, 0.f);  CHECK_EQ((int)g.kind, 1); CHECK_EQ((int)g.value, 100);  // -1 in the chase: full evade (not yet cooling)
     CHECK_NEAR(MeterV(b.value), 0.3f, 1e-6f);
 }
 
@@ -646,4 +646,12 @@ TEST(pursuit_partner_ready_debounced) {
     CHECK(DebounceReady(d, true, 2400));
     CHECK(DebounceReady(d, false, 3000));
     CHECK(!DebounceReady(d, false, 3000 + READY_HOLD_MS)); // spotted for good: not ready
+}
+
+TEST(pursuit_cooldown_grace) {
+    using namespace SharedPursuit;
+    CHECK(InCooldownGrace(true, 0));
+    CHECK(InCooldownGrace(true, COOLDOWN_GRACE_MS - 1));
+    CHECK(!InCooldownGrace(true, COOLDOWN_GRACE_MS));
+    CHECK(!InCooldownGrace(false, 10));
 }
