@@ -143,9 +143,9 @@ int16_t Game::LocalPursuitHeat() {
 static void PursuitTickImpl(bool connected, const Net::Snapshot& peer);
 static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer);
 static void PeerBarTickImpl(bool connected, const Net::Snapshot& peer);
-static bool PeerBarNativeSet(int kind, int value);      // peerbar.inl: the copy of the game's own meter (guards itself)
+static bool PeerBarNativeSet(int kind, int value, int own);      // peerbar.inl: the copy of the game's own meter (guards itself)
 static bool PeerBarForced(int* kind, int* value);       // test: DebugPeerBar
-static void HidePeerBar() { PeerBarNativeSet(0, 0); }
+static void HidePeerBar() { PeerBarNativeSet(0, 0, 0); }
 
 void Game::PursuitTick(bool connected, const Net::Snapshot& peer) {
     if (!g_ok) return;
@@ -1019,10 +1019,16 @@ static void PeerBarTickImpl(bool connected, const Net::Snapshot& peer) {
     if (show) {
         b.kind = forced ? forceKind : peer.s.pursuitBarKind; b.value = forced ? forceValue : peer.s.pursuitBar;
     }
-    if (!PeerBarNativeSet(b.kind, b.value)) b.kind = 0;      // no copy of the meter (said in the log once): nothing shown
+    if (b.kind == 2) b.kind = 0;        // the cooldown is shared between the two games: our own meter is theirs too
+    int own = 0;                         // our own meter on screen: 1 the chase, 2 the cooldown
+    if (void* mp = b.kind ? PursuitOf(LocalVehicle()) : nullptr) {
+        int st = PRead<int>(mp, P_Status);
+        own = st == PS_COOLDOWN ? 2 : (st == PS_CHASE || st == PS_BACKUP) ? 1 : 0;
+    }
+    if (!PeerBarNativeSet(b.kind, b.value, own)) b.kind = 0;      // no copy of the meter (said in the log once): nothing shown
     if (b.kind != lastKind) {
         lastKind = b.kind;
-        LOG("Pursuit: the other player's bar %s", b.kind == 1 ? "shown (chase)" : b.kind == 2 ? "shown (cooldown)" : "hidden");
+        LOG("Pursuit: the other player's bar %s", b.kind == 1 ? "shown (chase)" : "hidden");
     }
 }
 

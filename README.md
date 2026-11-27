@@ -177,7 +177,7 @@ Things we know about but can't fix yet:
 - [ ] One of you gets busted in an event you're both in (Challenge Series, a race with cops), you both get busted: the busted cutscene and the event's loss screen on both PCs. In free roam a bust is personal
 - [ ] Your partner's cops chase you in events too (Challenge Series tollbooth, races with cops): their chasing cop close to you, their patrol cop you speed past, ramming one of their cops, or their pursuit starting within 250 m of you starts your pursuit
 - [x] Escaping: whoever loses the cops first waits with a full evade bar; you go into cooldown together once both bars are full. If either of you is spotted in the cooldown, you're both back in the chase, even from a hiding spot. You both escape at the same moment. This works in free roam and when you're both in the same event (Challenge Series, career pursuit events, races with cops)
-- [x] Your partner's pursuit bar shows right above yours, as the game's own meter
+- [x] Your partner's pursuit strip shows right under yours, in the game's own meter
 - [x] Police roadblocks are the same for both of you, in free roam and in Challenge Series / career pursuits: the same cars, sawhorses and spike strips in the same spots, so the gap you aim for is there on both screens. Spike strips work on both sides, and a roadblock removed in one game goes in the other too. While your partner's roadblock stands near you, your game doesn't build a second one
 - [x] Cost to State and bounty count for both of you: cops either of you immobilizes or damages, roadblocks and spike strips dodged and property smashed while you're both in the pursuit are added to both players' totals, so the HUD, milestones, Challenge Series goals and the rap sheet match. Infractions stay personal
 - [x] Challenge Series pursuits: the client sees the host's traffic as in free roam, heat and the chase are shared (one of you chased pulls the other in, their cops can spot you), and a win by either of you counts for both. The partner's goal normally completes from the shared stats or escape; if it hasn't 8 s later, their game finishes the event as won. The other player's cops can spot you and start a pursuit on you there, as in free roam
@@ -294,7 +294,7 @@ The code is in `src/`:
 | `weather.inl` | the same rain on both PCs |
 | `stream.inl` | world streaming around the other player |
 | `minimap.inl`, `worldmap.inl` | player blips |
-| `peerbar.inl` | the other player's pursuit bar: a copy of the game's own meter above yours |
+| `peerbar.inl` | the partner's pursuit strip: a copy of the game's own, under yours |
 | `marker.inl` | the partner's chevron over their car / at the screen edge |
 | `hud.inl` | F1: hide the minimap and the gauges |
 | `nativeui.cpp` | Together in the game's menus (Options and Main menu entries, the settings list, text entry, the profile box) |
