@@ -258,9 +258,9 @@ namespace {
         uint16_t left10 = 0;
         int8_t   bar = 0;                // our pursuit bar, sent for the other player's screen (SharedPursuit::BarFromMeter)
         uint8_t  barKind = 0;
-        bool     localBusted = false;
-        SharedPursuit::ReadyDebounce peerReady;
-        DWORD    coolEnteredAt = 0;       // when our cooldown began (SharedPursuit::InCooldownGrace)   // the partner's ready, debounced (shared cooldown decisions)    // our own pursuit is busted right now (any pursuit: free roam, event, prologue)
+        bool     localBusted = false;    // our own pursuit is busted right now (any pursuit: free roam, event, prologue)
+        SharedPursuit::ReadyDebounce peerReady;   // the partner's ready, debounced (shared cooldown decisions)
+        DWORD    coolEnteredAt = 0;       // when our cooldown began (SharedPursuit::InCooldownGrace)
         SharedPursuit::HeatTracker heat;
         SharedPursuit::BustTracker bust;
         void*    lastBustedPursuit = nullptr;

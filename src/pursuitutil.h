@@ -107,8 +107,8 @@ namespace SharedPursuit {
     }
 
     // ---- cooldown ----------------------------------------------------------------------------------
-    // Design (1.8): evade bar and busted are personal (vanilla: cops see THAT player), the cooldown is
-    // one for both. A player whose evade bar is full stays at the evade limit - the game is kept from
+    // Design: the evade bar is personal (vanilla: cops see THAT player); the cooldown is one for both, and a
+    // bust in a pursuit we share busts both. A player whose evade bar is full stays at the evade limit - the game is kept from
     // starting the cooldown - until the other player's bar is full too; then both enter the cooldown.
     // Nobody is ever in the cooldown alone: when one is spotted in the cooldown, the other leaves it as
     // well (back to the chase), even from a hiding spot. Escape only when both have finished: the first
@@ -445,7 +445,7 @@ namespace SharedPursuit {
         t.last = peerSeq;
         return true;
     }
-    // Busted is personal in free roam. In an event both of you are in (Challenge Series, a race with
+    // Free roam: a bust in a pursuit we share busts both (BustTogetherInFreeRoam). In an event both of you are in (Challenge Series, a race with
     // cops, a pursuit challenge) a bust fails the event, and it fails it for both: the other game busts
     // its player too (the game's own arrest: busted cutscene, then the event's loss screen). Only while
     // we are still in that same event (seen together within SAME_EVENT_GRACE_MS: their state may leave

@@ -174,7 +174,7 @@ Things we know about but can't fix yet:
 - [x] The other player's cops show on your minimap and trigger your radar
 - [x] Ramming their cop starts a pursuit on you
 - [x] Blacklist pursuits (milestones, bounty) started from the Blacklist screen take your partner along to the start (`[Coop] FollowToPursuits`)
-- [ ] One of you gets busted in an event you're both in (Challenge Series, a race with cops), you both get busted: the busted cutscene and the event's loss screen on both PCs. In free roam a bust is personal
+- [ ] One of you gets busted in an event you're both in (Challenge Series, a race with cops), you both get busted: the busted cutscene and the event's loss screen on both PCs. In free roam a bust in a pursuit you share busts you both
 - [ ] Your partner's cops chase you in events too (Challenge Series tollbooth, races with cops): their chasing cop close to you, their patrol cop you speed past, ramming one of their cops, or their pursuit starting within 250 m of you starts your pursuit
 - [x] Escaping: whoever loses the cops first waits with a full evade bar; you go into cooldown together once both bars are full. If either of you is spotted in the cooldown, you're both back in the chase, even from a hiding spot. You both escape at the same moment. This works in free roam and when you're both in the same event (Challenge Series, career pursuit events, races with cops)
 - [x] Your partner's pursuit strip shows right under yours, in the game's own meter
