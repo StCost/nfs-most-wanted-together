@@ -73,6 +73,7 @@ Things we know about but can't fix yet:
 - **Traffic vanishing.** The other way round, a traffic car can disappear right in front of you.
 - **Traffic not fully synced.** Some traffic cars are shared, others exist only on one player's screen. This is most visible during races and Challenge Series tollbooths, where the joining player only sees the host's traffic through their own traffic cars. Semi trucks with trailers are often affected.
 - **Side hits from your partner.** When your partner rams you from the side, your car can be thrown hard or off the road instead of nudged.
+- **Hitting your partner's cars.** After a hard hit on your partner's traffic or cop car, it can slide a little as it goes back to their game. A hit on their race opponents can still stop you dead.
 - **Joining player's spot on the start line.** At a race start the joining player's car can stand on the player's spot for a moment before it moves to its own slot.
 
 
