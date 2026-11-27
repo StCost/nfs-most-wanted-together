@@ -271,15 +271,12 @@ other side: co-op starts after the prologue, as before (`CarState.pad[1]` = 0 in
 
 Making a fresh profile without losing the real one:
 
-1. Close the game. Copy `Documents\NFS Most Wanted\<profile>` to a backup folder, then move it out of
-   `Documents\NFS Most Wanted`. The game now finds no profile.
+1. Close the game and run `tools\saves.ps1 fresh`: the real save is kept as `NFS Most Wanted.real` and
+   the game finds no profile.
 2. Start the game focused, create the profile by hand ("Create a new alias?" Yes, the autosave notices,
    the name, "save the alias?" Yes), then Career > Start Career. The first race (16.1.0) loads at once.
-3. Afterwards close the game, delete the test profile folder and move the real one back. Check the real
-   save's time/hash is what it was.
-
-`tools\saves.ps1 fresh` / `real` does steps 1 and 3 by renaming folders (nothing deleted; `status` shows
-which is active, `snapshot-fresh` keeps the current save as the template for the next `fresh`).
+3. Afterwards close the game and run `tools\saves.ps1 real` (the test save is kept as `.fresh`). Check the
+   real save's time/hash is what it was.
 
 A pass looks like this (both PCs on fresh careers, linked):
 
