@@ -1240,7 +1240,7 @@ static int MaintainMirrors(double now) {
             if (m.iv) ++alive;
             continue;
         }
-        if (g_ghostStarved && m.iv && freed < 2) { KillVehicle(m.iv); m.iv = nullptr; ++freed; continue; }
+        if (g_ghostStarved && m.iv && freed < 2 && !NisActive()) { KillVehicle(m.iv); m.iv = nullptr; ++freed; continue; }   // (room for the ghost: after a cutscene)
         if (!m.iv && m.n && mayspawn && spawned < 2 && m.fails < 3) {
             const TrafficEntry& e = m.s[m.n - 1].e;
             // never create a car inside a player (it would fling them): wait until it has moved on
