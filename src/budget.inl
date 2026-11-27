@@ -64,6 +64,8 @@ namespace {
         if (!Mem::Read(t.at, vt) || !Mem::Read(t.at + 4, begin) || !Mem::Read(t.at + 8, cap) || !Mem::Read(t.at + 12, size)) return false;
         uint32_t big = t.cap * kTableScale;
         if (g_tableBuf[i] && begin == (uint32_t)(uintptr_t)g_tableBuf[i] && cap == big) return true;     // already ours
+        if (begin != t.at + 0x10 && cap >= big && size <= cap && begin) return true;                  // grown on its own (growable lists)
+        if (!begin && !cap) return false;   // not set up yet (0x90D660 at start-up): the next frames try again
         if (begin != t.at + 0x10 || cap != t.cap || size > cap || vt < 0x880000 || vt > 0x8C0000) {
             if (!g_tableWarned[i]) { g_tableWarned[i] = true; LOG("Budget: car table %08X not as expected (begin %08X capacity %u size %u) - left at %u", (unsigned)t.at, begin, cap, size, t.cap); }
             return false;
@@ -103,7 +105,7 @@ namespace {
         if (request) Mem::Read((uintptr_t)request + 8, asked);
         // the other player's copies: up to 40. The game's own cars: their 20 next to the copies in the world
         // (20 + copies, at most 40), so its traffic and cops are as many as in the plain game.
-        bool roomy = RoomForCopiesNow() && g_limitPatchOk;   // free roam only (see CopyCarLimit)
+        bool roomy = g_tablesBig && g_limitPatchOk;
         if (roomy) {
             int copies = 0;
             if (!g_copySpawn) for (void* k : g_keepCars) if (k && ListContains(-1, k)) ++copies;
@@ -129,8 +131,10 @@ namespace {
 }
 
 // every 30 s while cars were evicted or refused: one summary line
+static void FvGrowLog();
 void Game::BudgetTick() {
-    GrowCarTables();   // every frame: a few reads (a table set back by its own code is grown again at once)
+    GrowCarTables();
+    FvGrowLog();   // every frame: a few reads (a table set back by its own code is grown again at once)
     DWORD now = GetTickCount();
     if (!g_budgetSince) g_budgetSince = now;
     if (now - g_budgetSince < 30000) return;
@@ -142,24 +146,112 @@ void Game::BudgetTick() {
     g_budgetSince = now;
 }
 
+// ---- every UTL::FixedVector of 20 / 25 may grow ----
+//  The game's fixed-size lists (UTL::FixedVector<T, N>: vtable, mBegin, mCapacity, mSize, storage inline at +0x10)
+//  get their room from virtual calls: slot 1 AllocVectorSpace(n, align) returns the inline storage whatever n is,
+//  slot 2 FreeVectorSpace(p, n) does nothing, slot 3 GetGrowSize(n) returns N. reserve(n) (e.g. 0x674060) still
+//  sets mCapacity = n - so a list of N that gets more than N entries writes past its storage. With more than 20
+//  cars that is what crashed: the budget's eviction list (a stack FixedVector of 20, 0x687956) and the race start
+//  (0x765305, a call to 0). Every FixedVector type of 20 or 25 in the exe (found by its vtable: slot 1
+//  "lea eax,[ecx+10h] / ret 8", slots 3 / 4 "mov eax,N / ret") now grows: up to N entries the inline storage as
+//  before, more than that a heap buffer (slot 3 asks for twice N at least), freed by slot 2. Nothing writes past
+//  a list's storage any more, in any mode. The element size isn't in the vtable: the heap buffer gives every
+//  entry kFvMaxElem bytes (more than any list of 20 here holds per entry).
+namespace {
+    constexpr uint32_t kFvMaxElem = 512;
+    HANDLE g_fvHeap = nullptr;
+    CRITICAL_SECTION g_fvCs;
+    struct FvBlock { void* aligned; void* raw; };
+    FvBlock g_fvBlocks[1024] = {};
+    volatile LONG g_fvGrown = 0, g_fvLive = 0;
+
+    void* FvHeapAlloc(uint32_t n) {
+        if (!g_fvHeap || n > 100000) return nullptr;
+        void* raw = HeapAlloc(g_fvHeap, HEAP_ZERO_MEMORY, (SIZE_T)n * kFvMaxElem + 16);
+        if (!raw) return nullptr;
+        void* al = (void*)(((uintptr_t)raw + 15) & ~(uintptr_t)15);
+        EnterCriticalSection(&g_fvCs);
+        bool kept = false;
+        for (auto& b : g_fvBlocks) if (!b.aligned) { b.aligned = al; b.raw = raw; kept = true; break; }
+        LeaveCriticalSection(&g_fvCs);
+        if (!kept) { HeapFree(g_fvHeap, 0, raw); return nullptr; }
+        InterlockedIncrement(&g_fvGrown); InterlockedIncrement(&g_fvLive);
+        return al;
+    }
+    bool FvHeapFree(void* p) {
+        void* raw = nullptr;
+        EnterCriticalSection(&g_fvCs);
+        for (auto& b : g_fvBlocks) if (b.aligned == p && p) { raw = b.raw; b.aligned = b.raw = nullptr; break; }
+        LeaveCriticalSection(&g_fvCs);
+        if (!raw) return false;
+        HeapFree(g_fvHeap, 0, raw); InterlockedDecrement(&g_fvLive);
+        return true;
+    }
+    template <uint32_t N> struct GrowFv {
+        // __thiscall (this in ecx, callee pops) as __fastcall with the edx slot unused
+        static void* __fastcall Alloc(void* self, void*, uint32_t n, uint32_t) {
+            if (n <= N) return (uint8_t*)self + 0x10;
+            void* p = FvHeapAlloc(n);
+            return p ? p : (uint8_t*)self + 0x10;          // (no memory: the old behaviour)
+        }
+        static void __fastcall Free(void*, void*, void* p, uint32_t) { FvHeapFree(p); }   // inline / not ours: nothing
+        static uint32_t __fastcall GrowSize(void*, void*, uint32_t n) { return n <= N ? N : (n <= 2 * N ? 2 * N : n + N); }
+    };
+    bool CodeIs(uintptr_t fn, const uint8_t* bytes, size_t len) { return Mem::IsReadable((const void*)fn, len) && !memcmp((const void*)fn, bytes, len); }
+    bool ImmRet(uintptr_t fn, uint32_t& imm, bool ret4) {   // mov eax,imm32 / ret (4)
+        uint8_t b[8];
+        if (!Mem::IsReadable((const void*)fn, 8)) return false;
+        memcpy(b, (const void*)fn, 8);
+        if (b[0] != 0xB8) return false;
+        memcpy(&imm, b + 1, 4);
+        return ret4 ? (b[5] == 0xC2 && b[6] == 0x04 && b[7] == 0x00) : b[5] == 0xC3;
+    }
+}
+static void FvGrowLog() {   // when a fixed list grew past its size: once per change
+    static LONG lastGrown = 0; static DWORD lastAt = 0;
+    LONG g = g_fvGrown;
+    if (g != lastGrown && GetTickCount() - lastAt > 5000) { lastGrown = g; lastAt = GetTickCount(); LOG("Budget: a fixed list grew past its size (%ld so far, %ld on the heap now)", g, (long)g_fvLive); }
+}
+static void InstallGrowableFixedVectors() {
+    InitializeCriticalSection(&g_fvCs);
+    g_fvHeap = HeapCreate(0, 0, 0);
+    static const uint8_t kAllocInline[6] = { 0x8D, 0x41, 0x10, 0xC2, 0x08, 0x00 };   // lea eax,[ecx+10h] / ret 8
+    int n20 = 0, n25 = 0, other = 0;
+    __try {
+        auto* base = (const uint8_t*)GetModuleHandleA(nullptr);
+        auto* nt = (const IMAGE_NT_HEADERS*)(base + ((const IMAGE_DOS_HEADER*)base)->e_lfanew);
+        const IMAGE_SECTION_HEADER* sec = IMAGE_FIRST_SECTION(nt);
+        uintptr_t textLo = 0, textHi = 0;
+        for (int i = 0; i < nt->FileHeader.NumberOfSections; ++i)
+            if (sec[i].Characteristics & IMAGE_SCN_MEM_EXECUTE) { textLo = (uintptr_t)base + sec[i].VirtualAddress; textHi = textLo + sec[i].Misc.VirtualSize; break; }
+        for (int i = 0; i < nt->FileHeader.NumberOfSections; ++i) {
+            if (sec[i].Characteristics & (IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_WRITE)) continue;   // vtables: read-only data
+            uintptr_t p = (uintptr_t)base + sec[i].VirtualAddress, end = p + sec[i].Misc.VirtualSize - 24;
+            for (; p < end; p += 4) {
+                const uint32_t* vt = (const uint32_t*)p;
+                bool code = true;
+                for (int k = 1; k <= 4; ++k) if (vt[k] < textLo || vt[k] >= textHi) { code = false; break; }
+                if (!code || !CodeIs(vt[1], kAllocInline, 6)) continue;
+                uint32_t cap = 0, cap2 = 0;
+                if (!ImmRet(vt[3], cap, true) || !ImmRet(vt[4], cap2, false) || cap != cap2) continue;
+                void *a, *f, *g;
+                if (cap == 20) { a = (void*)&GrowFv<20>::Alloc; f = (void*)&GrowFv<20>::Free; g = (void*)&GrowFv<20>::GrowSize; ++n20; }
+                else if (cap == 25) { a = (void*)&GrowFv<25>::Alloc; f = (void*)&GrowFv<25>::Free; g = (void*)&GrowFv<25>::GrowSize; ++n25; }
+                else { ++other; continue; }
+                Mem::PatchPointer((void*)(p + 4), a);
+                Mem::PatchPointer((void*)(p + 8), f);
+                Mem::PatchPointer((void*)(p + 12), g);
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Budget: exception while making the fixed lists growable"); }
+    LOG("Budget: fixed lists of 20 / 25 made growable: %d of 20, %d of 25 (%d other sizes left as they are)", n20, n25, other);
+}
+
 static void InstallBudgetLog() {
     const uint8_t cmp[3] = { 0x83, 0xF8, 0x14 }, lea[3] = { 0x8D, 0x50, 0xEC };   // cmp eax,0x14 / lea edx,[eax-0x14]
     g_limitPatchOk = !memcmp((void*)(LimitCmpImm - 2), cmp, 3) && !memcmp((void*)(LimitLeaImm - 2), lea, 3);
     LOG("Budget: count limit %s", g_limitPatchOk ? "found (20, 40 for the other player's copies once the tables are grown)" : "NOT found (code differs) - 20 for all");
-    // The budget's eviction path (over the count or the memory limit) lists every car in the world (list
-    // 0x92C510) into a local UTL::FixedVector of 20 (vtable 0x8AA234, 0x18-byte entries, storage on the
-    // stack). With more than 20 cars a push past its capacity wrote over the stack - the car pointer it
-    // reloads at 0x687903 - and the game crashed at 0x687956 (seen with 26 cars: 0xC0000409). The full
-    // branch (inc edx / push edx / ... grow at 0x6878B9) now restores ebp and skips to the next car:
-    // the eviction picks from the first 20 cars listed.
-    {
-        const uint8_t orig[9] = { 0x42, 0x52, 0x8B, 0x54, 0x24, 0x30, 0x8D, 0x4C, 0x24 };
-        const uint8_t patch[9] = { 0x8B, 0xAC, 0x24, 0x44, 0x02, 0x00, 0x00,     // mov ebp,[esp+244h]
-                                   0xEB, 0x4D };                                 // jmp 0x68790F (next car)
-        bool full = Mem::PatchBytes(0x6878B9, orig, patch, sizeof(patch));
-        LOG("Budget: eviction list kept to its 20 %s", full ? "(no stack overrun past 20 cars)" : "NOT patched (bytes differ) - more than 20 cars can crash an eviction");
-        if (!full) g_limitPatchOk = false;   // then stay at 20
-    }
+    InstallGrowableFixedVectors();
     bool ok = PatchCallChecked(BudgetCall, BudgetFn, (void*)&hk_BudgetCheck);
     LOG("Budget: car budget %s", ok ? "logged (evictions / refusals)" : "NOT logged (call site differs)");
 }
