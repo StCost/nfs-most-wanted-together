@@ -258,6 +258,7 @@ namespace {
         uint16_t left10 = 0;
         int8_t   bar = 0;                // our pursuit bar, sent for the other player's screen (SharedPursuit::PursuitBar)
         uint8_t  barKind = 0;
+        bool     localBusted = false;    // our own pursuit is busted right now (any pursuit: free roam, event, prologue)
         SharedPursuit::HeatTracker heat;
         SharedPursuit::BustTracker bust;
         void*    lastBustedPursuit = nullptr;
@@ -651,7 +652,8 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     g_localChased = pursuitAll != nullptr;
     if (resultsFreeze && pursuitAll && PRead<float>(pursuitAll, P_BustTimer) > 0.f)
         PWrite<float>(pursuitAll, P_BustTimer, 0.f);       // results screen: no bust meter (slot 79's own reset)
-    if (pursuitAll && (PRead<uint8_t>(pursuitAll, P_PerpBusted) || PRead<int>(pursuitAll, P_Status) == PS_BUSTED))
+    g_sp.localBusted = pursuitAll && (PRead<uint8_t>(pursuitAll, P_PerpBusted) || PRead<int>(pursuitAll, P_Status) == PS_BUSTED);
+    if (g_sp.localBusted)
         if (uint32_t ev = Game::CurrentEventHash()) g_bustedEvent = ev;   // a pursuit challenge run is lost
     {   // Restart on the race-over menu after a bust doesn't raise the restart flag (coopwin.inl's new-run reset
         // misses it): that menu closing back to the race (Restart; Quit leaves the event) starts a new run
@@ -659,7 +661,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         uint32_t ev = Game::CurrentEventHash();
         bool bustedRun = ev && g_bustedEvent == ev;
         bool menu = FEScreens::IsPushed("Pause_Main.fng");
-        bool bustedNow = pursuitAll && (PRead<uint8_t>(pursuitAll, P_PerpBusted) || PRead<int>(pursuitAll, P_Status) == PS_BUSTED);
+        bool bustedNow = g_sp.localBusted;
         if (!bustedRun) sawRaceOver = false;
         else if (menu) sawRaceOver = true;
         else if (sawRaceOver && !bustedNow && FEScreens::IsPushed("HUD_SingleRace.fng")) {
@@ -1006,7 +1008,7 @@ static void PeerBarTickImpl(bool connected, const Net::Snapshot& peer) {
     const char* why = forced ? nullptr : !g_cfg.sharedPursuits ? "SharedPursuits=0" : !connected || !g_coopLinked ? "not linked"
                     : !peer.valid ? "no state" : !peer.s.pursuitBarKind ? "they are not chased (or an older build)" : nullptr;
     if (!why) why = Game::GameFlowState() != 6 || !LocalVehicle() ? "not in the world" : NisActive() ? "a cutscene"
-                    : g_sp.lastStatus == PS_BUSTED ? "we are busted"
+                    : g_sp.localBusted ? "we are busted"
                     : !forced && SharedPlaceNow(peer) == SharedPursuit::Place::None ? "not in the same place"
                     : !FEScreens::IsPushed("HUD_SingleRace.fng") ? "no HUD"
                     : FEScreens::AnyCloseableOverlay() || FEScreens::IsPushed("Pause_Main.fng") || FEScreens::IsPushed("WorldMapMain.fng") ? "a menu is open"
