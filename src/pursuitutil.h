@@ -173,10 +173,12 @@ namespace SharedPursuit {
         float m = (perTick > 0.f ? perTick : 0.f) * 2.5f + 0.2f;
         return m < ESCAPE_HOLD_LEFT_S ? ESCAPE_HOLD_LEFT_S : m > ESCAPE_HOLD_MAX_S ? ESCAPE_HOLD_MAX_S : m;
     }
-    // Hidden long enough that the cooldown may start (or already in it). Seen resets the bar.
-    inline bool EvadeBarFull(bool seen, bool cooling, float unseenInState, float threshold = EVADE_READY_S) {
+    // Hidden long enough that the cooldown may start (or already in it). Seen resets the bar. The game starts
+    // the cooldown only past SEEN_LIMIT_S since seen (0x4448E4): both are needed.
+    inline bool EvadeBarFull(bool seen, bool cooling, float unseenInState, float sinceSeen, float threshold = EVADE_READY_S) {
         if (seen) return false;
         if (cooling) return true;
+        if (!(sinceSeen > SEEN_LIMIT_S)) return false;
         return threshold > 0.f && unseenInState + WAIT_UNSEEN_SLACK_S >= threshold;
     }
     // The pursuit bar as the HUD shows it, for the other player's screen: kind 0 not chased, 1 the chase

@@ -148,12 +148,14 @@ namespace {
 }
 
 TEST(pursuit_evade_bar_full_is_local) {
-    CHECK(!EvadeBarFull(true, false, 3.f));                    // seen: the bar is not full
-    CHECK(!EvadeBarFull(false, false, 1.0f));                  // hidden, not long enough
-    CHECK(EvadeBarFull(false, false, HOLD_UNSEEN_S));          // held at the evade limit: still full
-    CHECK(EvadeBarFull(false, false, 2.5f));
-    CHECK(EvadeBarFull(false, true, 0.f));                     // already in cooldown
-    CHECK(!EvadeBarFull(true, true, 2.5f));                    // seen wins: the bar is not full
+    CHECK(!EvadeBarFull(true, false, 3.f, 9.f));               // seen: the bar is not full
+    CHECK(!EvadeBarFull(false, false, 1.0f, 9.f));             // hidden, not long enough
+    CHECK(EvadeBarFull(false, false, HOLD_UNSEEN_S, 9.f));     // held at the evade limit: still full
+    CHECK(EvadeBarFull(false, false, 2.5f, 9.f));
+    CHECK(!EvadeBarFull(false, false, 2.5f, SEEN_LIMIT_S));    // not past the seen limit: no cooldown yet
+    CHECK(!EvadeBarFull(false, false, 2.5f, 1.f));
+    CHECK(EvadeBarFull(false, true, 0.f, 0.f));                // already in cooldown
+    CHECK(!EvadeBarFull(true, true, 2.5f, 9.f));               // seen wins: the bar is not full
     CHECK(HOLD_UNSEEN_S < COOLDOWN_UNSEEN_S);                  // the hold keeps the game from starting the cooldown
     CHECK(HOLD_UNSEEN_S + WAIT_UNSEEN_SLACK_S >= EVADE_READY_S);
 }

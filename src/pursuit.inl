@@ -772,8 +772,8 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
             // evade bar / seen: local cops only (vanilla). Mirrored peer cops must not fill or empty it.
             if (SeenByOwnCops(pursuit)) g_sp.flags |= PURSUIT_SEEN;
             if (status == PS_COOLDOWN) g_sp.flags |= PURSUIT_COOLDOWN;
-            float unseen = PRead<float>(pursuit, P_UnseenInState);
-            if (EvadeBarFull((g_sp.flags & PURSUIT_SEEN) != 0, status == PS_COOLDOWN, unseen))
+            float unseen = PRead<float>(pursuit, P_UnseenInState), sinceSeen = PRead<float>(pursuit, P_SinceSeen);
+            if (EvadeBarFull((g_sp.flags & PURSUIT_SEEN) != 0, status == PS_COOLDOWN, unseen, sinceSeen))
                 g_sp.flags |= PURSUIT_READY;
             g_sp.left10 = LeftToWire(left);
             // in a hiding spot (the game's own flags, never the ones we answer for the other player's)
@@ -946,7 +946,9 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     bool undidWait = false;
     if (g_sp.holdValid && (!pursuit || pursuit != g_sp.holdPursuit || mine.seen)) g_sp.holdValid = false;
     float need0 = (g_sp.holdValid && status == PS_COOLDOWN) ? PRead<float>(pursuit, P_CoolNeed) : 0.f;
-    if (g_sp.holdValid && status == PS_COOLDOWN && need0 > 0.f) {   // (no requirement yet: the next tick)
+    // (OnTask sets the requirement every run before the cooldown can start (0x443D5E): 0 only without heat
+    // attributes - nothing to undo then)
+    if (g_sp.holdValid && status == PS_COOLDOWN && need0 > 0.f) {
         g_sp.holdValid = false;
         float search = PRead<float>(pursuit, P_Search), since = PRead<float>(pursuit, P_SinceSeen);
         UndoEvadeWait(need0, g_sp.holdProgress, search, since);
