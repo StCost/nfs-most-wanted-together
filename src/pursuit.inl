@@ -266,7 +266,7 @@ namespace {
         void*    holdPursuit = nullptr;   // the pursuit that snapshot belongs to
         float    coolPrevLeft = -1.f;     // cooldown left at the last tick (progress per tick, EscapeHoldLeft)
         float    coolPerTick = 0.f;       // the most progress seen in one tick of this cooldown
-        bool     coolSkipRate = false;    // the last tick moved the meter itself (catch-up): don't measure it
+        bool     coolSkipRate = false;    // we moved the meter ourselves (catch-up, the undone evade wait): don't measure that step
         SharedPursuit::HeatTracker heat;
         SharedPursuit::BustTracker bust;
         void*    lastBustedPursuit = nullptr;
@@ -851,7 +851,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         if (g_sp.sharedHidePerp || g_sp.peerSpotting || g_sp.peerCopHitAt)
             LOG("Pursuit: the other player is gone - our pursuit and cooldown run as in the plain game");
         g_sp.heat = {}; g_sp.bust = {}; g_sp.pendingBustUntil = 0; g_sp.lastCool = -1; g_sp.peerCopsEngage = false;
-        g_sp.holdValid = false; g_sp.coolPrevLeft = -1.f; g_sp.coolPerTick = 0.f;
+        g_sp.holdValid = false; g_sp.coolPrevLeft = -1.f; g_sp.coolPerTick = 0.f; g_sp.coolSkipRate = false;
         g_sp.sentEvaded = false;
         g_sp.sharedHidePerp = nullptr;
         g_sp.peerCopHitAt = 0; g_sp.peerSpotting = false;
@@ -945,16 +945,21 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     // the cooldown starts after a wait at the evade limit: the wait doesn't count (the progress goes back)
     bool undidWait = false;
     if (g_sp.holdValid && (!pursuit || pursuit != g_sp.holdPursuit || mine.seen)) g_sp.holdValid = false;
-    if (g_sp.holdValid && status == PS_COOLDOWN) {
+    float need0 = (g_sp.holdValid && status == PS_COOLDOWN) ? PRead<float>(pursuit, P_CoolNeed) : 0.f;
+    if (g_sp.holdValid && status == PS_COOLDOWN && need0 > 0.f) {   // (no requirement yet: the next tick)
         g_sp.holdValid = false;
         float search = PRead<float>(pursuit, P_Search), since = PRead<float>(pursuit, P_SinceSeen);
-        float need = PRead<float>(pursuit, P_CoolNeed);
-        UndoEvadeWait(need, g_sp.holdProgress, search, since);
+        UndoEvadeWait(need0, g_sp.holdProgress, search, since);
         PWrite<float>(pursuit, P_Search, search);
         PWrite<float>(pursuit, P_SinceSeen, since);
         undidWait = true; g_sp.coolSkipRate = true;
-        LOG("Pursuit: cooldown after the wait at the evade limit - %.1f s left (%.1f before; the wait doesn't count)",
-            need - (search + since), left);
+        float before = left;
+        // what is left now, here and on the wire: the old value still held the wait (a finished meter, sent as 0)
+        left = need0 - (search + since);
+        if (left < 0.f) left = 0.f;
+        mine.left = left;
+        g_sp.left10 = LeftToWire(left);
+        LOG("Pursuit: cooldown after the wait at the evade limit - %.1f s left (%.1f before; the wait doesn't count)", left, before);
     }
     mine.held = mine.cooling && !mine.seen && (g_sp.lastCool == (int)Cool::HoldEscape || left <= holdLeft);
     View theirs = peer.valid ? FromWire(peer.s.pursuitFlags, peer.s.coolLeft10) : View{};
@@ -981,7 +986,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
             // not once the event is over for us: the game started a pursuit again on every forced escape
             // (the screen flashed "evaded" / "pursuit" for seconds on a pursuit challenge win)
             if (!resultsFreeze) ForceLocalEscape(pursuit);
-            if (coolNow != g_sp.lastCool) LOG("Pursuit: the other player evaded (safehouse) - ending ours as an escape");
+            if (coolNow != g_sp.lastCool && !resultsFreeze) LOG("Pursuit: the other player evaded (safehouse) - ending ours as an escape");
         } else if (d.what == Cool::HoldEvade && pursuit && status != PS_COOLDOWN) {
             // the game starts the cooldown once the unseen time passes 2.5 s: keep it just under
             if (PRead<float>(pursuit, P_UnseenInState) > HOLD_UNSEEN_S) PWrite<float>(pursuit, P_UnseenInState, HOLD_UNSEEN_S);
@@ -998,8 +1003,11 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
             PWrite<float>(pursuit, P_Search, search);
             PWrite<float>(pursuit, P_SinceSeen, since);
             g_sp.left10 = 0;   // finished, as the partner sees it (we only hold it back)
-        } else if (d.what == Cool::Free && mine.held && pursuit && status == PS_COOLDOWN) {
-            // the wait is over: escape now, not after the held-back rest of the meter (both escape together)
+        } else if (d.what == Cool::Free && mine.held && pursuit && status == PS_COOLDOWN && peerHere &&
+                   theirs.inPursuit && !theirs.busted && !g_sp.pendingBustUntil && CooldownFinished(theirs)) {
+            // the wait is over: escape now, not after the held-back rest of the meter (both escape together).
+            // Only when they finished too: near the end with no hold (left under the margin), or with them busted
+            // (we are being busted with them), the meter runs on as usual.
             float search = PRead<float>(pursuit, P_Search), since = PRead<float>(pursuit, P_SinceSeen);
             CompleteCooldown(PRead<float>(pursuit, P_CoolNeed), search, since);
             PWrite<float>(pursuit, P_Search, search);

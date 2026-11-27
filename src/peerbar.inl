@@ -36,8 +36,8 @@ namespace PB {
                        sFadeIn = 0x5079C8F8, sFadeOut = 0x33113AC, sFlipIn = 0x13F51124;
     constexpr uintptr_t kFEGroupVtbl = 0x8A2E24, kFEGroupClone = 0x5C49C0;
     // Stacked under ours: only the moving strip (and its ticks), kStripDown below our strip; the label panel
-    // stays ours alone, and our backup timer (panel + text) stays where it is: it fits under both strips (the
-    // game puts it back there itself when the backup comes; moved down too, it hung a gap too low). With no chase meter of our own up, the copy shows whole, in our meter's place.
+    // stays ours alone. Our backup timer stays put; it fits under both strips. With no chase meter of our own
+    // up, the copy shows whole, in our meter's place.
     constexpr float kStripDown = 8.f;
     // a copy that failed (the HUD mid-load, a race HUD, an exception) is tried again this much later - never given
     // up for good: the same addresses come back with every race (a pursuit from a race kept no strip after it)

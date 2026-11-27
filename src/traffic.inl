@@ -826,8 +826,8 @@ static int g_raceBindLogs = 0;   // binding lines logged in this race (only the 
 static int g_raceLastBound = -1, g_raceLastWaiting = -1;   // last logged status line
 
 // Client in a race (SharedInRaces): give every host traffic car without a car here one of OUR OWN
-// traffic cars to follow. Nothing is spawned or deleted and no AI is touched, so a car the race
-// script owns stays a valid car (it is only moved). A car of the same model first, then any model.
+// traffic cars to follow. Our own cars are never deleted and no AI is touched, so a car the race
+// script owns stays a valid car (it is only moved); a host car with none of ours free gets a copy. A car of the same model first, then any model.
 static void BindRaceTraffic() {
     bool want = false;   // only look at our cars when a host car is waiting for one
     for (auto& m : g_mirrors) if (m.used && !m.iv && m.n && IsRaceTrafficMirror(m)) { want = true; break; }
@@ -1068,11 +1068,23 @@ static int MaintainMirrors(double now) {
     // failed (vehicle budget full) give back a couple of mirror cars.
     bool mayspawn = g_ghost && !g_ghostStarved;
     // No new copies while an event loads (its first 15 s, and during cutscenes): the race start deletes
-    // them again a moment later, and a start camera that picked one of them crashed (0x44E9FD)
+    // them again a moment later, and a start camera that picked one of them crashed (0x44E9FD). A restart
+    // (same event) is a race start too: the copies built during the race go first, and the 15 s start over.
     {
-        static uint32_t lastEv = 0; static DWORD evAt = 0;
+        static uint32_t lastEv = 0; static DWORD evAt = 0; static bool lastRestart = false, lastNis = false;
         uint32_t ev = Game::CurrentEventHash();
+        uint8_t rs = 0; Mem::Read(0x91CF28, rs);
+        bool restart = ev && rs, nis = ev && NisActive();
         if (ev != lastEv) { lastEv = ev; evAt = GetTickCount(); }
+        if ((restart && !lastRestart) || (nis && !lastNis)) {
+            evAt = GetTickCount();
+            int gone = 0;
+            if (restart && !lastRestart)
+                for (auto& m : g_mirrors)
+                    if (m.used && !m.racer && !m.bound && m.iv) { RemoveMirror(m); ++gone; }
+            if (restart && !lastRestart) LOG("Traffic: race restart - %d copy car(s) removed, no new ones for 15 s", gone);
+        }
+        lastRestart = restart; lastNis = nis;
         if ((ev && GetTickCount() - evAt < 15000) || NisActive()) mayspawn = false;
     }
     // SmoothHandover (client, free roam, near the host): host cars appear only where it can't be seen
@@ -1105,7 +1117,7 @@ static int MaintainMirrors(double now) {
         if (m.bound && m.iv && !SharedRaceTraffic() && (!ListContainsOne(VL_AITRAFFIC, m.iv) || m.iv == LocalVehicle() || !IsActiveCar(m.iv))) { m.iv = nullptr; m.bound = false; }
         // one of our own cars of ANOTHER model shows this host car (the only one in its spot, or nearby while the
         // spot was in view - so it didn't pop in): once nobody sees it, it goes and a copy of the host's model is
-        // built in its place. (In a race our cars stand in for good: nothing is spawned or removed there.)
+        // built in its place. (In a race our own cars stand in for good and are never removed.)
         // Only where a new car may appear unseen (MaySpawnUnseen: not right behind us in the mirror), with room
         // for the copy, never in or just after a race (0x5FD94A), and at most every few seconds per host car.
         if (m.bound && m.iv && m.n && !m.racer && ModelKeyOf(m.iv) != m.model) {
@@ -1530,7 +1542,7 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
             g_clientRacing = racing;
             g_raceBindLogs = 0; g_raceLastBound = g_raceLastWaiting = -1;
             if (racing && g_cfg.trafficSharedInRaces)
-                LOG("Traffic: in a race - mirroring the host's traffic with our own traffic cars (none removed, SharedInRaces=1)");
+                LOG("Traffic: in a race - mirroring the host's traffic with our own traffic cars, copies where none is free (SharedInRaces=1)");
             else
                 LOG("Traffic: %s", racing ? "in a race - keeping our own traffic" : "race over - sharing the host's traffic again");
             if (released) LOG("Traffic: released %d of our traffic cars that followed the host's (they drive on by themselves)", released);
