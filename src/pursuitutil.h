@@ -188,6 +188,25 @@ namespace SharedPursuit {
         return { (int8_t)(v < 0.f ? v - 0.5f : v + 0.5f), 1 };
     }
 
+    // The partner bar on the game's own meter (peerbar.inl). The meter's v runs +1 busted .. -1 evaded, so a
+    // PursuitBar chase value (-100 busted .. +100 evade) is -value / 100; a cooldown value is the share done.
+    inline float Clamp(float f, float lo, float hi) { return !(f > lo) ? lo : f > hi ? hi : f; }
+    inline float MeterV(int value) { return -Clamp((float)value, -100.f, 100.f) / 100.f; }
+    inline float CooldownDone(int value) { return Clamp((float)value, 0.f, 100.f) / 100.f; }
+    // PursuitBoard::Update's fill: each segment as a share of its full width; the far ones flash (ALERT) past
+    // half, the middle mark pulses while |v| < 0.1
+    struct ChaseFill { float bustFar, bustNear, evadeNear, evadeFar; bool bustAlert, evadeAlert, midPulse; };
+    inline ChaseFill ChaseMeterFill(float v) {
+        ChaseFill f;
+        f.bustFar = v > 0.5f ? (v - 0.5f) * 2.f : 0.f;
+        f.bustNear = v > 0.5f ? 0.9f : v > 0.1f ? v * 2.f - 0.1f : 0.f;
+        f.evadeNear = v < -0.5f ? 1.f : v < -0.1f ? v * -2.f - 0.1f : 0.f;
+        f.evadeFar = v < -0.5f ? (v + 0.5f) * -2.f : 0.f;
+        f.bustAlert = v > 0.5f; f.evadeAlert = v < -0.5f;
+        f.midPulse = v < 0.1f && v > -0.1f;
+        return f;
+    }
+
     inline bool CooldownFinished(const View& v, float eps = ESCAPE_HOLD_LEFT_S) {
         return v.cooling && v.left <= eps;
     }

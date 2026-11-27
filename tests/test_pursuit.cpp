@@ -597,3 +597,25 @@ TEST(pursuit_peer_cops_on_map_like_ours) {
     CHECK(!PeerCopOnOurMap(false, true, true, PEER_COP_ENGAGED_MS + 1));   // lost us long ago
     CHECK(PeerCopOnOurMap(true, false, false, 0));                // the game shows every cop (debug)
 }
+
+TEST(pursuit_partner_meter_fill_matches_the_game) {
+    using namespace SharedPursuit;
+    CHECK_NEAR(MeterV(-100), 1.f, 1e-6f);                 // busted end of the bar: the meter's +1
+    CHECK_NEAR(MeterV(100), -1.f, 1e-6f);
+    CHECK_NEAR(MeterV(500), -1.f, 1e-6f);                 // clamped
+    CHECK_NEAR(CooldownDone(40), 0.4f, 1e-6f);
+    CHECK_NEAR(CooldownDone(-5), 0.f, 1e-6f);
+    CHECK_NEAR(CooldownDone(150), 1.f, 1e-6f);
+    ChaseFill z = ChaseMeterFill(0.f);
+    CHECK(z.midPulse); CHECK(!z.bustAlert); CHECK(!z.evadeAlert);
+    CHECK_NEAR(z.bustFar + z.bustNear + z.evadeNear + z.evadeFar, 0.f, 1e-6f);
+    CHECK(!ChaseMeterFill(0.1f).midPulse);                // the game: pulse only while |v| < 0.1
+    CHECK(!ChaseMeterFill(-0.1f).midPulse);
+    ChaseFill b = ChaseMeterFill(0.75f);
+    CHECK_NEAR(b.bustFar, 0.5f, 1e-6f); CHECK_NEAR(b.bustNear, 0.9f, 1e-6f); CHECK(b.bustAlert);
+    CHECK_NEAR(b.evadeNear, 0.f, 1e-6f);
+    ChaseFill e = ChaseMeterFill(-0.3f);
+    CHECK_NEAR(e.evadeNear, 0.5f, 1e-5f); CHECK_NEAR(e.evadeFar, 0.f, 1e-6f); CHECK(!e.evadeAlert);
+    ChaseFill f = ChaseMeterFill(-1.f);
+    CHECK_NEAR(f.evadeNear, 1.f, 1e-6f); CHECK_NEAR(f.evadeFar, 1.f, 1e-6f); CHECK(f.evadeAlert);
+}

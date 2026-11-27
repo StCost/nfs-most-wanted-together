@@ -81,7 +81,7 @@ namespace PB {
     }
     bool InList(void* first, void* what) {
         int n = 0;
-        for (void* o = first; o && n < 600; o = Next(o), ++n) { if (o == what) return true; if (!Sane(o, 0x20)) return false; }
+        for (void* o = first; o && n < 600; o = Next(o), ++n) if (o == what) return true;   // (under __try: no per-node VirtualQuery)
         return false;
     }
     bool IsChild(void* pkg, void* parent, void* what) {
@@ -102,10 +102,13 @@ namespace PB {
     void SetScript(void* o, uint32_t hash) { ((void(__cdecl*)(void*, uint32_t, bool))0x514D10)(o, hash, true); }    // FEngSetScript (from its start)
     void Want(void* o, uint32_t hash) { if (o && !ScriptIs(o, hash)) SetScript(o, hash); }
     void Dirty(void* o) { *(uint32_t*)(B(o) + 0x1C) |= 0x400000; }
+    void SetPos(void* o, const float* v, bool relative) {
+        ((void(__thiscall*)(void*, const float*, bool))0x5B8190)(o, v, relative);         // FEObject::SetPosition
+    }
     void MoveBy(void* o, float dy) {
         if (!o || dy == 0.f) return;
         float v[3] = { 0.f, dy, 0.f };
-        ((void(__thiscall*)(void*, const float*, bool))0x5B8190)(o, v, true);             // FEObject::SetPosition, relative
+        SetPos(o, v, true);
     }
     void HideNow(void* o) {              // gone at once, whatever the script state: the HIDE script and alpha 0
         if (!o) return;
@@ -181,16 +184,20 @@ namespace PB {
     // a fresh copy: at its scripts' own place, full size, hidden
     void Settle(void* copy) {
         float p[3];
-        if (ScriptPos(copy, p)) ((void(__thiscall*)(void*, const float*, bool))0x5B8190)(copy, p, false);
+        if (ScriptPos(copy, p)) SetPos(copy, p, false);
         float* size = (float*)(Data(copy) + 0x38);
         size[0] = size[1] = size[2] = 1.f;
         HideNow(copy);
     }
 
-    const char* Setup(void* pkg) {
+    void Forget() {             // the package is gone: nothing of ours is left to touch
         State keep = g;
         g = State{}; g.forced = keep.forced; g.forceKind = keep.forceKind; g.forceValue = keep.forceValue;
         g.deadPkg = keep.deadPkg; g.deadChase = keep.deadChase;
+    }
+
+    const char* Setup(void* pkg) {
+        Forget();
         g.pkg = pkg;
         g.chase = Find(pkg, kChase, 5);
         if (pkg == g.deadPkg && g.chase == g.deadChase) return nullptr;      // failed before, said so then
@@ -224,12 +231,8 @@ namespace PB {
     // often at the same addresses)
     bool StillValid(void* pkg) {
         return g.ready && pkg == g.pkg && Find(pkg, kChase, 5) == g.chase &&
-               IsChild(pkg, g.parChase, g.cChase) && IsChild(pkg, g.parCool, g.cCool);
-    }
-    void Forget() {             // the package is gone: nothing of ours is left to touch
-        State keep = g;
-        g = State{}; g.forced = keep.forced; g.forceKind = keep.forceKind; g.forceValue = keep.forceValue;
-        g.deadPkg = keep.deadPkg; g.deadChase = keep.deadChase;
+               IsChild(pkg, g.parChase, g.cChase) && IsChild(pkg, g.parCool, g.cCool) &&
+               Hash(g.cChase) == 0 && Hash(g.cCool) == 0;     // still our silent copies (a reload at the same address: not)
     }
 
     void SetWidthRight(void* o, float w) {       // the right edge stays (BUSTED side), as at 0x57B2B0
@@ -252,17 +255,14 @@ namespace PB {
     }
     // the game's own maths (PursuitBoard::Update): v +1 busted .. -1 evaded
     void FillChase(float v) {
-        float bustFar = v > 0.5f ? (v - 0.5f) * 2.f : 0.f;
-        float bustNear = v > 0.5f ? 0.9f : v > 0.1f ? v * 2.f - 0.1f : 0.f;
-        float evadeNear = v < -0.5f ? 1.f : v < -0.1f ? v * -2.f - 0.1f : 0.f;
-        float evadeFar = v < -0.5f ? (v + 0.5f) * -2.f : 0.f;
-        SetWidthRight(g.seg[0], bustFar * g.wFar);
-        SetWidthRight(g.seg[1], bustNear * g.wNear);
-        SetWidthLeft(g.seg[3], evadeNear * g.wNear);
-        SetWidthLeft(g.seg[4], evadeFar * g.wFar);
-        Want(g.seg[0], v > 0.5f ? sAlert : sInit);
-        Want(g.seg[4], v < -0.5f ? sAlert : sInit);
-        Want(g.seg[2], (v <= 0.1f && v > -0.1f) ? sPulse : sShow);
+        SharedPursuit::ChaseFill f = SharedPursuit::ChaseMeterFill(v);
+        SetWidthRight(g.seg[0], f.bustFar * g.wFar);
+        SetWidthRight(g.seg[1], f.bustNear * g.wNear);
+        SetWidthLeft(g.seg[3], f.evadeNear * g.wNear);
+        SetWidthLeft(g.seg[4], f.evadeFar * g.wFar);
+        Want(g.seg[0], f.bustAlert ? sAlert : sInit);
+        Want(g.seg[4], f.evadeAlert ? sAlert : sInit);
+        Want(g.seg[2], f.midPulse ? sPulse : sShow);
     }
     void ShowGroup(void* grp, bool show) {
         if (show) { if (!ScriptIs(grp, sFadeIn)) SetScript(grp, sFadeIn); }
@@ -284,7 +284,17 @@ namespace PB {
         *why = nullptr;
         void* pkg = Package();
         if (!pkg || !Sane(pkg, 0x54)) { Forget(); return kind ? -1 : 0; }
-        if (g.ready && !StillValid(pkg)) Forget();
+        if (g.ready && !StillValid(pkg)) {
+            bool samePlace = pkg == g.pkg && Find(pkg, kChase, 5) == g.chase;
+            void* chase = g.chase;
+            if (samePlace) Unlift();                // the cop row is still the game's: put it back
+            Forget();
+            if (samePlace) {                        // our copies went missing from a package we still know: leave it
+                g.deadPkg = pkg; g.deadChase = chase;
+                *why = "the copies are no longer in the HUD";
+                return -1;
+            }
+        }
         if (!g.ready) {
             if (!kind) return 0;                    // copied when first needed
             const char* err = Setup(pkg);
@@ -299,16 +309,14 @@ namespace PB {
         ShowGroup(g.cCool, kind == 2);
         if (!kind) { Unlift(); return 0; }
         // our own meter: the cooldown one without the HIDDEN panel has nothing above its strip
-        bool ownCoolBare = (ScriptIs(g.cool, sFlipIn) || ScriptIs(g.cool, sFadeIn)) && !ScriptIs(g.ownHidden, sFadeIn);
+        bool ownCoolBare = (ScriptIs(g.cool, sFlipIn) || ScriptIs(g.cool, sFadeIn)) && !(g.ownHidden && ScriptIs(g.ownHidden, sFadeIn));
         float up = (kind == 2 && !ownCoolBare) ? kUpFar : kUpNear;
         if (kind == 1) {
             MoveTo(g.cChase, g.upChase, up);
-            float v = -(float)(value < -100 ? -100 : value > 100 ? 100 : value) / 100.f;
-            FillChase(v);
+            FillChase(SharedPursuit::MeterV(value));
         } else {
             MoveTo(g.cCool, g.upCool, up);
-            float done = (float)(value < 0 ? 0 : value > 100 ? 100 : value) / 100.f;
-            SetWidthLeft(g.coolBar, done * g.wCool);
+            SetWidthLeft(g.coolBar, SharedPursuit::CooldownDone(value) * g.wCool);
         }
         if (g.lift != up) {                         // the cop row and the HIDDEN icon move out of the way
             float d = g.lift - up;
@@ -317,12 +325,22 @@ namespace PB {
         }
         return 1;
     }
+    void CleanUp() {
+        if (!g.ready) return;
+        HideNow(g.cChase); HideNow(g.cCool);
+        Unlift();
+    }
+    void CleanUpGuarded() {
+        __try { CleanUp(); } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
     int ApplyGuarded(int kind, int value, const char** why) {
         __try {
             return Apply(kind, value, why);
         } __except (EXCEPTION_EXECUTE_HANDLER) {
-            // whatever it was: this package's copy is not touched again
+            // whatever it was: the copies are hidden and the cop row put back if that still works, and this
+            // package's copy is not touched again
             void* pkg = g.pkg; void* chase = g.chase;
+            CleanUpGuarded();
             Forget();
             g.deadPkg = pkg; g.deadChase = chase;
             *why = "exception";
@@ -351,8 +369,8 @@ namespace Game {
     std::string DebugPeerBar(const char* args) {
         std::string a = args ? args : "";
         int v = 0;
-        if (sscanf_s(a.c_str(), "chase %d", &v) == 1) { PB::g.forced = true; PB::g.forceKind = 1; PB::g.forceValue = v < -100 ? -100 : v > 100 ? 100 : v; }
-        else if (sscanf_s(a.c_str(), "cool %d", &v) == 1) { PB::g.forced = true; PB::g.forceKind = 2; PB::g.forceValue = v < 0 ? 0 : v > 100 ? 100 : v; }
+        if (sscanf_s(a.c_str(), "chase %d", &v) == 1) { PB::g.forced = true; PB::g.forceKind = 1; PB::g.forceValue = (int)SharedPursuit::Clamp((float)v, -100.f, 100.f); }
+        else if (sscanf_s(a.c_str(), "cool %d", &v) == 1) { PB::g.forced = true; PB::g.forceKind = 2; PB::g.forceValue = (int)SharedPursuit::Clamp((float)v, 0.f, 100.f); }
         else if (a == "off") { PB::g.forced = false; return "peerbar: back to the other player's own bar"; }
         else return "peerbar chase <-100..100> | peerbar cool <0..100> | peerbar off";
         char buf[96];
