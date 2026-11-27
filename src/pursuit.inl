@@ -932,10 +932,14 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     // cooldown progress per tick (a hiding spot, ours or shared, starts at its ~3x rate); our hold margin
     if (mine.cooling && !mine.seen) {
         float d = g_sp.coolPrevLeft - left;
-        if (g_sp.coolPrevLeft >= 0.f && !g_sp.coolSkipRate && d > g_sp.coolPerTick) g_sp.coolPerTick = d;
+        // P_CoolLeft moves only on the game's own pursuit task (~400 ms): a step we caused (catch-up, undone
+        // wait) is the next change of it, however many frames later, and is not measured
+        if (g_sp.coolPrevLeft >= 0.f && d != 0.f) {
+            if (!g_sp.coolSkipRate && d > g_sp.coolPerTick) g_sp.coolPerTick = d;
+            g_sp.coolSkipRate = false;
+        }
         g_sp.coolPrevLeft = left;
-    } else { g_sp.coolPrevLeft = -1.f; g_sp.coolPerTick = 0.f; }
-    g_sp.coolSkipRate = false;
+    } else { g_sp.coolPrevLeft = -1.f; g_sp.coolPerTick = 0.f; g_sp.coolSkipRate = false; }
     float seedTick = PURSUIT_TICK_S * (mine.hiding || g_sp.sharedHidePerp ? 3.f : 1.f);
     float holdLeft = EscapeHoldLeft(g_sp.coolPerTick > seedTick ? g_sp.coolPerTick : seedTick);
     // the cooldown starts after a wait at the evade limit: the wait doesn't count (the progress goes back)
@@ -970,8 +974,8 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     if (!peerEvadedHere) theirs.evaded = false;
     bool peerForCool = peerHere || peerEvadedHere;
     if ((g_sp.flags & PURSUIT_ACTIVE) && peerForCool) {
-        Decision d = peerHere || theirs.evaded ? DecideCooldown(mine, theirs, true) : Decision{ Cool::Free, 0.f };
-        if (d.what == Cool::BackToChase && InCooldownGrace(status == PS_COOLDOWN, now - g_sp.coolEnteredAt)) d = Decision{ Cool::Free, 0.f };
+        Decision d = peerHere || theirs.evaded ? DecideCooldown(mine, theirs, true) : Decision{ Cool::Free };
+        if (d.what == Cool::BackToChase && InCooldownGrace(status == PS_COOLDOWN, now - g_sp.coolEnteredAt)) d = Decision{ Cool::Free };
         coolNow = (int)d.what;
         if (d.what == Cool::ForceEscape) {
             ForceLocalEscape(pursuit);

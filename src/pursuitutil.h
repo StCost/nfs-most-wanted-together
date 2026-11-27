@@ -154,7 +154,7 @@ namespace SharedPursuit {
         HoldEscape,  // our meter is finished: do not escape until the peer has finished too
         ForceEscape, // the peer evaded (safehouse): end ours as an escape/win too
     };
-    struct Decision { Cool what; float left; };   // left: remaining time to hold at for HoldEscape
+    struct Decision { Cool what; };   // HoldEscape's hold point: EscapeHoldLeft
     // The exe float at 0x890D34: not seen this long in the current state starts cooldown.
     constexpr float COOLDOWN_UNSEEN_S = 2.5f;
     constexpr float WAIT_UNSEEN_SLACK_S = 0.05f;
@@ -257,20 +257,20 @@ namespace SharedPursuit {
         return peerConnected && me.inPursuit && peer.inPursuit && !me.busted && !peer.busted;
     }
     inline Decision DecideCooldown(const View& me, const View& peer, bool peerConnected = true) {
-        if (!me.inPursuit) return { Cool::Free, 0.f };
+        if (!me.inPursuit) return { Cool::Free };
         // Peer entered a safehouse (or otherwise evaded): end ours as an escape, even if we are
         // still in a chase. A disconnected peer is solo, not a force-escape.
-        if (peerConnected && peer.evaded && !me.busted) return { Cool::ForceEscape, 0.f };
-        if (PeerAllowsSolo(peer, peerConnected)) return { Cool::Free, 0.f };  // disconnect / busted / left: vanilla
+        if (peerConnected && peer.evaded && !me.busted) return { Cool::ForceEscape };
+        if (PeerAllowsSolo(peer, peerConnected)) return { Cool::Free };  // disconnect / busted / left: vanilla
         if (!me.cooling) {
             // our bar is full, theirs not: wait at the evade limit (both enter the cooldown together)
-            if (me.ready && !me.seen && !peer.ready) return { Cool::HoldEvade, 0.f };
-            return { Cool::Free, 0.f };
+            if (me.ready && !me.seen && !peer.ready) return { Cool::HoldEvade };
+            return { Cool::Free };
         }
-        if (me.seen) return { Cool::Free, 0.f };       // we were spotted: vanilla drops us
-        if (!peer.ready) return { Cool::BackToChase, 0.f };   // they were spotted (or never got there): both chase
-        if (CooldownFinished(me) && !CooldownFinished(peer)) return { Cool::HoldEscape, ESCAPE_HOLD_LEFT_S };
-        return { Cool::Free, 0.f };
+        if (me.seen) return { Cool::Free };       // we were spotted: vanilla drops us
+        if (!peer.ready) return { Cool::BackToChase };   // they were spotted (or never got there): both chase
+        if (CooldownFinished(me) && !CooldownFinished(peer)) return { Cool::HoldEscape };
+        return { Cool::Free };
     }
     // Fill the cooldown meter so evade level reaches 1 (vanilla then ends the pursuit as evaded).
     inline void CompleteCooldown(float required, float& accum, float& sinceSeen) {

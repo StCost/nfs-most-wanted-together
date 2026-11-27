@@ -458,7 +458,6 @@ TEST(pursuit_event_cooldown_waits_for_both_then_escapes_together) {
     client.left = 0.1f; host.left = 3.f;
     Decision d = DecideCooldown(client, host, true);
     CHECK(d.what == Cool::HoldEscape);                                       // client waits at the end
-    CHECK(d.left > 0.f);
     host.left = 0.1f;
     CHECK(DecideCooldown(client, host, true).what == Cool::Free);           // both done: both escape
     CHECK(DecideCooldown(host, client, true).what == Cool::Free);
