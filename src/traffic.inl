@@ -145,6 +145,8 @@ namespace {
         bool     blendPending = false; // start the glide at the next drive (from where the car is then)
         DWORD    localSince = 0, localUntil = 0;   // a hit: our physics moves it until localUntil (TakeLocalHits)
         DWORD    localAgainAt = 0;                 // after a release: not taken over again before this (it glides back)
+        bool     localTouched = false;             // the hit happened: the owner follows our physics (SendHeld)
+        DWORD    localSentAt = 0;
         DWORD    blendT0 = 0;    // GetTickCount when the glide started (0 = none)
         float    blendOff[3] = {};
         float    blendRot[4] = {};
@@ -406,13 +408,25 @@ namespace {
         RB_SetVec(rb, RB_SetPosition, pos);
     }
 
+    // A copy our physics moves after a hit: the owner's game puts its real car where ours is (PKT_CARHOLD),
+    // so the hit is the same on both screens and the car drives on from there when we let it go.
+    void SendHeld(Mirror& m, void* rb, bool last) {
+        DWORD now = GetTickCount();
+        if (!last && now - m.localSentAt < 30) return;
+        m.localSentAt = now;
+        Net::SendCarHold(m.id, last, RB_GetVec(rb, RB_GetPosition), RB_GetVec(rb, RB_GetOrientation),
+                         RB_GetVec(rb, RB_GetLinearVelocity), RB_GetVec(rb, RB_GetAngularVelocity));
+    }
+
     void DriveMirror(Mirror& m, double renderSendMs) {
         if (!m.iv || m.n == 0) return;
         void* rb = RigidBodyOf(m.iv);
         if (!rb) return;
-        if (m.localSince) {   // we hit it: our physics moves it for a moment, then it glides back to the owner's place
-            if ((int)(GetTickCount() - m.localUntil) < 0) return;
-            m.localSince = m.localUntil = 0;
+        bool logBack = false;
+        if (m.localSince) {   // we hit it: our physics moves it for a moment, then the owner drives on from there
+            if ((int)(GetTickCount() - m.localUntil) < 0) { if (m.localTouched) SendHeld(m, rb, false); return; }
+            if (m.localTouched) { SendHeld(m, rb, true); logBack = true; }
+            m.localSince = m.localUntil = 0; m.localTouched = false;
             m.localAgainAt = GetTickCount() + HitUtil::LOCAL_HIT_AGAIN_MS;
             m.blendPending = true; m.groundFix = 0;
         }
@@ -450,6 +464,8 @@ namespace {
             memcpy(ownBefore, cp, sizeof(ownBefore)); haveOwnBefore = true;
             for (int i = 0; i < 3; ++i) m.blendOff[i] = cp[i] - pos[i];
             memcpy(m.blendRot, RB_GetVec(rb, RB_GetOrientation), 16);
+            if (logBack) LOG("Collision: the other player's car %u back to their game - %.1f m to glide", (unsigned)m.id,
+                             sqrtf(m.blendOff[0] * m.blendOff[0] + m.blendOff[1] * m.blendOff[1] + m.blendOff[2] * m.blendOff[2]));
             m.blendT0 = GetTickCount() | 1;
         }
         if (m.blendT0) {   // a car of ours that took this host car over: glide into its place
@@ -753,6 +769,7 @@ namespace {
 }
 
 static void OnCarHitImpl(uint16_t id, const float* dv);
+static void OnCarHoldImpl(const CarHoldPacket& p);
 static void SharedPursuitCopHit(uint16_t mirrorId);   // pursuit.inl
 
 bool Game::InstallTrafficHooks() {
@@ -788,6 +805,7 @@ bool Game::InstallTrafficHooks() {
     Net::OnTrailers = [](const TrailerEntry* e, int count, double sendMs) { if (g_coopLinked) OnTrailerPacket(e, count, sendMs); };
     Net::OnRacerName = &OnRacerName;
     Net::OnCarHit = [](uint16_t id, const float* dv) { if (!g_coopLinked) return; __try { OnCarHitImpl(id, dv); } __except (EXCEPTION_EXECUTE_HANDLER) {} };
+    Net::OnCarHold = [](const CarHoldPacket& p) { if (!g_coopLinked) return; __try { OnCarHoldImpl(p); } __except (EXCEPTION_EXECUTE_HANDLER) {} };
     LOG("Traffic: hooked ComputeDensity call (client can suppress its own traffic)");
     return true;
 }
@@ -1662,12 +1680,15 @@ static void TakeLocalHits(void* lrb, DWORD now) {
         if (!rb) continue;
         const float* cp = RB_GetVec(rb, RB_GetPosition);
         if (m.localSince) {   // ours already: a little longer while we still touch it
-            if (HitUtil::StillTouching(lp, cp) && now - m.localSince < HitUtil::LOCAL_HIT_MAX_MS && (int)(m.localUntil - (now + 600)) < 0)
+            bool touching = HitUtil::StillTouching(lp, cp);
+            if (touching) m.localTouched = true;
+            if (touching && now - m.localSince < HitUtil::LOCAL_HIT_MAX_MS && (int)(m.localUntil - (now + 600)) < 0)
                 m.localUntil = now + 600;
             continue;
         }
         if (!HitUtil::TakeLocalOnApproach(lp, lv, cp, RB_GetVec(rb, RB_GetLinearVelocity))) continue;
         m.localSince = now | 1; m.localUntil = now + HitUtil::LOCAL_HIT_MS; m.blendT0 = 0; m.blendPending = false;
+        m.localTouched = false; m.localSentAt = 0;
         float dx = cp[0] - lp[0], dz = cp[2] - lp[2];
         LOG("Collision: about to hit the other player's car %u (%s, %.1f m, %.0f km/h) - our physics moves it for a moment",
             (unsigned)m.id, VehName(m.iv), sqrtf(dx * dx + dz * dz), sqrtf(lv[0] * lv[0] + lv[2] * lv[2]) * 3.6f);
@@ -1749,6 +1770,7 @@ static void MirrorHitTick() {
 // in a frame or two, so the car felt like a wall; hold the push for 0.4 s like player hits.
 struct CarPush { void* iv; uint16_t id; float push[3]; DWORD from; bool used; };
 CarPush g_carPushes[16] = {};
+DWORD g_carHoldLastEnd = 0;
 
 static void StartCarPush(void* iv, uint16_t id, const float* push) {
     if (!iv || !push) return;
@@ -1760,7 +1782,57 @@ static void StartCarPush(void* iv, uint16_t id, const float* push) {
     slot->from = GetTickCount(); slot->used = true;
 }
 
+// owner side: the other game's physics moves our car after its hit (PKT_CARHOLD): put our real car where
+// it is there; on its last word our AI drives on from that spot (no glide back on their screen).
+struct CarHold { void* iv; uint16_t id; CarHoldPacket p; DWORD at; bool fresh, used; };
+CarHold g_carHolds[8] = {};
+static bool CarHeld(void* iv) {
+    for (auto& h : g_carHolds) if (h.used && h.iv == iv) return true;
+    return false;
+}
+
+static void OnCarHoldImpl(const CarHoldPacket& p) {
+    for (auto& h : g_hostIds) {
+        if (!h.iv || NetUtil::TrafficWireId(h.id, g_cfg.isHost) != p.id) continue;
+        if (!ListContains(-1, h.iv)) return;
+        CarHold* slot = nullptr;
+        for (auto& c : g_carHolds) if (c.used && c.iv == h.iv) { slot = &c; break; }
+        if (!slot) {
+            if (p.last && GetTickCount() - g_carHoldLastEnd < 300) return;   // (the repeat of the last word)
+            for (auto& c : g_carHolds) if (!c.used) { slot = &c; break; }
+            if (!slot) return;
+            LOG("Collision: the other player hit our car %u (%s) - it follows their physics for a moment", (unsigned)p.id, VehName(h.iv));
+        }
+        for (auto& c : g_carPushes) if (c.used && c.iv == h.iv) c.used = false;   // their physics already has the push
+        slot->iv = h.iv; slot->id = p.id; slot->p = p; slot->at = GetTickCount(); slot->fresh = true; slot->used = true;
+        return;
+    }
+}
+
+static void ApplyCarHolds() {
+    DWORD now = GetTickCount();
+    for (auto& h : g_carHolds) {
+        if (!h.used) continue;
+        void* rb = (h.iv && ListContains(-1, h.iv)) ? RigidBodyOf(h.iv) : nullptr;
+        if (!rb) { h.used = false; continue; }
+        if (h.fresh) {
+            h.fresh = false;
+            RB_SetVec(rb, RB_SetOrientationQuat, h.p.rot);
+            RB_SetVec(rb, RB_SetPosition, h.p.pos);
+            RB_SetVec(rb, RB_SetLinearVelocity, h.p.linVel);
+            RB_SetVec(rb, RB_SetAngularVelocity, h.p.angVel);
+            if (h.p.last) {
+                h.used = false; g_carHoldLastEnd = now;
+                LOG("Collision: our car %u drives on from where the other player's hit left it", (unsigned)h.id);
+                continue;
+            }
+        }
+        if (now - h.at > 500) { h.used = false; LOG("Collision: no word on our car %u for 0.5 s - it drives on", (unsigned)h.id); }
+    }
+}
+
 static void ApplyCarPushes() {
+    ApplyCarHolds();
     DWORD now = GetTickCount();
     for (auto& p : g_carPushes) {
         if (!p.used) continue;
@@ -1778,6 +1850,7 @@ static void OnCarHitImpl(uint16_t id, const float* dv) {
     for (auto& h : g_hostIds) {
         if (!h.iv || NetUtil::TrafficWireId(h.id, g_cfg.isHost) != id) continue;
         if (!ListContains(-1, h.iv)) return;
+        if (CarHeld(h.iv)) return;   // their physics moves it (PKT_CARHOLD): the push is in it
         void* rb = RigidBodyOf(h.iv);
         if (!rb) return;
         float mag = sqrtf(dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2]);

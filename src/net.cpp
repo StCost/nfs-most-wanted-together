@@ -507,6 +507,16 @@ namespace {
             if (std::isfinite(p->dv[0]) && std::isfinite(p->dv[1]) && std::isfinite(p->dv[2]) && Net::OnCarHit) Net::OnCarHit(p->id, p->dv);
             break;
         }
+        case PKT_CARHOLD: {
+            if (len < (int)sizeof(CarHoldPacket)) return;
+            const CarHoldPacket* p = (const CarHoldPacket*)buf;
+            for (float f : p->pos) if (!std::isfinite(f)) return;
+            for (float f : p->rot) if (!std::isfinite(f)) return;
+            for (float f : p->linVel) if (!std::isfinite(f)) return;
+            for (float f : p->angVel) if (!std::isfinite(f)) return;
+            if (Net::OnCarHold) Net::OnCarHold(*p);
+            break;
+        }
         case PKT_HIT: {
             if (len < (int)sizeof(HitPacket)) return;
             const HitPacket* p = (const HitPacket*)buf;
@@ -1163,6 +1173,16 @@ void Net::SendCarHit(uint16_t id, const float* dv) {
     FillHeader(p.h, PKT_CARHIT);
     p.hitSeq = ++seq; p.id = id; memcpy(p.dv, dv, sizeof(p.dv));
     for (int i = 0; i < 2; ++i) SendRaw(&p, sizeof(p));
+}
+
+void (*Net::OnCarHold)(const CarHoldPacket&) = nullptr;
+void Net::SendCarHold(uint16_t id, bool last, const float* pos, const float* rot, const float* vel, const float* av) {
+    if (!g_stats.connected) return;
+    CarHoldPacket p{};
+    FillHeader(p.h, PKT_CARHOLD);
+    p.id = id; p.last = last ? 1 : 0;
+    memcpy(p.pos, pos, 12); memcpy(p.rot, rot, 16); memcpy(p.linVel, vel, 12); memcpy(p.angVel, av, 12);
+    for (int i = 0; i < (last ? 2 : 1); ++i) SendRaw(&p, sizeof(p));
 }
 
 void (*Net::OnMilestone)(uint32_t, uint8_t, uint32_t, uint16_t, float) = nullptr;

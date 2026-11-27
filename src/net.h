@@ -35,6 +35,7 @@ enum PacketType : uint16_t {
     PKT_PSTATS  = 25,   // what the sender earned itself in its current pursuit (cost to state, bounty; older builds ignore it)
     PKT_GRIDSLOT = 26,  // host -> client: the grid slot the client starts on at this event start (older builds ignore it)
     PKT_ROADBLOCK = 27, // a police roadblock the sender's game built (or removed): its sawhorses / spike strips (older builds ignore it)
+    PKT_CARHOLD = 28,   // "my physics moves YOUR car <id> after a hit: it is here now" - the owner follows it (older builds ignore it)
 };
 
 struct PacketHeader {
@@ -251,6 +252,13 @@ struct CarHitPacket {
     uint16_t pad;
     float    dv[3];
 };
+struct CarHoldPacket {
+    PacketHeader h;
+    uint16_t id;           // TrafficEntry id of the car (owned by the receiver)
+    uint8_t  last;         // 1: the sender lets it go - the owner drives on from here
+    uint8_t  pad;
+    float    pos[3], rot[4], linVel[3], angVel[3];
+};
 struct MilestonePacket {
     PacketHeader h;
     uint32_t msgId;        // the copies of one completion carry the same number
@@ -375,6 +383,8 @@ namespace Net {
     void SendNisSkip(uint32_t sceneHash);
     void SendCarHit(uint16_t id, const float* dv);
     extern void (*OnCarHit)(uint16_t id, const float* dv);
+    void SendCarHold(uint16_t id, bool last, const float* pos, const float* rot, const float* vel, const float* av);
+    extern void (*OnCarHold)(const CarHoldPacket& p);
     extern void (*OnFollow)(const float* pos, const float* fwd, const float* right, const float* quat);
     extern void (*OnRaceProg)(const RaceProgEntry* e, int count);
     void SendRaceProg(const RaceProgEntry* e, int count);
