@@ -189,11 +189,30 @@ TEST(pursuit_spotted_in_cooldown_takes_both_back_to_the_chase) {
     CHECK(DecideCooldown(a, b).what == Cool::Free);
 }
 
+static_assert(ESCAPE_HOLD_LEFT_S > PURSUIT_TICK_S, "the escape hold must outlast one pursuit tick");
+
 TEST(pursuit_escape_hold_outlasts_a_tick) {
-    // held at ESCAPE_HOLD_LEFT_S, one 400 ms pursuit tick later it must still be held, not escaped
-    View a = V(true, false, true, ESCAPE_HOLD_LEFT_S - 0.4f, true), b = V(true, false, true, 8, true);
-    CHECK(ESCAPE_HOLD_LEFT_S - 0.4f > 0.f);
+    // held at the margin, then one tick of progress (plain, hiding spot ~3x, a 1 s hitch): still some left
+    const float rates[] = { PURSUIT_TICK_S, PURSUIT_TICK_S * 3.f, 1.0f };
+    for (float perTick : rates) {
+        float need = 13.f, accum = 2.f, since = 11.f;           // finished: progress 13 of 13
+        float hold = EscapeHoldLeft(perTick);
+        DelayProgress(need, hold, accum, since);
+        float left = need - (accum + since);
+        CHECK(left > hold - 0.01f);
+        CHECK(left - perTick > 0.f);                             // the game did not escape before the next hold
+    }
+    CHECK(EscapeHoldLeft(0.f) == ESCAPE_HOLD_LEFT_S);
+    CHECK(EscapeHoldLeft(100.f) == ESCAPE_HOLD_MAX_S);
+}
+
+TEST(pursuit_held_escape_stays_finished) {
+    // held back above the finished line, ours still counts as finished (no Free/HoldEscape flapping)
+    View a = V(true, false, true, 3.f, true), b = V(true, false, true, 8, true);
+    a.held = true;
     CHECK(DecideCooldown(a, b).what == Cool::HoldEscape);
+    b.left = 0.f;                                                // the partner finished (a held one sends 0)
+    CHECK(DecideCooldown(a, b).what == Cool::Free);              // the caller then completes ours
 }
 
 TEST(pursuit_evade_wait_does_not_count_toward_the_cooldown) {
