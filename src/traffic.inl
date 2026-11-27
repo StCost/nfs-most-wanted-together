@@ -20,6 +20,7 @@ namespace {
     constexpr uintptr_t DensityCallSite  = 0x439BBD;   // call AITrafficManager::ComputeDensity (0x41EC20)
     constexpr uintptr_t ComputeDensityFn = 0x41EC20;   // returns the traffic density (float, ST0)
     bool  g_suppressTraffic = false;   // also suppresses the client's own cop spawns
+    bool  g_raceDensityOff = false;    // client in a race near the host: no new traffic cars of our own (cops still spawn)
 
     // AICopManager spawn calls (thiscall). Redirected so the client spawns no cops near the host.
     constexpr uintptr_t PatrolCallSite   = 0x4315CF, SpawnPatrolFn  = 0x430D90; // bool SpawnPatrolCar()
@@ -112,7 +113,7 @@ namespace {
     float __fastcall hk_ComputeDensity(void* self, void* edx) {
         using Fn = float(__fastcall*)(void*, void*);
         float d = ((Fn)ComputeDensityFn)(self, edx);
-        return g_suppressTraffic ? 0.0f : d;
+        return (g_suppressTraffic || g_raceDensityOff) ? 0.0f : d;
     }
 
     struct MirrorSample { double sendMs; TrafficEntry e; };
@@ -1111,8 +1112,10 @@ static int MaintainMirrors(double now) {
                 continue;                           // built next frame (the removed car is not rebound meanwhile)
             }
         }
-        if (IsRaceTrafficMirror(m)) {
-            // one of our own traffic cars follows the host's car (bound above): never spawn or kill here
+        // in a race a host car with no car of ours to follow it gets a copy, built below as in free roam
+        // (out of view, with room); the copy is ours, so it may go again. Our own cars are never killed.
+        if (IsRaceTrafficMirror(m) && (m.iv || m.bound)) {
+            // one of our own traffic cars follows the host's car (bound above), or our copy of it
             if (m.iv && !NisActive()) {
                 DriveMirror(m, renderSend);
                 DriveTrailer(m, renderSend);
@@ -1391,6 +1394,7 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
         // not in a shared world: clean up and hand traffic back to the game
         if (g_suppressTraffic) LOG("Traffic: released (not connected / not in game)");
         g_suppressTraffic = false;
+        g_raceDensityOff = false;
         g_trafficNear = false;
         bool inWorld = Game::GameFlowState() == 6 && myRb;
         // still driving (only the host is gone / has no car): the host's cars around us stay and drive on
@@ -1503,12 +1507,13 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
             if (pc != lastPc) { lastPc = pc; if (pc) LOG("Traffic: pursuit challenge - sharing the host's traffic as in free roam"); }
         }
         if (racing != g_clientRacing) {
-            // our spawned traffic mirrors go (as before); cars bound to the host's are our own: just released
+            // cars bound to the host's are our own: just released. Our copies go at the race start (the event
+            // reloads the world); at its end they stay and go on as free-roam copies (no cars vanish).
             int released = 0;
             for (auto& m : g_mirrors) {
                 if (!m.used || m.racer || !m.n || (m.s[m.n - 1].e.flags & 1)) continue;
-                if (m.bound) ++released;
-                RemoveMirror(m);
+                if (m.bound) { ++released; RemoveMirror(m); }
+                else if (racing) RemoveMirror(m);
             }
             g_clientRacing = racing;
             g_raceBindLogs = 0; g_raceLastBound = g_raceLastWaiting = -1;
@@ -1522,6 +1527,9 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
     }
     if (g_clientRacing) {
         g_suppressTraffic = false;
+        // near the host no new traffic cars of our own: they'd be on this screen only (the host's cars are
+        // shown by our cars or copies). The ones we have drive on; none is removed (race scripts own some).
+        g_raceDensityOff = g_cfg.trafficSharedInRaces && g_trafficNear;
         if (sendNow) {
             TrafficEntry out[MAX_TRAFFIC_PER_PACKET];
             g_sentCount = CollectOwned({ VL_AICOPS }, peer.s.pos, out, 8);
@@ -1542,6 +1550,7 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
         TrafficSyncSummary(now, myPos);
         return;
     }
+    g_raceDensityOff = false;
     g_suppressTraffic = isNear;   // no own traffic / patrol spawns near the host (pursuit spawns stay)
     bool smooth = SmoothHandover();
     NetUtil::CamView cam = smooth ? ReadCamera(myPos) : NetUtil::CamView{};

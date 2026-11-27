@@ -9,12 +9,11 @@ challenges (race type 8) and free roam are not affected.
 
 **Why:** the client treats every event with a race type other than 8 as a race
 (`CoopRace::ClientTrafficAsRace`, `traffic.inl` `TrafficTick`). In a race the client keeps its own
-traffic: its traffic density stays on and no traffic car is removed or spawned. With
-`[Traffic] SharedInRaces=1` it only *binds* its own traffic cars to the host's cars
-(`BindRaceTraffic`). That leaves two gaps:
-- a host car with no free client car near it is not shown at all (`Traffic: in a race - mirroring the
-  host's traffic (N cars, M of the host's without a car here)`, M was up to 6 in a 19.8.37 run);
-- the client's own cars that are not bound drive on by themselves and are never sent to the host.
+traffic: no traffic car of its own is removed. With `[Traffic] SharedInRaces=1` it binds its own
+traffic cars to the host's cars (`BindRaceTraffic`); a host car with no client car for it gets a copy
+(out of view, with room), and near the host the client builds no new traffic of its own. That leaves
+one gap: the client's own cars from before the race that are not bound drive on by themselves (never
+sent to the host) until the game culls them.
 Farther than 450 m from the host each player has their own traffic (as in free roam).
 
 This was done on purpose for real races: race scripts own some traffic, and removing the client's
