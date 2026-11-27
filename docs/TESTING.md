@@ -278,6 +278,9 @@ Making a fresh profile without losing the real one:
 3. Afterwards close the game, delete the test profile folder and move the real one back. Check the real
    save's time/hash is what it was.
 
+`tools\saves.ps1 fresh` / `real` does steps 1 and 3 by renaming folders (nothing deleted; `status` shows
+which is active, `snapshot-fresh` keeps the current save as the template for the next `fresh`).
+
 A pass looks like this (both PCs on fresh careers, linked):
 
 | Step | Expected |
