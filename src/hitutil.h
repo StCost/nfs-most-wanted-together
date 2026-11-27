@@ -179,12 +179,13 @@ namespace HitUtil {
     // About to hit a car the other game owns (its traffic or cops, shown here as a copy moved by the network):
     // a copy forced to the network's position every frame is a wall to our physics - we stop dead and it
     // moves only when the owner's push comes back. So shortly before the contact our physics takes the copy
-    // over (the network no longer moves it), the hit happens as with a real car, and after a moment
-    // (LOCAL_HIT_MS, longer while we still touch it, at most LOCAL_HIT_MAX_MS) it glides back to the
-    // owner's position. Closing in (> 2 m/s), contact within ~0.25 s and a line of approach that meets it
-    // (miss < 3 m, a car's width plus margin): passing traffic in the next lane is left alone.
+    // over (the network no longer moves it), the hit happens as with a real car, and the owner's game puts
+    // its car where ours is (PKT_CARHOLD) until we let it go after a moment (LOCAL_HIT_MS, longer while we
+    // still touch it, at most LOCAL_HIT_MAX_MS); it drives on from there. Closing in (> 2 m/s), contact
+    // within ~0.25 s and a line of approach that meets it (miss < 3 m, a car's width plus margin): passing
+    // traffic in the next lane is left alone.
     constexpr unsigned LOCAL_HIT_MS = 1200, LOCAL_HIT_MAX_MS = 3000;
-    constexpr unsigned LOCAL_HIT_AGAIN_MS = 1500;   // after a release: no new take-over while it glides back
+    constexpr unsigned LOCAL_HIT_AGAIN_MS = 1500;   // after a release: no new take-over while it goes back to the owner
     inline bool TakeLocalOnApproach(const float* myPos, const float* myVel, const float* carPos, const float* carVel) {
         if (!Finite3(myPos) || !Finite3(myVel) || !Finite3(carPos) || !Finite3(carVel)) return false;
         float dx = carPos[0] - myPos[0], dz = carPos[2] - myPos[2];
@@ -199,6 +200,37 @@ namespace HitUtil {
         return dist - closing * 0.25f < 5.f;
     }
     // still in touch with it (keeps our physics on it a little longer)
+    // The copy was really hit (not a close pass): its speed changed by more than 2 m/s since we took it over.
+    inline bool CopyWasHit(const float* v0, const float* v) {
+        if (!Finite3(v0) || !Finite3(v)) return false;
+        float dx = v[0] - v0[0], dy = v[1] - v0[1], dz = v[2] - v0[2];
+        return dx * dx + dy * dy + dz * dz > 2.f * 2.f;
+    }
+    // A held car's state from the other game (PKT_CARHOLD): the rotation must be a unit quaternion (it is
+    // normalized), the speeds are capped. False when it can't be a car's state.
+    constexpr float HOLD_MAX_SPEED = 150.f, HOLD_MAX_SPIN = 20.f;   // m/s, rad/s
+    constexpr float HOLD_MAX_JUMP = 15.f;                           // m from where the car is here
+    inline void CapLength(float* v, float cap) {
+        float l = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        if (l > cap) for (int i = 0; i < 3; ++i) v[i] *= cap / l;
+    }
+    inline bool SaneHold(float* rot, float* vel, float* av) {
+        if (!Finite3(rot) || !std::isfinite(rot[3]) || !Finite3(vel) || !Finite3(av)) return false;
+        float ql = std::sqrt(rot[0] * rot[0] + rot[1] * rot[1] + rot[2] * rot[2] + rot[3] * rot[3]);
+        if (ql < 0.9f || ql > 1.1f) return false;
+        for (int i = 0; i < 4; ++i) rot[i] /= ql;
+        CapLength(vel, HOLD_MAX_SPEED); CapLength(av, HOLD_MAX_SPIN);
+        return true;
+    }
+    // The owner's car is ahead of the hitter's copy (network delay): the first held states are eased in
+    // over HOLD_BLEND_MS instead of jumping. Share of the starting offset left after `el` ms (1 -> 0).
+    constexpr unsigned HOLD_BLEND_MS = 150;
+    inline float HoldBlendLeft(unsigned el) {
+        if (el >= HOLD_BLEND_MS) return 0.f;
+        float k = 1.f - (float)el / HOLD_BLEND_MS;
+        return k * k * (3.f - 2.f * k);
+    }
+    inline bool NewerSeq(uint32_t a, uint32_t b) { return (int32_t)(a - b) > 0; }
     inline bool StillTouching(const float* myPos, const float* carPos) {
         if (!Finite3(myPos) || !Finite3(carPos)) return false;
         float dx = carPos[0] - myPos[0], dy = carPos[1] - myPos[1], dz = carPos[2] - myPos[2];

@@ -790,6 +790,26 @@ TEST(util_mirror_take_local_on_approach) {
     float touching[3] = { 0, 0.2f, 4.5f };
     CHECK(StillTouching(me, touching));
 }
+TEST(util_car_hold_checks) {
+    using namespace HitUtil;
+    float v0[3] = { 0, 0, 20 }, pass[3] = { 0.5f, 0, 19 }, hit[3] = { 3, 0, 12 };
+    CHECK(!CopyWasHit(v0, pass));                    // a close pass: no hold
+    CHECK(CopyWasHit(v0, hit));
+    float rot[4] = { 0, 0, 0, 1.05f }, vel[3] = { 0, 0, 300 }, av[3] = { 0, 50, 0 };
+    CHECK(SaneHold(rot, vel, av));
+    CHECK_NEAR(rot[3], 1.f, 1e-5);                   // normalized
+    CHECK_NEAR(vel[2], HOLD_MAX_SPEED, 1e-3);
+    CHECK_NEAR(av[1], HOLD_MAX_SPIN, 1e-3);
+    float bad[4] = { 0, 0, 0, 0.5f }, v[3] = {}, a[3] = {};
+    CHECK(!SaneHold(bad, v, a));
+    float nanq[4] = { NAN, 0, 0, 1 };
+    CHECK(!SaneHold(nanq, v, a));
+    CHECK_NEAR(HoldBlendLeft(0), 1.f, 1e-5);
+    CHECK_NEAR(HoldBlendLeft(HOLD_BLEND_MS / 2), 0.5f, 1e-5);
+    CHECK_NEAR(HoldBlendLeft(HOLD_BLEND_MS), 0.f, 1e-5);
+    CHECK(NewerSeq(5, 4)); CHECK(!NewerSeq(4, 4)); CHECK(!NewerSeq(3, 4));
+    CHECK(NewerSeq(2, 0xFFFFFFFEu));                 // wraps
+}
 TEST(util_mirror_hit_keeps_speed) {
     float n[3] = { 0, 0, 1 };                       // the copy straight ahead
     float before[3] = { 0, 0, 30 }, stopped[3] = { 0, 0, 1 }, out[3];
