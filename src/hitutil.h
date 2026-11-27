@@ -184,6 +184,7 @@ namespace HitUtil {
     // owner's position. Closing in (> 2 m/s), contact within ~0.25 s and a line of approach that meets it
     // (miss < 3 m, a car's width plus margin): passing traffic in the next lane is left alone.
     constexpr unsigned LOCAL_HIT_MS = 1200, LOCAL_HIT_MAX_MS = 3000;
+    constexpr unsigned LOCAL_HIT_AGAIN_MS = 1500;   // after a release: no new take-over while it glides back
     inline bool TakeLocalOnApproach(const float* myPos, const float* myVel, const float* carPos, const float* carVel) {
         if (!Finite3(myPos) || !Finite3(myVel) || !Finite3(carPos) || !Finite3(carVel)) return false;
         float dx = carPos[0] - myPos[0], dz = carPos[2] - myPos[2];

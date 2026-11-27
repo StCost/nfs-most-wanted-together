@@ -144,6 +144,7 @@ namespace {
         // it was to the host car's place instead of jumping there
         bool     blendPending = false; // start the glide at the next drive (from where the car is then)
         DWORD    localSince = 0, localUntil = 0;   // a hit: our physics moves it until localUntil (TakeLocalHits)
+        DWORD    localAgainAt = 0;                 // after a release: not taken over again before this (it glides back)
         DWORD    blendT0 = 0;    // GetTickCount when the glide started (0 = none)
         float    blendOff[3] = {};
         float    blendRot[4] = {};
@@ -396,6 +397,7 @@ namespace {
         if (m.localSince) {   // we hit it: our physics moves it for a moment, then it glides back to the owner's place
             if ((int)(GetTickCount() - m.localUntil) < 0) return;
             m.localSince = m.localUntil = 0;
+            m.localAgainAt = GetTickCount() + HitUtil::LOCAL_HIT_AGAIN_MS;
             m.blendPending = true; m.groundFix = 0;
         }
         const MirrorSample* a = nullptr; const MirrorSample* b = nullptr;
@@ -498,6 +500,7 @@ namespace {
     // to correct; without them (an older host) the truck's own hitch pulls it, and a trailer that came
     // off or was left behind is hitched / put back at the hitch.
     void DriveTrailer(Mirror& m, double renderSendMs) {
+        if (m.localSince) return;   // our physics moves the truck (a hit): the hitch pulls its trailer along
         void* art = ArticulatedOf(m.iv);
         if (!art) return;
         void* tr = TrailerOfArt(art);
@@ -827,7 +830,8 @@ static int g_raceLastBound = -1, g_raceLastWaiting = -1;   // last logged status
 
 // Client in a race (SharedInRaces): give every host traffic car without a car here one of OUR OWN
 // traffic cars to follow. Our own cars are never deleted and no AI is touched, so a car the race
-// script owns stays a valid car (it is only moved); a host car with none of ours free gets a copy. A car of the same model first, then any model.
+// script owns stays a valid car (it is only moved); a host car with none of ours free gets a copy.
+// A car of the same model first, then any model.
 static void BindRaceTraffic() {
     bool want = false;   // only look at our cars when a host car is waiting for one
     for (auto& m : g_mirrors) if (m.used && !m.iv && m.n && IsRaceTrafficMirror(m)) { want = true; break; }
@@ -1083,6 +1087,8 @@ static int MaintainMirrors(double now) {
                 for (auto& m : g_mirrors)
                     if (m.used && !m.racer && !m.bound && m.iv) { RemoveMirror(m); ++gone; }
             if (restart && !lastRestart) LOG("Traffic: race restart - %d copy car(s) removed, no new ones for 15 s", gone);
+            // (a cutscene only re-arms the 15 s: its camera picks its cars as it starts, so deleting copies on
+            // that edge would be the 0x44E9FD crash itself; while it plays the expiry above waits too)
         }
         lastRestart = restart; lastNis = nis;
         if ((ev && GetTickCount() - evAt < 15000) || NisActive()) mayspawn = false;
@@ -1108,6 +1114,8 @@ static int MaintainMirrors(double now) {
         // its game is paused - alt-tab, map, loading: keep every mirror frozen where it is.)
         // SmoothHandover: a car still on screen here drives on as our own traffic instead of vanishing.
         if (g_lastTrafficPkt - m.lastSeen > 1500) {
+            // a cutscene's camera may have picked a copy (0x44E9FD): none is deleted while one plays
+            if (NisActive() && !m.racer && !m.bound && m.iv) continue;
             if (smooth && !m.racer && !m.bound && m.iv) { int h = 0, mg = 0, co = 0; LetGoOfMirror(m, false, h, mg, co); g_hoKeptOnExpiry += h + co; }
             else RemoveMirror(m);
             continue;
@@ -1631,7 +1639,9 @@ static void TakeLocalHits(void* lrb, DWORD now) {
     const float* lp = RB_GetVec(lrb, RB_GetPosition);
     const float* lv = RB_GetVec(lrb, RB_GetLinearVelocity);
     for (auto& m : g_mirrors) {
-        if (!m.used || !m.iv || m.racer || m.n == 0) continue;
+        // (not race opponents, and not our own cars that follow theirs in a race: the race script owns those)
+        if (!m.used || !m.iv || m.racer || m.bound || m.n == 0) continue;
+        if (!m.localSince && (int)(now - m.localAgainAt) < 0) continue;   // just released: let it glide back first
         void* rb = RigidBodyOf(m.iv);
         if (!rb) continue;
         const float* cp = RB_GetVec(rb, RB_GetPosition);
