@@ -978,7 +978,9 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         if (d.what == Cool::BackToChase && InCooldownGrace(status == PS_COOLDOWN, now - g_sp.coolEnteredAt)) d = Decision{ Cool::Free };
         coolNow = (int)d.what;
         if (d.what == Cool::ForceEscape) {
-            ForceLocalEscape(pursuit);
+            // not once the event is over for us: the game started a pursuit again on every forced escape
+            // (the screen flashed "evaded" / "pursuit" for seconds on a pursuit challenge win)
+            if (!resultsFreeze) ForceLocalEscape(pursuit);
             if (coolNow != g_sp.lastCool) LOG("Pursuit: the other player evaded (safehouse) - ending ours as an escape");
         } else if (d.what == Cool::HoldEvade && pursuit && status != PS_COOLDOWN) {
             // the game starts the cooldown once the unseen time passes 2.5 s: keep it just under
