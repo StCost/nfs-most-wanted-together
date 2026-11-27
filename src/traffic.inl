@@ -283,10 +283,26 @@ namespace {
         if (Mirror* m = FindMirror(id)) NetUtil::CopyHudName(m->name, name);        // HUD slots are 16 bytes
     }
 
+    // Copies to delete once the cutscene is over: its camera may have picked one (0x44E9FD)
+    struct Doomed { void* iv; uint32_t wid; };
+    Doomed g_nisDoomed[64]; int g_nisDoomedN = 0;
+    void FlushNisDoomed(bool inWorld) {
+        if (!g_nisDoomedN || (inWorld && NisActive())) return;
+        int gone = 0;
+        for (int i = 0; i < g_nisDoomedN; ++i) {
+            void* iv = g_nisDoomed[i].iv;   // (the game may have deleted it meanwhile, or reused the memory)
+            if (inWorld && ListContains(-1, iv) && WorldIdOf(iv) == g_nisDoomed[i].wid) { KillVehicle(iv); ++gone; }
+        }
+        if (gone) LOG("Traffic: cutscene over - %d copy car(s) removed that had to wait", gone);
+        g_nisDoomedN = 0;
+    }
     void RemoveMirror(Mirror& m) {
         if (m.racer) { if (m.iv && (!m.wid || WorldIdOf(m.iv) == m.wid)) RestoreAI(m.iv); }   // our own racer: give it its AI back
         else if (m.bound) {}                                  // our own traffic car: it just drives on
-        else if (m.iv && ListContains(-1, m.iv)) KillVehicle(m.iv);   // (a car the game deleted was already dropped by g_onMirrorRemoved)
+        else if (m.iv && ListContains(-1, m.iv)) {           // (a car the game deleted was already dropped by g_onMirrorRemoved)
+            if (NisActive() && g_nisDoomedN < 64) g_nisDoomed[g_nisDoomedN++] = { m.iv, WorldIdOf(m.iv) };   // after the cutscene
+            else KillVehicle(m.iv);
+        }
                                                               // a truck's destructor (0x6B7E00) removes its trailer too: never Kill the trailer ourselves
         m = Mirror{};
     }
@@ -1087,8 +1103,7 @@ static int MaintainMirrors(double now) {
                 for (auto& m : g_mirrors)
                     if (m.used && !m.racer && !m.bound && m.iv) { RemoveMirror(m); ++gone; }
             if (restart && !lastRestart) LOG("Traffic: race restart - %d copy car(s) removed, no new ones for 15 s", gone);
-            // (a cutscene only re-arms the 15 s: its camera picks its cars as it starts, so deleting copies on
-            // that edge would be the 0x44E9FD crash itself; while it plays the expiry above waits too)
+            // (a cutscene only re-arms the 15 s: a copy removed while one plays is deleted after it, RemoveMirror)
         }
         lastRestart = restart; lastNis = nis;
         if ((ev && GetTickCount() - evAt < 15000) || NisActive()) mayspawn = false;
@@ -1412,6 +1427,7 @@ static void NoSpawnStatusTick(double now) {
 
 static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
     double now = Net::LocalClockMs();
+    FlushNisDoomed(Game::GameFlowState() == 6);
     if (g_cfg.trafficNoSpawnNearPlayers) NoSpawnStatusTick(now);
     void* me = LocalVehicle();
     void* myRb = RigidBodyOf(me);
@@ -1641,7 +1657,7 @@ static void TakeLocalHits(void* lrb, DWORD now) {
     for (auto& m : g_mirrors) {
         // (not race opponents, and not our own cars that follow theirs in a race: the race script owns those)
         if (!m.used || !m.iv || m.racer || m.bound || m.n == 0) continue;
-        if (!m.localSince && (int)(now - m.localAgainAt) < 0) continue;   // just released: let it glide back first
+        if (!m.localSince && m.localAgainAt && (int)(now - m.localAgainAt) < 0) continue;   // just released: let it glide back first
         void* rb = RigidBodyOf(m.iv);
         if (!rb) continue;
         const float* cp = RB_GetVec(rb, RB_GetPosition);
