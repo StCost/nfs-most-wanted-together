@@ -55,7 +55,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 
 - **Your own cars.** You both drive your own car with your tuning and visuals, damage and brake lights included.
 - **Events together.** Start any career event and your partner comes along: same opponents, same start, and you see each other.
-- **Shared wins.** If one of you wins, you both win. Whoever is still driving gets finished as the winner right there. The winner's photo is for whoever crossed the line first; the partner gets the results list, with the win, cash and progress counted, even after being totaled or knocked out.
+- **Shared wins and losses.** If one of you wins, you both win. Whoever is still driving gets finished as the winner right there. The winner's photo is for whoever crossed the line first; the partner gets the results list, with the win, cash and progress counted. If one of you loses (knocked out, totaled, out of time in a Challenge Series event), you both lose: the partner still driving gets the losing screen too.
 - **Police.** In free roam you share the cops: same heat, you lose them together, and if one of you is busted while you're both chased, you both are. Your partner's cops show on your minimap and set off your radar. In an event you're both in (Challenge Series, races with cops) your partner's cops chase you too, and if one of you gets busted, you both are.
 - **One world.** Shared traffic when you're close, collisions between your cars, blips on the minimap and the map.
 - **Saves.** Each of you keeps your own career save on your own PC, as in the plain game.
@@ -150,7 +150,7 @@ Things we know about but can't fix yet:
 - [x] Restart restarts the race for both of you, from the results screen too
 - [x] AI catch-up (rubber banding) follows whoever of you is ahead, Blacklist rivals included (`CatchUpLeader`)
 - [x] Race intro cutscenes play for both
-- [x] A win by either of you counts for both: cash, unlocks and progress in each own career. The one still driving is finished as the winner on the spot, with the payout and the rival's progress; the winner's photo is for whoever crossed the line first, the partner gets the results list, even after losing, totaling or being knocked out (`SharedWins`)
+- [x] A win by either of you counts for both: cash, unlocks and progress in each own career. The one still driving is finished as the winner on the spot, with the payout and the rival's progress; the winner's photo is for whoever crossed the line first, the partner gets the results list. A loss is shared too: when one of you is out without a win (knocked out, totaled, out of time), the other loses on the spot (`SharedWins`)
 - [x] You see the other player's finish in your standings
 - [x] Blacklist rival races: you both race the rival, the client's rival follows the host's (second race of the series too), and you each get the normal rival flow after winning
 - [x] In rival races your partner has their own racer slot: a grid slot and a row in the standings (`[Coop] PartnerInRivalRaces`)

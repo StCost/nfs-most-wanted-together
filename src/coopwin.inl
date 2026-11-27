@@ -530,8 +530,8 @@ static void ShowPostRaceOut(bool won) {
     ((void(__cdecl*)(bool))0x60AC20)(won);                       // ShowPostRace
 }
 
-// ---- lap knockout: knocked out while the other player still races ----
-//  The race script knocks a racer out with the native KnockoutRacer (0x611440, cdecl(racer)): the racer's
+// ---- lap knockout, and the shared loss ----
+//  The race script knocks a racer out with the native KnockoutRacer (0x611440, cdecl(ISimable*)): the racer's
 //  "knocked out" flag (0x600210), MNotifyKnockedOut, its AI told (+0x84), and the race status takes the car
 //  out of the world (0x5FF2E0(3, ...)). Then stategraph_basicrace_racing_handler_notifyknockedout: a human
 //  racer, all humans done -> ChangeState("raceover"). raceover shows "knocked out" (ShowRaceOverSummary)
@@ -541,38 +541,12 @@ static void ShowPostRaceOut(bool won) {
 //   - the other player's car is a racer in our game, and our script knocked it out when it was last at a
 //     lap's end - their car vanished from our world while they still raced. Their own game decides that:
 //     KnockoutRacer skips their racer here.
-//   - knocked out while they still race: the "knocked out" message as usual, but the results screen (and
-//     its Restart, which restarted their race too) only once they are done (finished or knocked out).
+//   - wins and losses are shared: once the other player is out of the event without a win (time ran out,
+//     knocked out, wrecked, busted, beaten), our racer is knocked out the same way (SharedLossTickImpl) and
+//     the game's own race-over and losing screen follow - in every race type.
 namespace {
-    bool     g_koHeld = false;        // our results screen waits for the other player
-    uint32_t g_koEvent = 0;
-    DWORD    g_koSince = 0;
-    uint32_t g_koGen = 0;          // the run it was held in (a restart keeps the event hash)
-
-    bool PeerStillRacing() {
-        if (!g_cfg.sharedWins || !g_coopLinked || !Net::Stats().connected) return false;
-        const Net::Snapshot& p = Net::Latest();
-        uint32_t ev = Game::CurrentEventHash();
-        return ev && p.valid && p.s.eventHash == ev && p.s.inRace && !p.s.finished && p.s.pad[0] != 3 && g_peerRacedHere;
-    }
-    // knocked out (not finished, not first) in a lap knockout while the other player still races
-    bool KnockoutHoldWanted() {
-        void* parms = CurrentParms();
-        if (!parms || ((int(__thiscall*)(void*))0x5FAA20)(parms) != 3) return false;   // lap knockout only
-        void* ri = RacerInfoOfLocal();
-        uint32_t outs = 0; int rank = 0;
-        if (!ri || !Mem::Read((uintptr_t)ri + 0x1C, outs) || !outs) return false;
-        Mem::Read((uintptr_t)ri + 0x10, rank);
-        if (rank == 1) return false;
-        return PeerStillRacing();
-    }
     void __cdecl hk_ShowLosingKO() {
         __try {
-            if (KnockoutHoldWanted()) {
-                g_koHeld = true; g_koEvent = Game::CurrentEventHash(); g_koSince = GetTickCount(); g_koGen = g_runGen;
-                LOG("Race: knocked out while the other player still races - the results screen waits for them");
-                return;
-            }
             // they won while "race over" was shown: the winner's photo instead of the losing screen
             void* ri = RacerInfoOfLocal(); int rank = 0; uint8_t fin = 0;
             if (ri) { Mem::Read((uintptr_t)ri + 0x10, rank); Mem::Read((uintptr_t)ri + 0x21, fin); }
@@ -612,45 +586,30 @@ namespace {
         } __except (EXCEPTION_EXECUTE_HANDLER) {}
         KnockoutRacerOrig(racer);
     }
+
+    uint32_t g_lossEvent = 0, g_lossGen = 0;   // the run we lost with the other player
 }
-// knocked out of a lap knockout while the other player still races (and until our results come up)
-static bool KnockedOutDrivesOn() {
-    __try { return g_koHeld || KnockoutHoldWanted(); } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
-}
-static void KnockoutNoticeTick() {
-    bool on = false;
-    if (Game::GameFlowState() == 6 && Game::CurrentEventHash()) {
-        void* ri = RacerInfoOfLocal(); uint32_t outs = 0; uint8_t fin = 0;
-        if (ri) { Mem::Read((uintptr_t)ri + 0x1C, outs); Mem::Read((uintptr_t)ri + 0x21, fin); }
-        on = outs && !fin && KnockedOutDrivesOn() && !FEScreens::IsPushed("PostRace_Results.fng");
-    }
-    Game::StickyNotice(on ? "KNOCKED OUT - waiting for the other player" : nullptr);
-}
-static void KnockoutReleaseTickImpl() {
-    if (!g_koHeld) return;
+static void SharedLossTickImpl(bool connected, const Net::Snapshot& peer) {
+    static DWORD lostSince = 0;
     uint32_t ev = Game::CurrentEventHash();
-    if (ev != g_koEvent || g_koGen != g_runGen || Game::GameFlowState() != 6) { g_koHeld = false; return; }   // restarted / left
-    static DWORD stoppedAt = 0; static uint32_t stoppedFor = 0;
-    bool racing = PeerStillRacing();
-    const Net::Snapshot& p = Net::Latest();
-    bool inOurEvent = Net::Stats().connected && p.valid && p.s.eventHash == ev;
-    if (racing || stoppedFor != ev) { stoppedAt = 0; stoppedFor = ev; }
-    if (!racing && !stoppedAt) {
-        stoppedAt = GetTickCount() | 1;
-        LOG("Race: the other player stopped racing (in race %d, finished %d, stage %d, event %08X) - waiting for their result",
-            (int)p.s.inRace, (int)p.s.finished, (int)p.s.pad[0], p.s.eventHash);
-    }
-    CoopRace::KoRelease r = CoopRace::KnockoutRelease(racing, PeerWonThisEvent(), inOurEvent,
-                                                      stoppedAt ? (int)(GetTickCount() - stoppedAt) : 0,
-                                                      GetTickCount() - g_koSince > 15u * 60u * 1000u);
-    if (r == CoopRace::KoRelease::Hold) return;
-    g_koHeld = false; stoppedAt = 0;
-    bool won = false;
-    if (r == CoopRace::KoRelease::Won)                            // they won: the shared win is paid to us too
-        won = CreditTeamWinOut("the knockout wait") || (g_outWinEvent == ev && g_teamWinEvent == ev);
-    else LOG("Race: no win reported by the other player (finished %d, in race %d, event %08X)", (int)p.s.finished, (int)p.s.inRace, p.s.eventHash);
-    LOG("Race: the other player is done - our results screen now%s", won ? " (their win counts for us)" : "");
-    ShowPostRaceOut(won);                                        // the screen the game held back
+    bool sameEvent = connected && g_coopLinked && peer.valid && ev && peer.s.eventHash == ev;
+    bool lost = CoopRace::PeerReportedLoss(sameEvent, g_peerRacedHere, peer.s.inRace != 0, peer.s.finished, peer.s.pad[0]);
+    if (!lost) { lostSince = 0; return; }
+    if (!lostSince) lostSince = GetTickCount() | 1;
+    uint8_t restart = 0; Mem::Read(0x91CF28, restart);
+    if (!CoopRace::ShouldLoseWithPeer(g_cfg.sharedWins, (int)(GetTickCount() - lostSince), PeerWonThisEvent(), RacingMode(),
+                                      LocalRacerOut(), ScriptedLossEvent(), restart != 0, NisActive(),
+                                      g_lossEvent == ev && g_lossGen == g_runGen))
+        return;
+    g_lossEvent = ev; g_lossGen = g_runGen;
+    void* sim = LocalSimable();
+    if (!sim) return;
+    LOG("Race: the other player is out without a win (finished %d, stage %d) - the race is lost for us too", (int)peer.s.finished, (int)peer.s.pad[0]);
+    Game::QueueNotice("Your partner lost - the race is lost for both", false);
+    KnockoutRacerOrig(sim);                                        // knocked out: race over, then the losing screen
+    void* ri = RacerInfoOfLocal(); uint32_t outs = 0;
+    if (ri) Mem::Read((uintptr_t)ri + 0x1C, outs);
+    if (!outs) LOG("Race: our racer is NOT out after the knockout - the race goes on here");
 }
 
 // Out of the event (busted, totaled, beaten), and then the other player wins: the win counts for us too
@@ -673,7 +632,7 @@ static void LoseScreenWinTickImpl() {
     if (!ev || !PeerWonThisEvent()) return;
     void* ri = RacerInfoOfLocal(); int rank = 0; uint8_t fin = 0;
     if (ri) { Mem::Read((uintptr_t)ri + 0x10, rank); Mem::Read((uintptr_t)ri + 0x21, fin); }
-    CoopRace::OutWin step = CoopRace::OutOfRaceWin(g_koHeld, true, RacingMode(), LocalRacerOut(),
+    CoopRace::OutWin step = CoopRace::OutOfRaceWin(true, RacingMode(), LocalRacerOut(),
                                                    fin && rank == 1, (g_loseToWinEvent == ev && g_loseToWinGen == g_runGen) || g_outWinEvent == ev,
                                                    FEScreens::IsPushed("Pause_Main.fng"),
                                                    FEScreens::IsPushed("PostRace_Results.fng"), FEScreens::IsPushed("InGamePhotoMaster.fng"));
@@ -712,8 +671,7 @@ void Game::CoopWinTick(bool connected, const Net::Snapshot& peer) {
     // before their racer is marked finished here: our racer then sorts first (rank 1) as well
     __try { if (connected) CoopFinishTickImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Race: exception finishing our racer"); }
     __try { CoopWinTickImpl(connected, peer); } __except (EXCEPTION_EXECUTE_HANDLER) {}
-    __try { KnockoutReleaseTickImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) { g_koHeld = false; }
-    __try { KnockoutNoticeTick(); } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    __try { if (connected) SharedLossTickImpl(connected, peer); } __except (EXCEPTION_EXECUTE_HANDLER) {}
     __try { LoseScreenWinTickImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
@@ -754,7 +712,7 @@ bool Game::InstallCoopWin() {
     LOG("Career: the winner's photo only for whoever really won (the partner: the results list) %s", tr ? "ok" : "FAIL (code differs)");
     bool f = g && PatchCallChecked(0x5A865D, 0x5A2AD0, (void*)&hk_PhotoSetup);       // PhotoFinishScreen::Setup
     LOG("Career: the winner's photo for a shared win, naming who won %s", f ? "ok" : "FAIL (code differs)");
-    LOG("Career: shared wins %s/%s/%s, winner's place for the race script %s, knockout waits for the other player %s", a ? "ok" : "FAIL", b ? "ok" : "FAIL", c ? "ok" : "FAIL", d ? "ok" : "FAIL (code differs)", e ? "ok" : "FAIL (code differs)");
+    LOG("Career: shared wins %s/%s/%s, winner's place for the race script %s, shared loss / knockout hooks %s", a ? "ok" : "FAIL", b ? "ok" : "FAIL", c ? "ok" : "FAIL", d ? "ok" : "FAIL (code differs)", e ? "ok" : "FAIL (code differs)");
     return a && b && c;
 }
 

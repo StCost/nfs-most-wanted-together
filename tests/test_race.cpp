@@ -395,24 +395,23 @@ TEST(join_context_travels_and_old_builds_keep_the_old_rule) {
 
 TEST(race_lose_screen_gives_way_to_the_results_list) {
     // (koHeld, peerWon, racing, localOut, localWon, doneThisRun, pauseUp, resultsUp, photoUp)
-    CHECK(OutOfRaceWin(false, true, true, true, false, false, true, false, false) == OutWin::ViaPauseScreen);
-    CHECK(OutOfRaceWin(true, true, true, true, false, false, true, false, false) == OutWin::None);    // knockout hold: its own release
-    CHECK(OutOfRaceWin(false, false, true, true, false, false, true, false, false) == OutWin::None);  // they haven't won
-    CHECK(OutOfRaceWin(false, true, true, true, false, false, false, false, false) == OutWin::None);  // "race over" message / left
-    CHECK(OutOfRaceWin(false, true, true, false, false, false, true, false, false) == OutWin::None);  // we still race (a plain pause)
-    CHECK(OutOfRaceWin(false, true, true, true, true, false, true, false, false) == OutWin::None);    // we won ourselves
-    CHECK(OutOfRaceWin(false, true, true, true, false, true, true, false, false) == OutWin::None);    // once per run
+    CHECK(OutOfRaceWin(true, true, true, false, false, true, false, false) == OutWin::ViaPauseScreen);
+    CHECK(OutOfRaceWin(false, true, true, false, false, true, false, false) == OutWin::None);  // they haven't won
+    CHECK(OutOfRaceWin(true, true, true, false, false, false, false, false) == OutWin::None);  // "race over" message / left
+    CHECK(OutOfRaceWin(true, true, false, false, false, true, false, false) == OutWin::None);  // we still race (a plain pause)
+    CHECK(OutOfRaceWin(true, true, true, true, false, true, false, false) == OutWin::None);    // we won ourselves
+    CHECK(OutOfRaceWin(true, true, true, false, true, true, false, false) == OutWin::None);    // once per run
 }
 
 TEST(race_out_player_gets_the_team_win) {
     // totaled / knocked out with the losing results list up, then they win: the list closes for the winner's photo
-    CHECK(OutOfRaceWin(false, true, true, true, false, false, false, true, false) == OutWin::ViaResults);
-    CHECK(OutOfRaceWin(false, true, true, true, false, false, false, true, true) == OutWin::None);    // the photo, not ours
-    CHECK(OutOfRaceWin(false, true, true, true, false, true, false, true, false) == OutWin::None);    // already counted
+    CHECK(OutOfRaceWin(true, true, true, false, false, false, true, false) == OutWin::ViaResults);
+    CHECK(OutOfRaceWin(true, true, true, false, false, false, true, true) == OutWin::None);    // the photo, not ours
+    CHECK(OutOfRaceWin(true, true, true, false, true, false, true, false) == OutWin::None);    // already counted
     // quit / continued off the losing screen before they won: the race is over here - not counted
-    CHECK(OutOfRaceWin(false, true, false, true, false, false, false, false, false) == OutWin::None);
-    CHECK(OutOfRaceWin(false, true, false, true, false, false, false, true, false) == OutWin::None);
-    CHECK(OutOfRaceWin(false, true, false, true, false, false, true, false, false) == OutWin::None);
+    CHECK(OutOfRaceWin(true, false, true, false, false, false, false, false) == OutWin::None);
+    CHECK(OutOfRaceWin(true, false, true, false, false, false, true, false) == OutWin::None);
+    CHECK(OutOfRaceWin(true, false, true, false, false, true, false, false) == OutWin::None);
     // they won while "race over" was shown: the winner's photo instead of the losing screen
     CHECK(CreditBeforeLoseScreen(true, true, true, false, false));
     CHECK(!CreditBeforeLoseScreen(false, true, true, false, false));  // they haven't won (yet)
@@ -578,16 +577,26 @@ TEST(race_host_racers_only_in_our_event) {
     CHECK(HostRacersAreOurs(false, 0u, 0xD9464514u));            // no state from the host: leave as is
 }
 
-TEST(race_knockout_wait_for_partner_result) {
+TEST(race_shared_loss) {
     using namespace CoopRace;
-    CHECK(KnockoutRelease(true, false, true, 0, false) == KoRelease::Hold);          // they still race
-    CHECK(KnockoutRelease(false, true, true, 0, false) == KoRelease::Won);           // they won
-    CHECK(KnockoutRelease(true, true, true, 0, false) == KoRelease::Won);
-    CHECK(KnockoutRelease(false, false, true, 0, false) == KoRelease::Hold);         // stopped: their result may lag
-    CHECK(KnockoutRelease(false, false, true, kKoResultWaitMs - 1, false) == KoRelease::Hold);
-    CHECK(KnockoutRelease(false, false, true, kKoResultWaitMs, false) == KoRelease::Lost);
-    CHECK(KnockoutRelease(false, false, false, 0, false) == KoRelease::Lost);        // they left the event
-    CHECK(KnockoutRelease(true, false, true, 0, true) == KoRelease::Lost);           // 15 min: give up
+    CHECK(PeerReportedLoss(true, true, true, 0, 3));          // knocked out / wrecked / busted / time out
+    CHECK(PeerReportedLoss(true, true, true, 2, 3));          // finished behind an opponent
+    CHECK(PeerReportedLoss(true, true, true, 4, 2));
+    CHECK(!PeerReportedLoss(true, true, true, 1, 3));         // they won
+    CHECK(!PeerReportedLoss(true, true, true, 0, 2));         // still racing
+    CHECK(!PeerReportedLoss(false, true, true, 2, 3));        // another event (they quit / left)
+    CHECK(!PeerReportedLoss(true, false, true, 2, 3));        // a leftover of a run we didn't race together
+    CHECK(!PeerReportedLoss(true, true, false, 2, 3));
+    CHECK(ShouldLoseWithPeer(true, kSharedLossConfirmMs, false, true, false, false, false, false, false));
+    CHECK(!ShouldLoseWithPeer(true, kSharedLossConfirmMs - 1, false, true, false, false, false, false, false));  // their win may follow
+    CHECK(!ShouldLoseWithPeer(false, kSharedLossConfirmMs, false, true, false, false, false, false, false));     // shared wins off
+    CHECK(!ShouldLoseWithPeer(true, kSharedLossConfirmMs, true, true, false, false, false, false, false));       // they won
+    CHECK(!ShouldLoseWithPeer(true, kSharedLossConfirmMs, false, false, false, false, false, false, false));     // race not running
+    CHECK(!ShouldLoseWithPeer(true, kSharedLossConfirmMs, false, true, true, false, false, false, false));       // we're out already
+    CHECK(!ShouldLoseWithPeer(true, kSharedLossConfirmMs, false, true, false, true, false, false, false));       // scripted loss
+    CHECK(!ShouldLoseWithPeer(true, kSharedLossConfirmMs, false, true, false, false, true, false, false));       // restart coming
+    CHECK(!ShouldLoseWithPeer(true, kSharedLossConfirmMs, false, true, false, false, false, true, false));       // cutscene
+    CHECK(!ShouldLoseWithPeer(true, kSharedLossConfirmMs, false, true, false, false, false, false, true));       // once per run
 }
 
 TEST(race_out_is_never_reported_as_a_win) {

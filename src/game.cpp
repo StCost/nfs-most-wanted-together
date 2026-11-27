@@ -482,10 +482,8 @@ static void AutopilotNos(void* iv, void* hai) {
 // After our finish (or knockout) the car went on at full speed under the player's hands while the finish
 // camera / results screen was up. The game's own AI drives it then (the autopilot), until the event is
 // over or the race restarts; then the player has it back.
-static bool KnockedOutDrivesOn();         // coopwin.inl: knocked out while the other player still races
 static void FinishAutopilotTickImpl() {
     static bool ours = false;            // we switched the autopilot on for the finish
-    static bool koLogged = false;
     void* rs = nullptr; int mode = 0;
     if (Mem::Read(0x91E000, rs) && rs) Mem::Read((uintptr_t)rs + 0x1960, mode);
     bool inEvent = Game::GameFlowState() == 6 && Game::CurrentEventHash() != 0;
@@ -495,15 +493,8 @@ static void FinishAutopilotTickImpl() {
             uint8_t fin = 0; uint32_t outs = 0;
             Mem::Read((uintptr_t)ri + 0x21, fin); Mem::Read((uintptr_t)ri + 0x1C, outs);
             done = fin || outs;
-            // knocked out of a lap knockout while the other player still races: the car stays ours
-            // to drive on (the AI only rammed walls with it - it has no race line any more) until
-            // they are done and our results come up
-            if (outs && !fin && KnockedOutDrivesOn()) {
-                done = false;
-                if (!koLogged) { koLogged = true; LOG("Race: knocked out - our car stays ours to drive until the other player is done"); }
-            } else koLogged = false;
         }
-    } else koLogged = false;
+    }
     void* iv = LocalVehicle();
     void* hai = IsVehicle(iv) ? Find(iv, 0x403770) : nullptr;
     if (!hai) { if (!inEvent) ours = false; return; }

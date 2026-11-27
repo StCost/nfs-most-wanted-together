@@ -243,17 +243,22 @@ namespace CoopRace {
         return (uint8_t)rank;
     }
 
-    // Knocked out of a lap knockout, waiting for the other player (coopwin.inl). When they stop racing, their
-    // result can lag a few snapshots behind (on their side "out" / results comes with the finish, and the rank
-    // there settles a frame later): wait up to kKoResultWaitMs for a reported win before showing a loss.
-    enum class KoRelease { Hold, Won, Lost };
-    constexpr int kKoResultWaitMs = 4000;
-    inline KoRelease KnockoutRelease(bool peerStillRacing, bool peerWon, bool peerInOurEvent, int msSinceStopped, bool timedOut) {
-        if (peerWon) return KoRelease::Won;
-        if (peerStillRacing && !timedOut) return KoRelease::Hold;
-        if (peerInOurEvent && !timedOut && msSinceStopped < kKoResultWaitMs) return KoRelease::Hold;
-        return KoRelease::Lost;
+    // Shared loss: the other player is out of this event without a win (time ran out, knocked out, wrecked,
+    // busted, finished behind an opponent) - the event is lost for us too. Their result can lag a snapshot
+    // behind their "out" (the rank settles a frame later, a win too): it must hold for kSharedLossConfirmMs.
+    constexpr int kSharedLossConfirmMs = 2000;
+    inline bool PeerReportedLoss(bool sameEvent, bool racedTogether, bool peerInRace, uint8_t peerFinished, uint8_t peerStage) {
+        if (!sameEvent || !racedTogether || !peerInRace || peerFinished == 1) return false;
+        return peerFinished >= 2 || peerStage == 3;
     }
+    // we lose with them: still racing here (not out, not finished), the race running, not a scripted loss,
+    // no restart on its way, no cutscene, once per run
+    inline bool ShouldLoseWithPeer(bool sharedWins, int peerLostForMs, bool peerWon, bool racing, bool localOut,
+                                   bool scriptedLoss, bool restartPending, bool cutscene, bool alreadyDone) {
+        if (!sharedWins || peerWon || !racing || localOut || scriptedLoss || restartPending || cutscene || alreadyDone) return false;
+        return peerLostForMs >= kSharedLossConfirmMs;
+    }
+
     // Our finish as told to the other player: knocked out / busted / wrecked (GRacerInfo +0x1C) is never a win
     // of ours, whatever rank the race status gives the car afterwards (seen: "finished, rank 1" right after a
     // knockout when the results came up).
@@ -404,16 +409,16 @@ namespace CoopRace {
         return kResultsAsIs;
     }
 
-    // Out of the event ("raceover": totaled, knocked out, beaten), not waiting for a knockout, the race still
+    // Out of the event ("raceover": totaled, knocked out, beaten), the race still
     // running here, and then the other player wins (once per run): what happens to the screen up.
     // The screen up closes and the winner's photo comes instead, the win counted (coopwin.inl LoseScreenWinTickImpl):
     //  ViaPauseScreen - the race-over Restart / Quit screen
     //  ViaResults     - the losing results list
     //  None           - nothing yet (the "race over" message: ShowLosingPostRaceScreen decides), or we left
     enum class OutWin { None, ViaResults, ViaPauseScreen };
-    inline OutWin OutOfRaceWin(bool knockoutHeld, bool peerWon, bool racing, bool localOut,
+    inline OutWin OutOfRaceWin(bool peerWon, bool racing, bool localOut,
                                bool localWon, bool doneThisRun, bool pauseScreenUp, bool resultsUp, bool photoUp) {
-        if (knockoutHeld || !peerWon || !racing || !localOut || localWon || doneThisRun) return OutWin::None;
+        if (!peerWon || !racing || !localOut || localWon || doneThisRun) return OutWin::None;
         if (pauseScreenUp) return OutWin::ViaPauseScreen;
         if (resultsUp && !photoUp) return OutWin::ViaResults;
         return OutWin::None;
