@@ -593,8 +593,7 @@ static void SharedLossTickImpl(bool connected, const Net::Snapshot& peer) {
     static DWORD lostSince = 0, screenCheckAt = 0; static uint32_t lastEv = 0, lastGen = 0;
     uint32_t ev = Game::CurrentEventHash();
     DWORD now = GetTickCount();
-    // the knockout gave no losing screen (a race whose script has no "raceover" for it; our racer still not
-    // finished 5 s later): show it ourselves
+    // no losing screen 5 s after the knockout (not finished yet): show it ourselves
     if (screenCheckAt && (int)(now - screenCheckAt) >= 0) {
         screenCheckAt = 0;
         void* ri = RacerInfoOfLocal(); uint8_t fin = 0;
@@ -605,15 +604,14 @@ static void SharedLossTickImpl(bool connected, const Net::Snapshot& peer) {
             ShowPostRaceOut(false);
         }
     }
-    // only a live report counts, for the whole confirm time: a disconnect, a new run here or a gap in their
-    // reports starts it over
+    // only a live report counts; a disconnect, a new run or a gap restarts the confirm time
     bool live = CoopRace::PeerLossReportLive(peer.valid, now - peer.recvTick, peer.s.gameFlowState, peer.s.pad[0]);
     if (!connected || !live || ev != lastEv || g_runGen != lastGen) lostSince = 0;
     lastEv = ev; lastGen = g_runGen;
     if (!connected || !live) return;
     bool sameEvent = g_coopLinked && ev && peer.s.eventHash == ev;
     bool lost = CoopRace::PeerReportedLoss(sameEvent, g_peerRacedHere, peer.s.inRace != 0, peer.s.finished, peer.s.pad[0]);
-    // busted with them (their bust busts us): the bust ends the race here, no knockout on top of it
+    // busted with them: the bust ends the race, no knockout on top
     if (g_sp.pendingBustUntil || LocalBustedThisRun()) lost = false;
     if (!lost) { lostSince = 0; return; }
     if (!lostSince) lostSince = now | 1;
@@ -631,7 +629,7 @@ static void SharedLossTickImpl(bool connected, const Net::Snapshot& peer) {
     void* ri = RacerInfoOfLocal(); uint32_t outs = 0;
     if (ri) Mem::Read((uintptr_t)ri + 0x1C, outs);
     if (!outs) { LOG("Race: our racer is NOT out after the knockout - the losing screen comes from us"); ShowPostRaceOut(false); }
-    else screenCheckAt = now + 5000;   // (the game's own screen comes ~3 s after the knockout)
+    else screenCheckAt = now + 5000;   // (the game's own comes ~3 s later)
 }
 
 // Out of the event (busted, totaled, beaten), and then the other player wins: the win counts for us too

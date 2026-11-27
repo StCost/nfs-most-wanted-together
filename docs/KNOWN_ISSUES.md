@@ -64,4 +64,3 @@ the player's spot for a moment and then moves to its own slot.
 **Why:** the client's slot is picked by the host's race and comes over the network (one trip).
 A car you never drove in free roam (a Challenge Series car) has no learned ride height: only a clear
 drop above the road is set down, to a usual 0.75 m.
-
