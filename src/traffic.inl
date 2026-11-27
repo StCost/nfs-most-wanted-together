@@ -105,7 +105,13 @@ namespace {
     bool g_localChased = false;   // set by pursuit.inl each tick
     bool __fastcall hk_CopSpotOk(void* self, void*, const float* pos, int a, int b, int c, int d) {
         if (!((bool(__fastcall*)(void*, void*, const float*, int, int, int, int))CopSpotOkFn)(self, nullptr, pos, a, b, c, d)) return false;
-        if (g_localChased) return true;   // a pursuit on us: its cops may come from anywhere (as in the plain game)
+        // a pursuit on us: its cops may come from anywhere near us (as in the plain game), but not in the
+        // other player's face far from us (they saw our pursuit cops pop up right in front of them)
+        if (g_localChased) {
+            void* rb = RigidBodyOf(LocalVehicle());
+            float s[3];
+            if (!rb || !pos || !Mem::SafeRead(pos, s, 12) || NetUtil::Dist3(s, RB_GetVec(rb, RB_GetPosition)) < 100.f) return true;
+        }
         if (Game::CurrentEventHash() != 0) return true;  // both on the same route; first pursuit cops must be able to spawn
         return !SpotNearPeer(pos, true);
     }
