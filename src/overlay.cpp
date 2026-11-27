@@ -287,8 +287,7 @@ namespace {
         const float W = (float)bbW, H = (float)bbH;
         const float size = 0.06f * H * m.scale, s = size / 2;
         float cx, cy, fx, fy;                                       // centre, and the way the tip points
-        if (!NetUtil::MarkerOnBox(m.place, W, H, &cx, &cy, &fx, &fy)) return;
-        if (m.place.onScreen) cy -= s;                              // over the car: the tip at the point
+        if (!NetUtil::MarkerOnBox(m.place, W, H, s, &cx, &cy, &fx, &fy)) return;   // over the car: the tip at the point
         const float px = -fy, py = fx;                              // across the chevron
         DWORD rgb = m.color ? (m.color & 0x00FFFFFF) : 0x00FFFFFF;
         DWORD col = (kMarkerAlpha << 24) | rgb;
@@ -468,6 +467,7 @@ namespace {
         if (gameDev && gameDev != g_dev) {
             LOG("Game device changed %p -> %p", g_dev, gameDev);
             if (g_tgTex) { g_tgTex->Release(); g_tgTex = nullptr; }
+            if (g_sb) { g_sb->Release(); g_sb = nullptr; }
             g_dev = gameDev;
         }
         if (dev == g_dev) {
@@ -514,6 +514,7 @@ namespace {
         if (SUCCEEDED(hr) && out && *out) {
             if (g_tex) { g_tex->Release(); g_tex = nullptr; } // new device: drop old textures
             if (g_tgTex) { g_tgTex->Release(); g_tgTex = nullptr; }
+            if (g_sb) { g_sb->Release(); g_sb = nullptr; }
             g_dev = *out;
             HookDevice(g_dev);
         }

@@ -69,7 +69,7 @@ void Game::MarkerTick(bool linked) {
     const char* w = why ? why : "";
     if (strcmp(w, lastWhy)) {
         if (!why) LOG("Marker: shown (chevron texture %s)", m.tex ? "found" : "missing - a drawn one");
-        else if (strcmp(why, "right next to us") || !*lastWhy) LOG("Marker: hidden - %s", why);
+        else if (!*lastWhy) LOG("Marker: hidden - %s", why);
         lastWhy = w;                   // (the reasons are string literals)
     }
 }

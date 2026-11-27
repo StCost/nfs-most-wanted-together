@@ -451,13 +451,13 @@ namespace NetUtil {
         return distM <= 60.f ? 1.f : distM >= 400.f ? 0.7f : 1.f - 0.3f * (distM - 60.f) / 340.f;
     }
     // The box the marker stays in (pixels): clear of the screen sides, below the rear-view mirror, above the
-    // pursuit bars. On screen the place is clamped into it (so leaving the screen doesn't jump); off screen it
-    // is where the line from the centre along (dirX, dirY) meets the box. Out: the centre and the unit
-    // direction the tip points (down over a car). False: no direction.
-    inline bool MarkerOnBox(const MarkerPlace& p, float W, float H, float* cx, float* cy, float* fx, float* fy) {
+    // pursuit bars. On screen the chevron's centre is liftPx over the place, then clamped into the box (so
+    // leaving the screen doesn't jump); off screen it is where the line from the centre along (dirX, dirY)
+    // meets the box. Out: the centre and the unit direction the tip points (down over a car). False: none.
+    inline bool MarkerOnBox(const MarkerPlace& p, float W, float H, float liftPx, float* cx, float* cy, float* fx, float* fy) {
         const float left = 0.06f * H, right = W - 0.06f * H, top = 0.22f * H, bottom = 0.66f * H;
         if (p.onScreen) {
-            *cx = p.x * W; *cy = p.y * H; *fx = 0.f; *fy = 1.f;
+            *cx = p.x * W; *cy = p.y * H - liftPx; *fx = 0.f; *fy = 1.f;
             *cx = *cx < left ? left : *cx > right ? right : *cx;
             *cy = *cy < top ? top : *cy > bottom ? bottom : *cy;
             return true;
