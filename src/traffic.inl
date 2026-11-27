@@ -1159,7 +1159,7 @@ static int MaintainMirrors(double now) {
             else RemoveMirror(m);
             continue;
         }
-        if (m.iv && (!ListContains(-1, m.iv) || (!m.bound && !StillOurCar(m.iv)))) { m.iv = nullptr; m.bound = false; }   // the game removed it (or built another car there)
+        if (m.iv && (!ListContains(-1, m.iv) || (!m.bound && !StillOurCar(m.iv)))) { m.iv = nullptr; m.bound = false; m.localSince = m.localUntil = 0; m.localTouched = false; }   // the game removed it (or built another car there)
         // free roam: our own car that showed this host car was un-spawned by the traffic manager (or is gone)
         if (m.bound && m.iv && !SharedRaceTraffic() && (!ListContainsOne(VL_AITRAFFIC, m.iv) || m.iv == LocalVehicle() || !IsActiveCar(m.iv))) { m.iv = nullptr; m.bound = false; }
         // one of our own cars of ANOTHER model shows this host car (the only one in its spot, or nearby while the
@@ -1178,6 +1178,7 @@ static int MaintainMirrors(double now) {
                                           (unsigned)m.id, m.model, VehName(m.iv), ModelKeyOf(m.iv));
                 KillVehicle(m.iv);
                 m.iv = nullptr; m.bound = false; m.groundFix = 0; m.rideKnown = false; m.ownSampled = false;
+                m.localSince = m.localUntil = 0; m.localTouched = false;
                 m.swapNotBefore = now + 5000.0;
                 ++g_modelSwaps;
                 continue;                           // built next frame (the removed car is not rebound meanwhile)
@@ -1264,7 +1265,7 @@ static int MaintainMirrors(double now) {
             if (m.iv) ++alive;
             continue;
         }
-        if (g_ghostStarved && m.iv && freed < 2 && !NisActive()) { KillVehicle(m.iv); m.iv = nullptr; ++freed; continue; }   // (room for the ghost: after a cutscene)
+        if (g_ghostStarved && m.iv && freed < 2 && !NisActive()) { KillVehicle(m.iv); m.iv = nullptr; m.localSince = m.localUntil = 0; m.localTouched = false; ++freed; continue; }   // (room for the ghost: after a cutscene)
         if (!m.iv && m.n && mayspawn && spawned < 2 && m.fails < 3) {
             const TrafficEntry& e = m.s[m.n - 1].e;
             // never create a car inside a player (it would fling them): wait until it has moved on

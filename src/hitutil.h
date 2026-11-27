@@ -199,7 +199,6 @@ namespace HitUtil {
         if (miss > 3.f) return false;
         return dist - closing * 0.25f < 5.f;
     }
-    // still in touch with it (keeps our physics on it a little longer)
     // The copy was really hit (not a close pass): its speed changed by more than 2 m/s since we took it over.
     inline bool CopyWasHit(const float* v0, const float* v) {
         if (!Finite3(v0) || !Finite3(v)) return false;
@@ -231,6 +230,7 @@ namespace HitUtil {
         return k * k * (3.f - 2.f * k);
     }
     inline bool NewerSeq(uint32_t a, uint32_t b) { return (int32_t)(a - b) > 0; }
+    // still in touch with it (keeps our physics on it a little longer)
     inline bool StillTouching(const float* myPos, const float* carPos) {
         if (!Finite3(myPos) || !Finite3(carPos)) return false;
         float dx = carPos[0] - myPos[0], dy = carPos[1] - myPos[1], dz = carPos[2] - myPos[2];
