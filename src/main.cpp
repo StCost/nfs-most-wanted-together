@@ -464,7 +464,7 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
         }
         { Perf::Scope p(Perf::Traffic); if (g_netOk && g_gameOk) Game::TrafficTick(linked, Net::Latest()); }
         { Perf::Scope p(Perf::Pursuit); if (g_netOk && g_gameOk) Game::PursuitTick(linked, Net::Latest()); }
-        { Perf::Scope p(Perf::Pursuit); if (g_gameOk) Game::MarkerTick(g_netOk && linked && Net::Stats().connected); }
+        { Perf::Scope p(Perf::Marker); if (g_gameOk) Game::MarkerTick(g_netOk && linked && Net::Stats().connected); }
         { Perf::Scope p(Perf::Pursuit); if (g_netOk && g_gameOk) Game::RoadblockTick(linked && Net::Stats().connected); }
         { Perf::Scope perfRules(Perf::Rules);
         if (g_netOk && g_gameOk) Game::EventTick(linked);

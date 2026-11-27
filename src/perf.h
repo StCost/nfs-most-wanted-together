@@ -9,9 +9,9 @@
 #include "log.h"
 
 namespace Perf {
-    enum Section { Menus, Net, Ghost, Traffic, Pursuit, Rules, Overlay, Count };
+    enum Section { Menus, Net, Ghost, Traffic, Pursuit, Rules, Overlay, Marker, Count };
     inline const char* Name(int s) {
-        static const char* n[] = { "menus", "net", "ghost", "traffic", "pursuit", "rules", "overlay" };
+        static const char* n[] = { "menus", "net", "ghost", "traffic", "pursuit", "rules", "overlay", "marker" };
         return n[s];
     }
 

@@ -776,3 +776,49 @@ TEST(util_mirror_hit_keeps_speed) {
     CHECK(!HitUtil::MirrorHitKeepSpeed(bad, stopped, n, out));
 }
 
+
+// the partner marker: identity view-projection in render space (x = game z, y = -game x, z = game y)
+static void MarkerIdentity(float* M) { for (int i = 0; i < 16; ++i) M[i] = (i % 5 == 0) ? 1.f : 0.f; }
+
+TEST(util_marker_projects_on_screen) {
+    float M[16]; MarkerIdentity(M);
+    // w = 1: game (x, y, z) -> clip (z, -x, y + up)
+    const float p[3] = { 0.f, 0.f, 0.f };
+    MarkerPlace a = ProjectMarker(M, p, 0.f);
+    CHECK(a.onScreen); CHECK_NEAR(a.x, 0.5f, 1e-6f); CHECK_NEAR(a.y, 0.5f, 1e-6f);
+    const float q[3] = { -0.5f, 0.f, 0.5f };             // clip (0.5, 0.5): right and up
+    MarkerPlace b = ProjectMarker(M, q, 0.f);
+    CHECK(b.onScreen); CHECK_NEAR(b.x, 0.75f, 1e-6f); CHECK_NEAR(b.y, 0.25f, 1e-6f);
+}
+
+TEST(util_marker_off_screen_and_behind_point_the_right_way) {
+    float M[16]; MarkerIdentity(M);
+    const float right[3] = { 0.f, 0.f, 3.f };            // clip x 3: off to the right
+    MarkerPlace a = ProjectMarker(M, right, 0.f);
+    CHECK(!a.onScreen); CHECK(a.dirX > 0.f); CHECK_NEAR(a.dirY, 0.f, 1e-6f);
+    M[15] = -1.f;                                         // w < 0: behind the camera
+    const float behindLeft[3] = { 0.f, 0.f, -2.f };
+    MarkerPlace b = ProjectMarker(M, behindLeft, 0.f);
+    CHECK(!b.onScreen); CHECK(b.dirX < 0.f); CHECK(b.dirY > 0.f);   // keeps its side, biased down
+    const float straightBehind[3] = { 0.f, 0.f, 0.f };
+    MarkerPlace c = ProjectMarker(M, straightBehind, 0.f);
+    CHECK(!c.onScreen); CHECK(c.dirY > 0.f);
+}
+
+TEST(util_marker_box_and_scale) {
+    float cx, cy, fx, fy;
+    MarkerPlace low{ true, 0.5f, 0.97f, 0.f, 0.f };        // on screen at the very bottom: kept above the bars
+    CHECK(MarkerOnBox(low, 1920.f, 1080.f, &cx, &cy, &fx, &fy));
+    CHECK_NEAR(cx, 960.f, 1e-3f); CHECK_NEAR(cy, 0.66f * 1080.f, 1e-2f); CHECK_NEAR(fy, 1.f, 1e-6f);
+    MarkerPlace down{ false, 0.f, 0.f, 0.f, 1.f };          // just off the bottom: the same place, no jump
+    CHECK(MarkerOnBox(down, 1920.f, 1080.f, &cx, &cy, &fx, &fy));
+    CHECK_NEAR(cx, 960.f, 1e-3f); CHECK_NEAR(cy, 0.66f * 1080.f, 1e-2f);
+    MarkerPlace left{ false, 0.f, 0.f, -1.f, 0.f };
+    CHECK(MarkerOnBox(left, 1920.f, 1080.f, &cx, &cy, &fx, &fy));
+    CHECK_NEAR(cx, 0.06f * 1080.f, 1e-2f); CHECK_NEAR(cy, 540.f, 1e-3f); CHECK_NEAR(fx, -1.f, 1e-6f);
+    MarkerPlace none{ false, 0.f, 0.f, 0.f, 0.f };
+    CHECK(!MarkerOnBox(none, 1920.f, 1080.f, &cx, &cy, &fx, &fy));
+    CHECK_NEAR(MarkerScale(10.f), 1.f, 1e-6f);
+    CHECK_NEAR(MarkerScale(400.f), 0.7f, 1e-6f);
+    CHECK_NEAR(MarkerScale(230.f), 0.85f, 1e-5f);
+}

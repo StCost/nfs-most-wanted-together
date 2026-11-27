@@ -181,8 +181,6 @@ namespace {
             if (!RebuildTexture(dev)) return;
         }
 
-        IDirect3DStateBlock9* sb = nullptr;
-        if (FAILED(dev->CreateStateBlock(D3DSBT_ALL, &sb))) return;
 
         SetupStates(dev);
 
@@ -216,8 +214,6 @@ namespace {
         };
         dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, tq, sizeof(Vtx));
 
-        sb->Apply();
-        sb->Release();
     }
 
 
@@ -242,8 +238,6 @@ namespace {
         }
         if (!g_tgW || !g_tgH) return;
 
-        IDirect3DStateBlock9* sb = nullptr;
-        if (FAILED(dev->CreateStateBlock(D3DSBT_ALL, &sb))) return;
         SetupStates(dev);
         float w = (float)g_tgW, h = (float)g_tgH, x0, y0;
         if (Together::Centered()) {     // the page: centred, scaled down to fit small back buffers
@@ -276,13 +270,11 @@ namespace {
             { x0 + w - .5f, y0 + h - .5f, 0, 1, fg, u1, v1 },
         };
         dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, tq, sizeof(Vtx));
-        sb->Apply();
-        sb->Release();
     }
 
-    // ---- the friend marker (marker.inl sets it every frame) ----
+    // ---- the partner marker (marker.inl sets it every frame) ----
     // The game's thin chevron (ARROW_SKINNIER, white with a dark rim; its tip is on the texture's left
-    // edge) tinted with the friend's paint colour, see-through: over their car pointing down, or at the
+    // edge) tinted with the partner's paint colour, see-through: over their car pointing down, or at the
     // edge of the screen pointing at them. Without the texture, a drawn chevron of the same shape.
     Overlay::Marker g_marker;
     constexpr DWORD kMarkerAlpha = 0x99;     // ~60 %
@@ -295,26 +287,12 @@ namespace {
         const float W = (float)bbW, H = (float)bbH;
         const float size = 0.06f * H * m.scale, s = size / 2;
         float cx, cy, fx, fy;                                       // centre, and the way the tip points
-        if (m.onScreen) { cx = m.x * W; cy = m.y * H - s; fx = 0; fy = 1; }
-        else {
-            fx = m.dirX * W; fy = m.dirY * H;
-            float len = sqrtf(fx * fx + fy * fy);
-            if (!(len > 1e-3f)) return;
-            fx /= len; fy /= len;
-            // from the centre along the direction to an inset rectangle
-            // (the bottom stops above the pursuit bars, the top below the rear-view mirror)
-            const float mx = W / 2 - 0.06f * H, myUp = H / 2 - 0.22f * H, myDown = H / 2 - 0.34f * H;
-            float t = 1e9f;
-            if (fabsf(fx) > 1e-4f) t = (std::min)(t, mx / fabsf(fx));
-            if (fabsf(fy) > 1e-4f) t = (std::min)(t, (fy > 0 ? myDown : myUp) / fabsf(fy));
-            cx = W / 2 + fx * t; cy = H / 2 + fy * t;
-        }
+        if (!NetUtil::MarkerOnBox(m.place, W, H, &cx, &cy, &fx, &fy)) return;
+        if (m.place.onScreen) cy -= s;                              // over the car: the tip at the point
         const float px = -fy, py = fx;                              // across the chevron
         DWORD rgb = m.color ? (m.color & 0x00FFFFFF) : 0x00FFFFFF;
         DWORD col = (kMarkerAlpha << 24) | rgb;
 
-        IDirect3DStateBlock9* sb = nullptr;
-        if (FAILED(dev->CreateStateBlock(D3DSBT_ALL, &sb))) return;
         SetupStates(dev);
         dev->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
         dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
@@ -349,9 +327,9 @@ namespace {
             Arm(0.08f, rim, 0.05f); Arm(0.92f, rim, 0.05f);
             Arm(0.12f, col, 0.f);   Arm(0.88f, col, 0.f);
         }
-        sb->Apply();
-        sb->Release();
     }
+
+    IDirect3DStateBlock9* g_sb = nullptr; IDirect3DDevice9* g_sbDev = nullptr;
 
     // Draw onto the back buffer right before the frame is presented, so it is always on top and
     // always on screen, no matter which offscreen targets the game used during the frame.
@@ -370,11 +348,16 @@ namespace {
         dev->SetDepthStencilSurface(nullptr);
 
         D3DSURFACE_DESC bd{}; bb->GetDesc(&bd);
-        if (SUCCEEDED(dev->BeginScene())) {
+        // the game's render states, saved once for all our drawing (one block, kept; rebuilt after a Reset)
+        if (g_sb && g_sbDev != dev) { g_sb->Release(); g_sb = nullptr; }
+        if (!g_sb && SUCCEEDED(dev->CreateStateBlock(D3DSBT_ALL, &g_sb))) g_sbDev = dev;
+        else if (g_sb && FAILED(g_sb->Capture())) { g_sb->Release(); g_sb = nullptr; }
+        if (g_sb && SUCCEEDED(dev->BeginScene())) {
             DrawMarker(dev, bd.Width, bd.Height);
             if (g_visible) DrawOverlay(dev);
             DrawTogether(dev, bd.Width, bd.Height);
             dev->EndScene();
+            g_sb->Apply();
         }
 
         if (g_frames == 1 || g_frames % 3600 == 0) {
@@ -491,7 +474,7 @@ namespace {
             ++g_frames;
             if (g_cb) g_cb(dev);
             if (!g_shotPath.empty() && !g_shotOverlay) { SaveBackBuffer(dev, g_shotPath); g_shotPath.clear(); }   // before our overlay
-            if (g_visible || Together::Visible() || g_marker.show) DrawOnBackBuffer(dev);   // the friend marker draws with the overlay hidden too
+            if (g_visible || Together::Visible() || g_marker.show) DrawOnBackBuffer(dev);   // the partner marker draws with the overlay hidden too
             if (!g_shotPath.empty() && g_shotOverlay) { SaveBackBuffer(dev, g_shotPath); g_shotPath.clear(); }
         }
         HRESULT hr = o_Present(dev, src, dst, wnd, dirty);
@@ -500,7 +483,8 @@ namespace {
     }
 
     HRESULT STDMETHODCALLTYPE hk_Reset(IDirect3DDevice9* dev, D3DPRESENT_PARAMETERS* pp) {
-        // our texture is D3DPOOL_MANAGED and state blocks are per-frame, so nothing to release
+        // our textures are D3DPOOL_MANAGED; the saved state block goes (made again on the next frame)
+        if (g_sb) { g_sb->Release(); g_sb = nullptr; }
         HRESULT hr = o_Reset(dev, pp);
         LOG("Device Reset -> 0x%08X", (unsigned)hr);
         return hr;

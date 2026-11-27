@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cmath>
+#include <algorithm>
 #include "net.h"
 
 namespace NetUtil {
@@ -421,5 +422,53 @@ namespace NetUtil {
     constexpr float TRAILER_LOST_M = 16.f;
     inline bool TrailerLost(const float* truckPos, const float* trailerPos) {
         return !(Dist3(truckPos, trailerPos) <= TRAILER_LOST_M);
+    }
+
+    // ---- the partner marker (marker.inl projects, overlay.cpp draws) ----
+    // Where a point in game space lands with the game's view-projection matrix M (row vectors; render space is
+    // (z, -x, y)). On screen: x / y as screen fractions (y down). Off screen: dirX / dirY, the way to it from
+    // the centre in screen fractions (y down) - (c0, c1) keeps the true side even behind the camera, where only
+    // the divide by w flips it; behind is biased down.
+    struct MarkerPlace { bool onScreen; float x, y, dirX, dirY; };
+    inline MarkerPlace ProjectMarker(const float* M, const float* gamePos, float up) {
+        const float r[4] = { gamePos[2], -gamePos[0], gamePos[1] + up, 1.f };
+        float c[4];
+        for (int j = 0; j < 4; ++j) c[j] = r[0] * M[j] + r[1] * M[4 + j] + r[2] * M[8 + j] + r[3] * M[12 + j];
+        MarkerPlace p{ false, 0.f, 0.f, 0.f, 0.f };
+        if (c[3] > 0.05f) {
+            float sx = (c[0] / c[3] + 1) * 0.5f, sy = (1 - c[1] / c[3]) * 0.5f;
+            if (sx >= 0.f && sx <= 1.f && sy >= 0.f && sy <= 1.f) { p.onScreen = true; p.x = sx; p.y = sy; return p; }
+        }
+        p.dirX = c[0]; p.dirY = -c[1];
+        if (c[3] <= 0.05f) {
+            float len = std::sqrt(p.dirX * p.dirX + p.dirY * p.dirY);
+            p.dirY = std::fabs(p.dirY) + 0.35f * (len > 1e-3f ? len : 1.f);
+        }
+        return p;
+    }
+    // full size up to 60 m, 70 % from 400 m
+    inline float MarkerScale(float distM) {
+        return distM <= 60.f ? 1.f : distM >= 400.f ? 0.7f : 1.f - 0.3f * (distM - 60.f) / 340.f;
+    }
+    // The box the marker stays in (pixels): clear of the screen sides, below the rear-view mirror, above the
+    // pursuit bars. On screen the place is clamped into it (so leaving the screen doesn't jump); off screen it
+    // is where the line from the centre along (dirX, dirY) meets the box. Out: the centre and the unit
+    // direction the tip points (down over a car). False: no direction.
+    inline bool MarkerOnBox(const MarkerPlace& p, float W, float H, float* cx, float* cy, float* fx, float* fy) {
+        const float left = 0.06f * H, right = W - 0.06f * H, top = 0.22f * H, bottom = 0.66f * H;
+        if (p.onScreen) {
+            *cx = p.x * W; *cy = p.y * H; *fx = 0.f; *fy = 1.f;
+            *cx = *cx < left ? left : *cx > right ? right : *cx;
+            *cy = *cy < top ? top : *cy > bottom ? bottom : *cy;
+            return true;
+        }
+        float dx = p.dirX * W, dy = p.dirY * H, len = std::sqrt(dx * dx + dy * dy);
+        if (!(len > 1e-3f)) return false;
+        dx /= len; dy /= len;
+        float t = 1e9f;
+        if (std::fabs(dx) > 1e-4f) t = (std::min)(t, (dx > 0 ? right - W / 2 : W / 2 - left) / std::fabs(dx));
+        if (std::fabs(dy) > 1e-4f) t = (std::min)(t, (dy > 0 ? bottom - H / 2 : H / 2 - top) / std::fabs(dy));
+        *cx = W / 2 + dx * t; *cy = H / 2 + dy * t; *fx = dx; *fy = dy;
+        return true;
     }
 }
