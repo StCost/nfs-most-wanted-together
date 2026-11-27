@@ -151,7 +151,7 @@ namespace {
         bool     trailerLogged = false;
         DWORD    trailerFixAt = 0;    // last re-hitch / put-back (at most every 2 s)
     };
-    Mirror g_mirrors[48];
+    Mirror g_mirrors[128];   // the other player's cars we show (MaxCars at most 64)
     bool   g_trafficNear = false;
     // In a race the client never removes or replaces its own traffic: race scripts own some of those
     // cars (drag races), and removing one crashed the game (0x5FD94A). Cops and race opponents are
@@ -1223,13 +1223,20 @@ static bool CopInRoadblock(void* iv) {
 
 // Collect our own (non-mirror) cars of the given lists, nearest to `to` first, into a packet.
 // Cops standing in one of our roadblocks go first (after race opponents), flagged TE_ROADBLOCK.
-static int CollectOwned(std::initializer_list<int> lists, const float* to, TrafficEntry* out, int maxOut, void** outIv = nullptr) {
-    struct C { void* iv; float d; uint8_t flags; } cand[64]; int nc = 0;
+// One packet holds MAX_TRAFFIC_PER_PACKET (20) cars: 20 x 64 bytes keeps it in one UDP datagram (under the
+// ~1400-byte MTU). With more cars than that (MaxCars), `rotate` (a cursor kept by the caller) splits it: the
+// first kAlwaysSent of the ordered list (racers, roadblock cops, cops, then the nearest) go in every packet,
+// the other slots take turns through the rest - each car is refreshed at least every few packets (40 cars:
+// every 4th, 200 ms at 20 Hz), well inside the 1.5 s after which the other game drops a copy it didn't hear of.
+static int g_sendTurn = 0;   // host: whose turn it is among the cars beyond the always-sent ones
+static int CollectOwned(std::initializer_list<int> lists, const float* to, TrafficEntry* out, int maxOut, void** outIv = nullptr, int* rotate = nullptr) {
+    constexpr int kCand = 128, kAlwaysSent = 12;
+    struct C { void* iv; float d; uint8_t flags; } cand[kCand]; int nc = 0;
     void* me = LocalVehicle();
     for (int list : lists) {
         void** b = nullptr;
         int cnt = ListSize(list, &b);
-        for (int i = 0; i < cnt && nc < 64; ++i) {
+        for (int i = 0; i < cnt && nc < kCand; ++i) {
             void* t = ListGet(list, i);
             if (!t || t == me || IsMirrorCar(t) || IsPeerReservedCar(t)) continue;
             void* rb = RigidBodyOf(t);
@@ -1245,7 +1252,7 @@ static int CollectOwned(std::initializer_list<int> lists, const float* to, Traff
     // a racer often also sits in the traffic list: one entry, racer flags, or the client binds a
     // traffic car to that id and the real racer stays on the grid (stacked / unsynced)
     {
-        NetUtil::OwnedCarCand dc[64];
+        NetUtil::OwnedCarCand dc[kCand];
         for (int i = 0; i < nc; ++i) { dc[i].key = (uintptr_t)cand[i].iv; dc[i].d = cand[i].d; dc[i].flags = cand[i].flags; }
         nc = NetUtil::DedupOwnedCars(dc, nc);
         for (int i = 0; i < nc; ++i) { cand[i].iv = (void*)dc[i].key; cand[i].d = dc[i].d; cand[i].flags = (uint8_t)dc[i].flags; }
@@ -1253,6 +1260,19 @@ static int CollectOwned(std::initializer_list<int> lists, const float* to, Traff
     for (int i = 0; i < nc; ++i)
         for (int j = i + 1; j < nc; ++j)
             if (cand[j].d < cand[i].d) { C x = cand[i]; cand[i] = cand[j]; cand[j] = x; }
+    // more cars than one packet holds: the first kAlwaysSent stay, the rest take turns for the other slots
+    if (rotate && nc > maxOut && maxOut > kAlwaysSent) {
+        int rest = nc - kAlwaysSent, slots = maxOut - kAlwaysSent;
+        int start = *rotate % rest;
+        C pick[kCand]; int k = 0;
+        for (int i = 0; i < kAlwaysSent; ++i) pick[k++] = cand[i];
+        for (int j = 0; j < slots; ++j) pick[k++] = cand[kAlwaysSent + (start + j) % rest];
+        *rotate = (start + slots) % rest;
+        for (int i = 0; i < k; ++i) cand[i] = pick[i];
+        nc = k;
+        static DWORD lastLog = 0;
+        if (GetTickCount() - lastLog > 30000) { lastLog = GetTickCount(); LOG("Traffic: %d cars to send, %d per packet - %d every packet, the other %d in turns (each at least every %d packets)", kAlwaysSent + rest, maxOut, kAlwaysSent, rest, (rest + slots - 1) / slots); }
+    }
     int n = 0;
     for (int i = 0; i < nc && n < maxOut; ++i) {
         void* rb = RigidBodyOf(cand[i].iv);
@@ -1362,8 +1382,8 @@ static void TrafficTickImpl(bool connected, const Net::Snapshot& peer) {
               if (nr != lastRacers) { lastRacers = nr; LOG("Race: sending %d racer slot(s) to the client (in race %d)", nr, (int)inRace); } }
             void* outIv[MAX_TRAFFIC_PER_PACKET] = {};
             g_sentCount = distToPeer <= 450.f
-                ? CollectOwned({ VL_AIRACERS, VL_AICOPS, VL_AITRAFFIC }, peer.s.pos, out, MAX_TRAFFIC_PER_PACKET, outIv)
-                : CollectOwned({ VL_AIRACERS }, peer.s.pos, out, MAX_TRAFFIC_PER_PACKET, outIv);
+                ? CollectOwned({ VL_AIRACERS, VL_AICOPS, VL_AITRAFFIC }, peer.s.pos, out, MAX_TRAFFIC_PER_PACKET, outIv, &g_sendTurn)
+                : CollectOwned({ VL_AIRACERS }, peer.s.pos, out, MAX_TRAFFIC_PER_PACKET, outIv, &g_sendTurn);
             float simT = Game::SimTimeSec();
             Net::SendTraffic(out, g_sentCount, simT);
             // the trailers of the trucks in it (sent every time, also empty: tells the client we send them)
@@ -1703,7 +1723,7 @@ static bool DebugSpawnCopImpl(char* out, size_t n) {
         void** b = nullptr;
         sprintf_s(out, n, "police car %s (cops now %d)", iv ? "spawned" : "FAILED", ListSize(VL_AICOPS, &b));
         return iv != nullptr;
-    } __except (EXCEPTION_EXECUTE_HANDLER) { strcpy_s(out, n, "exception"); return false; }
+    } __except (Game::LogFault("DebugSpawnCop", GetExceptionInformation()), EXCEPTION_EXECUTE_HANDLER) { strcpy_s(out, n, "exception"); return false; }
 }
 std::string Game::DebugSpawnCop() {
     if (!g_ok || GameFlowState() != 6) return "not in game";

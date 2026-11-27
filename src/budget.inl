@@ -99,12 +99,35 @@ namespace {
         Mem::PatchBytes(LimitLeaImm, &b, &nb, 1);
     }
 
+    // ---- address space ----
+    //  speed.exe is 32-bit and not Large Address Aware: 2 GB for everything. 40 cars take ~430 MB private
+    //  memory / ~740 MB of address space (measured, two games on the laptop); each extra car ~1-2.5 MB.
+    //  Above kVaTight MB in use the room above 20 cars is not used (the game's own 20 stay), logged.
+    constexpr uint32_t kVaWarn = 1400, kVaTight = 1600;
+    uint32_t AddressSpaceUsedMB() {
+        MEMORYSTATUSEX ms{}; ms.dwLength = sizeof(ms);
+        if (!GlobalMemoryStatusEx(&ms)) return 0;
+        return (uint32_t)((ms.ullTotalVirtual - ms.ullAvailVirtual) / (1024 * 1024));
+    }
+    bool AddressSpaceTight() {
+        static DWORD at = 0; static bool tight = false;
+        DWORD now = GetTickCount();
+        if (now - at < 2000) return tight;
+        at = now;
+        uint32_t mb = AddressSpaceUsedMB();
+        bool was = tight; tight = mb >= kVaTight;
+        static bool warned = false;
+        if (mb >= kVaWarn && !warned) { warned = true; LOG("Budget: the game uses %u MB of its 2048 MB address space (32-bit) - getting full", mb); }
+        if (tight != was) LOG("Budget: %u MB of 2048 MB address space in use - room above 20 cars %s", mb, tight ? "NOT used now (memory)" : "used again");
+        return tight;
+    }
+
     bool __cdecl hk_BudgetCheck(void* cache, void* request) {
         int before = CarCount(), asked = 0;
         if (request) Mem::Read((uintptr_t)request + 8, asked);
         // the other player's copies: up to 40. The game's own cars: their 20 next to the copies in the world
         // (20 + copies, at most 40), so its traffic and cops are as many as in the plain game.
-        bool roomy = g_tablesBig && g_limitPatchOk;
+        bool roomy = g_tablesBig && g_limitPatchOk && !AddressSpaceTight();
         if (roomy) {
             int copies = 0;
             if (!g_copySpawn) for (void* k : g_keepCars) if (k && ListContains(-1, k)) ++copies;
@@ -130,16 +153,49 @@ namespace {
 }
 
 // every 30 s while cars were evicted or refused: one summary line
+// ---- the car loader's 40 ride slots ----
+//  Past 40 cars the game stopped at an assert (int 3 at 0x759FB1, then a jump to 0x42652EE0): every car in the
+//  world holds one slot of CarLoadedRideInfoSlotPool (*0x9B0A0C, 0x6D4 bytes a slot), made with 40 slots by
+//  0x73A350 (push 28h at 0x73A394), and CarLoader 0x75BB40 waits for a free one - unloading unused ones - and
+//  asserts when none is left. The pool can grow (the game's own add-slots routine 0x465DE0(pool, n), as its
+//  other car pools do), so it gets MaxCars + 40 slots (~1.7 KB each); the create byte is raised as well in case
+//  the pools are made again. Total slots: pool +0x2C.
+namespace {
+    constexpr uintptr_t RidePoolPtr = 0x9B0A0C, RidePoolCreateCount = 0x73A395, PoolAddSlots = 0x465DE0;
+    int RideSlotsWanted() { int n = CopyCarCap() + 40; return n < 40 ? 40 : n; }
+    void RidePoolTick() {
+        static bool patched = false;
+        if (!patched) {
+            patched = true;
+            uint8_t cur = 0x28, want = (uint8_t)(RideSlotsWanted() > 127 ? 127 : RideSlotsWanted());
+            bool ok = Mem::PatchBytes(RidePoolCreateCount, &cur, &want, 1);
+            LOG("Budget: car ride slots made with %u %s", (unsigned)want, ok ? "(when the game makes the pool)" : "- NOT patched (byte differs)");
+        }
+        static void* grownPool = nullptr;
+        __try {
+            void* pool = nullptr; int total = 0;
+            if (!Mem::Read(RidePoolPtr, pool) || !pool || pool == grownPool) return;
+            if (!Mem::Read((uintptr_t)pool + 0x2C, total) || total <= 0 || total > 10000) return;
+            int want = RideSlotsWanted();
+            if (total < want) ((void(__thiscall*)(void*, int))PoolAddSlots)(pool, want - total);
+            int now = 0; Mem::Read((uintptr_t)pool + 0x2C, now);
+            grownPool = pool;
+            LOG("Budget: car ride slots %d -> %d (one per car in the world)", total, now);
+        } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Budget: exception growing the car ride slots"); grownPool = (void*)1; }
+    }
+}
+
 static void FvGrowLog();
 void Game::BudgetTick() {
     GrowCarTables();
+    RidePoolTick();
     FvGrowLog();   // every frame: a few reads (a table set back by its own code is grown again at once)
     DWORD now = GetTickCount();
     if (!g_budgetSince) g_budgetSince = now;
     if (now - g_budgetSince < 30000) return;
     if (g_budget.evictions || g_budget.refused || g_budgetWaits)
-        LOG("Budget: last 30 s - %d car spawn(s), %d over 20 cars, %d car(s) evicted, %d refused, %d wait(s) of the other player's cars for room; up to %d cars in the world, %d now",
-            g_budget.checks, g_budget.overCount, g_budget.evictions, g_budget.refused, g_budgetWaits, g_budget.peak, CarCount());
+        LOG("Budget: last 30 s - %d car spawn(s), %d over 20 cars, %d car(s) evicted, %d refused, %d wait(s) of the other player's cars for room; up to %d cars in the world, %d now; %u MB of 2048 MB address space in use",
+            g_budget.checks, g_budget.overCount, g_budget.evictions, g_budget.refused, g_budgetWaits, g_budget.peak, CarCount(), AddressSpaceUsedMB());
     g_budgetWaits = 0;
     g_budget = BudgetStats{};
     g_budgetSince = now;

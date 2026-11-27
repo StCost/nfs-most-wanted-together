@@ -655,6 +655,7 @@ BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
         Pad::InstallHooks();               // controller bindings guard (before the game creates its input devices)
         SetUnhandledExceptionFilter([](EXCEPTION_POINTERS* e) -> LONG {
             LOG("CRASH: exception %08X at %p", (unsigned)e->ExceptionRecord->ExceptionCode, e->ExceptionRecord->ExceptionAddress);
+            Game::LogFault("CRASH", e);
             return EXCEPTION_CONTINUE_SEARCH;
         });
         if (g_cfg.runInBackground) {

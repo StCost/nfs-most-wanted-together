@@ -45,7 +45,7 @@ struct Config {
     bool        bossHelper = true;       // [Coop] BossHelper - co-op Blacklist rival races get one more AI racer (normal AI)
     bool        bossHelperSolo = false;  // [Debug] BossHelperSolo - test: the extra rival-race racer also when not connected
     bool        startTogether = true;    // [Coop] StartTogether - hold the loading screen (and the grid) until the other player has loaded
-    int         maxCars = 40;            // [Traffic] MaxCars - cars in the world (the game's 20 + room for the other player's copies), 20..40
+    int         maxCars = 40;            // [Traffic] MaxCars - cars in the world (the game's 20 + room for the other player's copies), 20..64
     bool        separateGridSlots = true; // [Coop] SeparateGridSlots - client: move off the grid slot both games give their own player
     int         syncStoryScenes = 1;     // [Coop] SyncStoryScenes - 0 off, 1 the other game waits while one watches a story scene
                                          // (+ skip only when both voted), 2 also plays the same story movie there

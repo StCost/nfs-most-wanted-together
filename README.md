@@ -131,6 +131,8 @@ Things we know about but can't fix yet:
 - [x] Smooth traffic handover: drive away from the other player and their traffic around you keeps going as your own. Come back, and their cars only show up where you can't see them appear, or quietly replace one of yours (`[Traffic] SmoothHandover`)
 - [x] Shared traffic in races: the client shows the host's traffic with its own cars, so the race scripts keep working. Same positions on both screens, though the model can differ (`[Traffic] SharedInRaces`)
 - [x] No cars popping up in front of you: new traffic and cops never appear within ~60 m in front of either player (`[Traffic] NoSpawnNearPlayers`)
+- [x] Room for 40 cars instead of the game's 20 (`[Traffic] MaxCars`, 20..64, 40 by default). The game keeps its own 20 traffic cars and cops, and the extra room holds the copies of the other player's cars, so neither game has to delete its own cars to show yours. This works in free roam, races and pursuits. To make it possible, the mod enlarges the game's car tables to MaxCars and lets every one of the game's fixed-size lists (120 kinds) and its pool of 40 car slots grow past their built-in size instead of overrunning them
+- [x] The host's traffic goes to the other player 20 cars per packet, 20 times a second. With more cars than that, racers, cops and the nearest 12 go in every packet and the others take turns, so every car is refreshed at least every few packets
 - [x] Same weather on both PCs: the client gets the host's rain and wet roads (`[Coop] SyncWeather`)
 
 
@@ -198,7 +200,7 @@ Things we know about but can't fix yet:
 
 - [x] **F5** autopilot (dev builds only): the game's AI drives your car around free roam or along the race route, using nitrous on straights (`AutoPilot`, `AutoPilotNos`). A release ASI ignores `AutoPilot=1`.
 - [x] `[Window] StartInBackground=1` (dev builds only): the game starts without stealing focus, can boot in the background and stays muted until you click it. A release ASI ignores this key.
-- [x] Car budget log: the game fits 20 cars in the world (both players, traffic, cops). The log says which cars got removed or refused to make room, plus a summary every 30 s
+- [x] Car budget log: cars the game removed or refused to make room, a copy of the other player's car that waits because the world is full, every game list that grew past its built-in size, plus a summary every 30 s with the cars in the world and the memory in use (the game is 32-bit: 2 GB. Above 1600 MB the room above 20 cars isn't used)
 - [x] `[Debug] Perf=1` logs fps, 1% lows, the worst frame and the mod's own cost every 5 seconds (also in the F8 overlay)
 - [x] **F7** starts the test event (`TestEvent`) for both players
 - [x] **F10 / F11** spawn or remove a copy of the other player's car, **F12** spawns a cop

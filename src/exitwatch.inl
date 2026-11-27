@@ -48,6 +48,23 @@ namespace {
     }
 }
 
+void Game::LogFault(const char* tag, void* ep) {
+    __try {
+        auto* e = (EXCEPTION_POINTERS*)ep;
+        char at[64]; DescribeAddress((uintptr_t)e->ExceptionRecord->ExceptionAddress, at, sizeof(at));
+        uintptr_t ret[14];
+        int n = StackReturns((const uint8_t*)(uintptr_t)e->ContextRecord->Esp, ret, 14);
+        char line[900]; int len = sprintf_s(line, "%s: exception %08X at %s (eax %08X ecx %08X edx %08X esi %08X edi %08X ebp %08X), stack", tag,
+            (unsigned)e->ExceptionRecord->ExceptionCode, at, (unsigned)e->ContextRecord->Eax, (unsigned)e->ContextRecord->Ecx,
+            (unsigned)e->ContextRecord->Edx, (unsigned)e->ContextRecord->Esi, (unsigned)e->ContextRecord->Edi, (unsigned)e->ContextRecord->Ebp);
+        for (int i = 0; i < n && len > 0 && len < (int)sizeof(line) - 40; ++i) {
+            char a[64]; DescribeAddress(ret[i], a, sizeof(a));
+            len += sprintf_s(line + len, sizeof(line) - len, " %s", a);
+        }
+        LOG("%s", line);
+    } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("%s: exception (no details)", tag); }
+}
+
 void Game::LogStack(const char* tag) {
     char here = 0;
     uintptr_t ret[12];
