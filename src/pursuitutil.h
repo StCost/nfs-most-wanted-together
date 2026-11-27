@@ -162,7 +162,9 @@ namespace SharedPursuit {
     constexpr float EVADE_READY_S = COOLDOWN_UNSEEN_S - 0.2f;   // the bar counts as full from here
     // Lowest +0x128 that does not look like "seen again" (that would cancel cooldown).
     constexpr float COOLDOWN_FLOOR_S = SEEN_LIMIT_S + 0.1f;
-    constexpr float ESCAPE_HOLD_LEFT_S = 0.2f;   // keep this much left so evade level stays < 1
+    // keep this much left so evade level stays < 1: more than one pursuit tick (400 ms), or the game escapes
+    // between two holds (1.9.1 kept 0.2 s and a held escape went through)
+    constexpr float ESCAPE_HOLD_LEFT_S = 1.0f;
     // Hidden long enough that the cooldown may start (or already in it). Seen resets the bar.
     inline bool EvadeBarFull(bool seen, bool cooling, float unseenInState, float threshold = EVADE_READY_S) {
         if (seen) return false;
@@ -233,6 +235,13 @@ namespace SharedPursuit {
     constexpr uint32_t COOLDOWN_GRACE_MS = 1000;
     inline bool InCooldownGrace(bool cooling, uint32_t sinceEnteredMs) { return cooling && sinceEnteredMs < COOLDOWN_GRACE_MS; }
 
+    // While we wait at the evade limit (HoldEvade) the escape progress (accum, since seen) stays where it was
+    // when the wait began: the wait must not count toward the cooldown (40 s of waiting made ours finish the
+    // moment it began). A sighting (the game lowers them) still counts.
+    inline void FreezeProgress(float& accum, float& sinceSeen, float heldAccum, float heldSince) {
+        if (accum > heldAccum) accum = heldAccum;
+        if (sinceSeen > heldSince) sinceSeen = heldSince;
+    }
     inline bool CooldownFinished(const View& v, float eps = ESCAPE_HOLD_LEFT_S) {
         return v.cooling && v.left <= eps;
     }

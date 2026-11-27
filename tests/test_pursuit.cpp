@@ -189,6 +189,22 @@ TEST(pursuit_spotted_in_cooldown_takes_both_back_to_the_chase) {
     CHECK(DecideCooldown(a, b).what == Cool::Free);
 }
 
+TEST(pursuit_escape_hold_outlasts_a_tick) {
+    // held at ESCAPE_HOLD_LEFT_S, one 400 ms pursuit tick later it must still be held, not escaped
+    View a = V(true, false, true, ESCAPE_HOLD_LEFT_S - 0.4f, true), b = V(true, false, true, 8, true);
+    CHECK(ESCAPE_HOLD_LEFT_S - 0.4f > 0.f);
+    CHECK(DecideCooldown(a, b).what == Cool::HoldEscape);
+}
+
+TEST(pursuit_evade_wait_does_not_count_toward_the_cooldown) {
+    float accum = 0.f, since = 40.f;                           // 40 s waited at the evade limit
+    FreezeProgress(accum, since, 0.f, 9.f);
+    CHECK(accum == 0.f && since == 9.f);                       // back to where the wait began
+    since = 0.f;                                               // spotted: the game's reset stays
+    FreezeProgress(accum, since, 0.f, 9.f);
+    CHECK(since == 0.f);
+}
+
 TEST(pursuit_escape_completes_only_when_both_finish) {
     View a = V(true, false, true, 0.1f, true), b = V(true, false, true, 8, true);
     CHECK(DecideCooldown(a, b).what == Cool::HoldEscape);

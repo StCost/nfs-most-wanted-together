@@ -261,6 +261,8 @@ namespace {
         bool     localBusted = false;    // our own pursuit is busted right now (any pursuit: free roam, event, prologue)
         SharedPursuit::ReadyDebounce peerReady;   // the partner's ready, debounced (shared cooldown decisions)
         DWORD    coolEnteredAt = 0;       // when our cooldown began (SharedPursuit::InCooldownGrace)
+        bool     holdValid = false;       // waiting at the evade limit: the progress kept (SharedPursuit::FreezeProgress)
+        float    holdSearch = 0.f, holdSince = 0.f;
         SharedPursuit::HeatTracker heat;
         SharedPursuit::BustTracker bust;
         void*    lastBustedPursuit = nullptr;
@@ -948,6 +950,12 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         } else if (d.what == Cool::HoldEvade && pursuit && status != PS_COOLDOWN) {
             // the game starts the cooldown once the unseen time passes 2.5 s: keep it just under
             if (PRead<float>(pursuit, P_UnseenInState) > HOLD_UNSEEN_S) PWrite<float>(pursuit, P_UnseenInState, HOLD_UNSEEN_S);
+            float search = PRead<float>(pursuit, P_Search), since = PRead<float>(pursuit, P_SinceSeen);
+            if (!g_sp.holdValid) { g_sp.holdValid = true; g_sp.holdSearch = search; g_sp.holdSince = since; }
+            float s0 = search, t0 = since;
+            FreezeProgress(search, since, g_sp.holdSearch, g_sp.holdSince);
+            if (search != s0) PWrite<float>(pursuit, P_Search, search);
+            if (since != t0) PWrite<float>(pursuit, P_SinceSeen, since);
         } else if (d.what == Cool::BackToChase && pursuit && status == PS_COOLDOWN) {
             PWrite<float>(pursuit, P_SinceSeen, 0.f);   // seen: the game ends the cooldown (as for a spot)
         } else if (d.what == Cool::HoldEscape && pursuit && status == PS_COOLDOWN && !mine.seen) {
@@ -985,6 +993,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         }
     }
     g_sp.lastCool = coolNow;
+    if (coolNow != (int)Cool::HoldEvade) g_sp.holdValid = false;
     if (hidePerp != g_sp.sharedHidePerp) {
         if (hidePerp) LOG("Pursuit: the other player is in a hiding spot - our cooldown runs at the hiding-spot speed too (HUD: HIDDEN)");
         else if (g_sp.sharedHidePerp) LOG("Pursuit: hiding spot no longer shared (%s)",
