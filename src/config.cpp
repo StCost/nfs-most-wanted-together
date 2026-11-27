@@ -58,6 +58,10 @@ void Config::Load(const char* ini) {
     sharedMilestones = ReadInt(ini, "Career", "SharedMilestones", 1) != 0;
     startTogether = ReadInt(ini, "Coop", "StartTogether", 1) != 0;
     separateGridSlots = ReadInt(ini, "Coop", "SeparateGridSlots", 1) != 0;
+    maxCars = ReadInt(ini, "Traffic", "MaxCars", 40);
+    // 40 at most for now: with 60 the game crashed past ~40 cars (a jump to 0x42652EE0 = 57.2958f, a float written
+    // over a pointer: something else in the game, not a UTL::FixedVector, still holds 40)
+    if (maxCars < 20) maxCars = 20; if (maxCars > 40) maxCars = 40;
     coopPrologue = ReadInt(ini, "Coop", "Prologue", 1) != 0;
     catchUpLeader = ReadInt(ini, "Coop", "CatchUpLeader", 1) != 0;
     bossHelper = ReadInt(ini, "Coop", "BossHelper", 1) != 0;

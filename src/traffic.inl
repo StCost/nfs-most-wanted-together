@@ -1169,7 +1169,12 @@ static int MaintainMirrors(double now) {
             // roadblock would have a gap here that their game doesn't have)
             { void** lb = nullptr; if (ListSize(VL_ALL, &lb) >= CopyCarLimit()) {
                 if (NetUtil::CopCopyNeedsRoom(e.flags)) { MakeRoomForRoadblockCop(); ++g_copRoomWaits; }
-                ++g_budgetWaits; continue; } }
+                ++g_budgetWaits;
+                {   // no room: logged (at most every 10 s; the 30 s budget line counts every wait)
+                    static DWORD lastAt = 0; DWORD now = GetTickCount();
+                    if (now - lastAt > 10000) { lastAt = now; LOG("Traffic: no room for a copy of the other player's car - %d cars in the world, the limit for copies is %d ([Traffic] MaxCars); it waits", ListSize(VL_ALL, &lb), CopyCarLimit()); }
+                }
+                continue; } }
             // SmoothHandover: only where the player can't see it pop in (or one of our cars becomes it)
             bool placed = smooth && !(e.flags & 1);
             if (placed && !PlaceHostCar(m, cam, lp, gp, own)) { if (!m.iv) ++g_hoWaiting; continue; }

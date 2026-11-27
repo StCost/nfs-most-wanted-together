@@ -31,14 +31,14 @@ namespace {
         }
     }
 
-    // ---- room for 40 cars ----
+    // ---- room for MaxCars cars ([Traffic] MaxCars, 40 by default) ----
     //  The game keeps its cars in UTL::FixedVector tables (vtable, mBegin, mCapacity, mSize, then the
     //  storage inline): the 10 vehicle lists at 0x92CD18 (VEHICLE_LIST 0..9, 0x60 apart, 20 each), five more
     //  per-car tables of 20 (0x90D660, 0x913DB0, 0x913E10, 0x913E70, 0x913ED0, 0x920E48) and three of 25
     //  (0x913C50, 0x913CC4, 0x913D38). Found with the 'fixedlists' test command (sizes follow the car count).
     //  Every access in the exe goes through the header (mBegin / mCapacity / mSize - a scan of the exe for
     //  addresses inside their inline storage found none), and a push past mCapacity writes over the next
-    //  table. So each table gets a buffer twice its size (mBegin / mCapacity repointed, the cars in it
+    //  table. So each table gets a buffer of MaxCars entries ([Traffic] MaxCars, +5 for the lists of 25; mBegin / mCapacity repointed, the cars in it
     //  copied), on the game's own thread. A table its code set back to the inline storage gets it again.
     //  The budget's count limit (cmp eax,0x14 at 0x687817 / lea edx,[eax-0x14] at 0x68781C) then allows 40
     //  for the other player's copies (SpawnVehicle); the game's own cars keep the 20 - its traffic and cops
@@ -50,7 +50,6 @@ namespace {
         { 0x90D660, 20 }, { 0x913DB0, 20 }, { 0x913E10, 20 }, { 0x913E70, 20 }, { 0x913ED0, 20 }, { 0x920E48, 20 },
         { 0x913C50, 25 }, { 0x913CC4, 25 }, { 0x913D38, 25 } };
     constexpr int kTableCount = sizeof(kCarTables) / sizeof(kCarTables[0]);
-    constexpr uint32_t kTableScale = 2;
     void* g_tableBuf[kTableCount] = {};
     bool  g_limitPatchOk = false;       // the budget's 20 is where we expect it
     bool  g_tableWarned[kTableCount] = {};
@@ -62,7 +61,7 @@ namespace {
         const CarTable& t = kCarTables[i];
         uint32_t vt = 0, begin = 0, cap = 0, size = 0;
         if (!Mem::Read(t.at, vt) || !Mem::Read(t.at + 4, begin) || !Mem::Read(t.at + 8, cap) || !Mem::Read(t.at + 12, size)) return false;
-        uint32_t big = t.cap * kTableScale;
+        uint32_t big = (uint32_t)CopyCarCap() > t.cap ? (uint32_t)CopyCarCap() + (t.cap - 20) : t.cap;   // MaxCars (+5 for the lists of 25)
         if (g_tableBuf[i] && begin == (uint32_t)(uintptr_t)g_tableBuf[i] && cap == big) return true;     // already ours
         if (begin != t.at + 0x10 && cap >= big && size <= cap && begin) return true;                  // grown on its own (growable lists)
         if (!begin && !cap) return false;   // not set up yet (0x90D660 at start-up): the next frames try again
@@ -85,10 +84,10 @@ namespace {
             int ok = 0, grownNow = 0;
             for (int i = 0; i < kTableCount; ++i) { bool g = false; if (GrowTable(i, g)) ++ok; if (g) ++grownNow; }
             bool all = ok == kTableCount;
-            if (grownNow) LOG("Budget: %d car table(s) moved to buffers twice their size (%d of %d ready)", grownNow, ok, kTableCount);
+            if (grownNow) LOG("Budget: %d car table(s) moved to bigger buffers (%d of %d ready)", grownNow, ok, kTableCount);
             if (all != g_tablesBig) {
                 g_tablesBig = all;
-                LOG("Budget: room for %d cars %s", kCopyCarLimit, all ? "ready (the other player's copies may use it)" : "NOT ready - the 20-car limit stays");
+                LOG("Budget: room for %d cars %s", CopyCarCap(), all ? "ready (the other player's copies may use it)" : "NOT ready - the 20-car limit stays");
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) { g_tablesBig = false; }
     }
@@ -109,8 +108,8 @@ namespace {
         if (roomy) {
             int copies = 0;
             if (!g_copySpawn) for (void* k : g_keepCars) if (k && ListContains(-1, k)) ++copies;
-            int lim = g_copySpawn ? kCopyCarLimit : kGameCarLimit + copies;
-            SetCountLimit(lim > kCopyCarLimit ? kCopyCarLimit : lim);
+            int lim = g_copySpawn ? CopyCarCap() : kGameCarLimit + copies;
+            SetCountLimit(lim > CopyCarCap() ? CopyCarCap() : lim);
         }
         bool ok = ((bool(__cdecl*)(void*, void*))BudgetFn)(cache, request);
         if (roomy) SetCountLimit(kGameCarLimit);
@@ -146,13 +145,13 @@ void Game::BudgetTick() {
     g_budgetSince = now;
 }
 
-// ---- every UTL::FixedVector of 20 / 25 may grow ----
+// ---- every UTL::FixedVector may grow ----
 //  The game's fixed-size lists (UTL::FixedVector<T, N>: vtable, mBegin, mCapacity, mSize, storage inline at +0x10)
 //  get their room from virtual calls: slot 1 AllocVectorSpace(n, align) returns the inline storage whatever n is,
 //  slot 2 FreeVectorSpace(p, n) does nothing, slot 3 GetGrowSize(n) returns N. reserve(n) (e.g. 0x674060) still
 //  sets mCapacity = n - so a list of N that gets more than N entries writes past its storage. With more than 20
 //  cars that is what crashed: the budget's eviction list (a stack FixedVector of 20, 0x687956) and the race start
-//  (0x765305, a call to 0). Every FixedVector type of 20 or 25 in the exe (found by its vtable: slot 1
+//  (0x765305, a call to 0). Every FixedVector type in the exe, whatever its size (120 types; with MaxCars above 40 its lists of 40 overran too) (found by its vtable: slot 1
 //  "lea eax,[ecx+10h] / ret 8", slots 3 / 4 "mov eax,N / ret") now grows: up to N entries the inline storage as
 //  before, more than that a heap buffer (slot 3 asks for twice N at least), freed by slot 2. Nothing writes past
 //  a list's storage any more, in any mode. The element size isn't in the vtable: the heap buffer gives every
@@ -163,7 +162,15 @@ namespace {
     CRITICAL_SECTION g_fvCs;
     struct FvBlock { void* aligned; void* raw; };
     FvBlock g_fvBlocks[1024] = {};
-    volatile LONG g_fvGrown = 0, g_fvLive = 0;
+    volatile LONG g_fvGrown = 0, g_fvLive = 0, g_fvFailed = 0;
+    struct FvEvent { uint32_t vt, n, cap; bool ok; };
+    FvEvent g_fvEvents[32]; volatile LONG g_fvEventN = 0;   // ring of the latest growths (logged by FvGrowLog)
+    void FvNote(void* self, uint32_t n, uint32_t cap, bool ok) {
+        LONG i = InterlockedIncrement(&g_fvEventN) - 1;
+        FvEvent& e = g_fvEvents[i & 31];
+        e.vt = *(const uint32_t*)self; e.n = n; e.cap = cap; e.ok = ok;
+        if (!ok) InterlockedIncrement(&g_fvFailed);
+    }
 
     void* FvHeapAlloc(uint32_t n) {
         if (!g_fvHeap || n > 100000) return nullptr;
@@ -187,16 +194,27 @@ namespace {
         HeapFree(g_fvHeap, 0, raw); InterlockedDecrement(&g_fvLive);
         return true;
     }
-    template <uint32_t N> struct GrowFv {
-        // __thiscall (this in ecx, callee pops) as __fastcall with the edx slot unused
-        static void* __fastcall Alloc(void* self, void*, uint32_t n, uint32_t) {
-            if (n <= N) return (uint8_t*)self + 0x10;
-            void* p = FvHeapAlloc(n);
-            return p ? p : (uint8_t*)self + 0x10;          // (no memory: the old behaviour)
-        }
-        static void __fastcall Free(void*, void*, void* p, uint32_t) { FvHeapFree(p); }   // inline / not ours: nothing
-        static uint32_t __fastcall GrowSize(void*, void*, uint32_t n) { return n <= N ? N : (n <= 2 * N ? 2 * N : n + N); }
-    };
+    // each list type's own size, by its vtable (filled once at start-up, read-only after)
+    struct FvType { uint32_t vt, cap; };
+    FvType g_fvTypes[256]; int g_fvTypeN = 0;
+    uint32_t FvCapOf(const void* self) {
+        uint32_t vt = *(const uint32_t*)self;
+        for (int i = 0; i < g_fvTypeN; ++i) if (g_fvTypes[i].vt == vt) return g_fvTypes[i].cap;
+        return 0;
+    }
+    // __thiscall (this in ecx, callee pops) as __fastcall with the edx slot unused
+    void* __fastcall FvAlloc(void* self, void*, uint32_t n, uint32_t) {
+        uint32_t cap = FvCapOf(self);
+        if (n <= cap || !cap) return (uint8_t*)self + 0x10;
+        void* p = FvHeapAlloc(n);
+        FvNote(self, n, cap, p != nullptr);
+        return p ? p : (uint8_t*)self + 0x10;          // (no memory: the old behaviour - logged as NOT grown)
+    }
+    void __fastcall FvFree(void*, void*, void* p, uint32_t) { FvHeapFree(p); }   // inline / not ours: nothing
+    uint32_t __fastcall FvGrowSize(void* self, void*, uint32_t n) {
+        uint32_t cap = FvCapOf(self);
+        return n <= cap ? cap : (n <= 2 * cap ? 2 * cap : n + cap);
+    }
     bool CodeIs(uintptr_t fn, const uint8_t* bytes, size_t len) { return Mem::IsReadable((const void*)fn, len) && !memcmp((const void*)fn, bytes, len); }
     bool ImmRet(uintptr_t fn, uint32_t& imm, bool ret4) {   // mov eax,imm32 / ret (4)
         uint8_t b[8];
@@ -208,9 +226,21 @@ namespace {
     }
 }
 static void FvGrowLog() {   // when a fixed list grew past its size: once per change
-    static LONG lastGrown = 0; static DWORD lastAt = 0;
-    LONG g = g_fvGrown;
-    if (g != lastGrown && GetTickCount() - lastAt > 5000) { lastGrown = g; lastAt = GetTickCount(); LOG("Budget: a fixed list grew past its size (%ld so far, %ld on the heap now)", g, (long)g_fvLive); }
+    // every growth of a game list past its own size (which list by its vtable, to how many entries); at most
+    // 8 lines a second, the rest counted
+    static LONG done = 0; static DWORD secAt = 0; static int inSec = 0, skipped = 0;
+    LONG upTo = g_fvEventN;
+    if (upTo - done > 32) { skipped += upTo - done - 32; done = upTo - 32; }
+    for (; done < upTo; ++done) {
+        DWORD now = GetTickCount();
+        if (now - secAt > 1000) { secAt = now; inSec = 0; }
+        if (++inSec > 8) { ++skipped; continue; }
+        const FvEvent& e = g_fvEvents[done & 31];
+        if (e.ok) LOG("Budget: game list %08X (made for %u) grew to %u entries - %ld grown so far, %ld on the heap now",
+                      e.vt, e.cap, e.n, (long)g_fvGrown, (long)g_fvLive);
+        else LOG("Budget: game list %08X (made for %u) could NOT grow to %u entries (no memory / too many) - it may overrun", e.vt, e.cap, e.n);
+    }
+    if (skipped && inSec <= 8) { LOG("Budget: %d more list growth(s) not logged (too many at once)", skipped); skipped = 0; }
 }
 static void InstallGrowableFixedVectors() {
     InitializeCriticalSection(&g_fvCs);
@@ -234,23 +264,23 @@ static void InstallGrowableFixedVectors() {
                 if (!code || !CodeIs(vt[1], kAllocInline, 6)) continue;
                 uint32_t cap = 0, cap2 = 0;
                 if (!ImmRet(vt[3], cap, true) || !ImmRet(vt[4], cap2, false) || cap != cap2) continue;
-                void *a, *f, *g;
-                if (cap == 20) { a = (void*)&GrowFv<20>::Alloc; f = (void*)&GrowFv<20>::Free; g = (void*)&GrowFv<20>::GrowSize; ++n20; }
-                else if (cap == 25) { a = (void*)&GrowFv<25>::Alloc; f = (void*)&GrowFv<25>::Free; g = (void*)&GrowFv<25>::GrowSize; ++n25; }
-                else { ++other; continue; }
+                if (!cap || cap > 100000 || g_fvTypeN >= 256) { ++other; continue; }
+                g_fvTypes[g_fvTypeN++] = { (uint32_t)p, cap };
+                if (cap == 20) ++n20; else if (cap == 25) ++n25; else ++other;
+                void *a = (void*)&FvAlloc, *f = (void*)&FvFree, *g = (void*)&FvGrowSize;
                 Mem::PatchPointer((void*)(p + 4), a);
                 Mem::PatchPointer((void*)(p + 8), f);
                 Mem::PatchPointer((void*)(p + 12), g);
             }
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Budget: exception while making the fixed lists growable"); }
-    LOG("Budget: fixed lists of 20 / 25 made growable: %d of 20, %d of 25 (%d other sizes left as they are)", n20, n25, other);
+    LOG("Budget: the game's fixed lists made growable: %d types (%d of 20, %d of 25, %d of other sizes)", g_fvTypeN, n20, n25, g_fvTypeN - n20 - n25);
 }
 
 static void InstallBudgetLog() {
     const uint8_t cmp[3] = { 0x83, 0xF8, 0x14 }, lea[3] = { 0x8D, 0x50, 0xEC };   // cmp eax,0x14 / lea edx,[eax-0x14]
     g_limitPatchOk = !memcmp((void*)(LimitCmpImm - 2), cmp, 3) && !memcmp((void*)(LimitLeaImm - 2), lea, 3);
-    LOG("Budget: count limit %s", g_limitPatchOk ? "found (20, 40 for the other player's copies once the tables are grown)" : "NOT found (code differs) - 20 for all");
+    LOG("Budget: count limit %s", g_limitPatchOk ? "found (20, [Traffic] MaxCars for the other player's copies once the tables are grown)" : "NOT found (code differs) - 20 for all");
     InstallGrowableFixedVectors();
     bool ok = PatchCallChecked(BudgetCall, BudgetFn, (void*)&hk_BudgetCheck);
     LOG("Budget: car budget %s", ok ? "logged (evictions / refusals)" : "NOT logged (call site differs)");

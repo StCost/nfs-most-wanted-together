@@ -736,8 +736,9 @@ namespace {
     // budget check (0x687710) asks only listed caches before it DELETES a vehicle to make room for a new
     // traffic car / cop, and builds the new one in the same memory. Unlisted, the other player's car was
     // deleted and our pointer then drove a cop or traffic car (seen as "his car turned into a taxi").
-    void* g_keepCars[64] = {};                // every car we spawned (the other player's car, mirrors)
-    uint32_t g_keepWid[64] = {};              // their world ids: the same address may later hold another car
+    constexpr int kKeepMax = 128;
+    void* g_keepCars[kKeepMax] = {};                // every car we spawned (the other player's car, mirrors)
+    uint32_t g_keepWid[kKeepMax] = {};              // their world ids: the same address may later hold another car
     // A free slot of the grid around this car (CoopRace::GridSlotFor - behind it, beside that, beside it),
     // at its height, facing the same way; with no cars around, one car length (6 m) straight behind it.
     // False when every slot it knows is taken (out: behind it all the same).
@@ -809,7 +810,7 @@ namespace {
     }
     // false if this address now holds a different car than the one we spawned there
     bool StillOurCar(void* iv) {
-        for (int i = 0; i < 64; ++i) if (g_keepCars[i] == iv) return !g_keepWid[i] || WorldIdOf(iv) == g_keepWid[i];
+        for (int i = 0; i < kKeepMax; ++i) if (g_keepCars[i] == iv) return !g_keepWid[i] || WorldIdOf(iv) == g_keepWid[i];
         return true;
     }
     void* g_removedCars[16] = {}; int g_removedNext = 0;   // ours the game deleted: the address may hold another car now
@@ -823,8 +824,8 @@ namespace {
         // the same address again (the game freed a car of ours without asking the cache - a race's racers -
         // and built this one there): renew that entry. A second entry would leave the old one first, and its
         // stale world id made StillOurCar() call the new car "not ours" (the ghost then was respawned every frame)
-        for (int i = 0; i < 64; ++i) if (g_keepCars[i] == iv) { g_keepWid[i] = WorldIdOf(iv); return; }
-        for (int i = 0; i < 64; ++i) if (!g_keepCars[i]) { g_keepCars[i] = iv; g_keepWid[i] = WorldIdOf(iv); return; }
+        for (int i = 0; i < kKeepMax; ++i) if (g_keepCars[i] == iv) { g_keepWid[i] = WorldIdOf(iv); return; }
+        for (int i = 0; i < kKeepMax; ++i) if (!g_keepCars[i]) { g_keepCars[i] = iv; g_keepWid[i] = WorldIdOf(iv); return; }
     }
     void ForgetCar(void* iv) { for (void*& k : g_keepCars) if (k == iv) k = nullptr; }
     bool WasRemovedByGame(void* iv) { if (!iv) return false; for (void* r : g_removedCars) if (r == iv) return true; return false; }
@@ -873,12 +874,13 @@ namespace {
     }
 
     void* g_killed[32] = {}; int g_killedNext = 0;   // cars we destroyed (see KillVehicle)
-    // Room for 40 cars (budget.inl): the game's car tables grown to twice their size, and the other player's
+    // Room for MaxCars cars ([Traffic] MaxCars, 40 by default - budget.inl): the game's car tables grown to it, and the other player's
     // copies (built by SpawnVehicle) allowed up to 40; the game's own cars keep its 20.
-    constexpr int kGameCarLimit = 20, kCopyCarLimit = 40;
+    constexpr int kGameCarLimit = 20;
+    int CopyCarCap() { return g_cfg.maxCars; }   // [Traffic] MaxCars
     bool g_tablesBig = false;       // every car table has its big buffer now
     bool g_copySpawn = false;       // SpawnVehicle is building one of the other player's cars
-    int  CopyCarLimit() { return g_tablesBig ? kCopyCarLimit : kGameCarLimit; }
+    int  CopyCarLimit() { return g_tablesBig ? CopyCarCap() : kGameCarLimit; }
     void* SpawnVehicle(uint32_t carKey, const void* custom, const float pos[3], const float dir[3], int driverClass) {
         uint32_t typeHash = 0;
         ((uint32_t* (__cdecl*)(uint32_t*))Addr::VehicleParamsType)(&typeHash);
