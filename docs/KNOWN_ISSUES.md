@@ -49,27 +49,19 @@ forced position doing the pushing. Needs a careful two-PC test at low and high s
 
 ## Hitting a car the partner's game owns (their traffic, their cops)
 
-**What you see (up to now):** at full speed into a traffic car or a cop car of the partner's game
-(roadblocks above all) you stopped dead, as against a wall; the other car moved a moment later.
+**What you see:** after a hard hit on the partner's traffic or cop car, that car glides a few meters on
+your screen a second later.
 
-**Why:** that car is a copy on your screen, put at the owner's position every frame. Your hit was
-sent to the owner, who pushes the real car, and the copy moved only when that came back.
+**Why:** the car is a copy of one the partner's game moves. For the hit your physics takes the copy over
+for a moment (~1.2 s, 3 s at most); then it glides back to where the owner's push left the real car.
+The partner's race opponents are not taken over: a hit on one of them can still stop you dead.
 
-**Now:** shortly before the contact your game's physics takes the copy over (the network stops moving
-it), so you hit and push it as a normal car; after ~1.2 s (longer while you still touch it, 3 s at
-most) it glides back to where the owner has it (`HitUtil::TakeLocalOnApproach`, `traffic.inl`
-`TakeLocalHits`). The owner still gets the hit and pushes the real car, so both end up close.
-Left: where the copy ends up on your screen and where the owner's push left the real car can differ
-by a few meters - that is the glide you see. Race opponents of the partner are not taken over.
+## The race start: a short wait on the player's spot
 
-## The race start: a short drop at the end of the intro
+**What you see:** if the client's intro ends before the host's word arrives, the client's car stands on
+the player's spot for a moment and then moves to its own slot.
 
-**What you saw:** when the intro cutscene ended, both cars stood a bit above the road and dropped onto
-it; about a second later the client's car jumped to its own grid slot.
+**Why:** the client's slot is picked by the host's race and comes over the network (one trip).
+A car you never drove in free roam (a Challenge Series car) has no learned ride height: only a clear
+drop above the road is set down, to a usual 0.75 m.
 
-**Now:** the host picks the client's slot on its first frame after the intro and the client moves there
-as soon as its own intro is over and the slot has arrived (it no longer waits for the host's car to
-show up on its spot). After a restart the cars are set down on the road too (seen 2 m above it).
-Left: if the client's intro ends before the host's word arrives, the client stands on the player's
-spot until it does (one network trip). A car you never drove in free roam (a Challenge Series car) has
-no learned ride height: only a clear drop is cut, to a usual 0.75 m.
