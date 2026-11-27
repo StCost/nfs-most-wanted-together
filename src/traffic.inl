@@ -305,6 +305,8 @@ namespace {
     }
     int   g_groundFixed = 0, g_groundLearned = 0;   // statistics for the log
     float g_groundMaxFix = 0;
+    int   g_groundFixedOther = 0; float g_groundMaxFixOther = 0;   // of those: shown by a car of another model
+    int   g_modelSwaps = 0, g_modelOtherFrames = 0;      // free roam: another model swapped for the right one; frames shown by another model
     // ride heights by model (any copy's full-physics samples, or our own car of that model on our ground)
     struct ModelRide { uint32_t model; float ride; bool known; };
     ModelRide g_modelRide[64]; int g_modelRideN = 0;
@@ -336,7 +338,11 @@ namespace {
         DWORD now = GetTickCount();
         float dt = m.groundAt ? (now - m.groundAt) / 1000.f : 0.f;
         m.groundAt = now;
-        ModelRide* mr = ModelRideOf(e.model, true);
+        // the ride height of the car we SHOW (one of our own cars of another model may show it): a truck's
+        // height on a sedan floated it
+        uint32_t shownModel = m.iv ? ModelKeyOf(m.iv) : e.model;
+        bool otherModel = shownModel && shownModel != e.model;
+        ModelRide* mr = ModelRideOf(shownModel ? shownModel : e.model, true);
         if (ownPosBefore && !m.ownSampled) {      // our own car, on our ground, just took this host car over
             m.ownSampled = true;
             float gy, zero = 0;
@@ -369,6 +375,7 @@ namespace {
         if (m.groundFix == 0) return;
         ++g_groundFixed;
         if (fabsf(m.groundFix) > g_groundMaxFix) g_groundMaxFix = fabsf(m.groundFix);
+        if (otherModel) { ++g_groundFixedOther; if (fabsf(m.groundFix) > g_groundMaxFixOther) g_groundMaxFixOther = fabsf(m.groundFix); }
         pos[1] += m.groundFix;
         RB_SetVec(rb, RB_SetPosition, pos);
     }
@@ -1014,9 +1021,12 @@ static int MaintainMirrors(double now) {
     {   // how often copies were put on the ground (every 10 s while it happens)
         static DWORD last = 0; static int lastLearned = 0;
         if (GetTickCount() - last > 10000) {
-            if (g_groundFixed) LOG("Traffic: %d frame(s) of copies put on the ground (largest correction %.2f m), %d ride height sample(s)",
-                                   g_groundFixed, g_groundMaxFix, g_groundLearned - lastLearned);
+            if (g_groundFixed) LOG("Traffic: %d frame(s) of copies put on the ground (largest correction %.2f m; %d of them shown by a car of another model, largest %.2f m), %d ride height sample(s)",
+                                   g_groundFixed, g_groundMaxFix, g_groundFixedOther, g_groundMaxFixOther, g_groundLearned - lastLearned);
+            if (g_modelSwaps || g_modelOtherFrames) LOG("Traffic: models - %d frame(s) a host car was shown by one of our cars of another model, %d swapped for a copy of the right model once out of view",
+                                   g_modelOtherFrames, g_modelSwaps);
             last = GetTickCount(); lastLearned = g_groundLearned; g_groundFixed = 0; g_groundMaxFix = 0;
+            g_groundFixedOther = 0; g_groundMaxFixOther = 0; g_modelSwaps = 0; g_modelOtherFrames = 0;
         }
     }
     {   // truck trailers (every 10 s while there are any)
@@ -1075,6 +1085,19 @@ static int MaintainMirrors(double now) {
         if (m.iv && (!ListContains(-1, m.iv) || (!m.bound && !StillOurCar(m.iv)))) { m.iv = nullptr; m.bound = false; }   // the game removed it (or built another car there)
         // free roam: our own car that showed this host car was un-spawned by the traffic manager (or is gone)
         if (m.bound && m.iv && !SharedRaceTraffic() && (!ListContainsOne(VL_AITRAFFIC, m.iv) || m.iv == LocalVehicle() || !IsActiveCar(m.iv))) { m.iv = nullptr; m.bound = false; }
+        // one of our own cars of ANOTHER model shows this host car (the only one in its spot, or nearby while the
+        // spot was in view - so it didn't pop in): once nobody sees it, it goes and a copy of the host's model is
+        // built in its place. (In a race our cars stand in for good: nothing is spawned or removed there.)
+        if (m.bound && m.iv && m.n && !m.racer && ModelKeyOf(m.iv) != m.model) {
+            ++g_modelOtherFrames;
+            if (!SharedRaceTraffic() && OffScreenS(m.iv) > NetUtil::HANDOVER_OFFSCREEN_S) {
+                if (g_modelSwaps < 3) LOG("Traffic: host car %u (model %08X) was shown by our %s (%08X) - out of view now, building the right model",
+                                          (unsigned)m.id, m.model, VehName(m.iv), ModelKeyOf(m.iv));
+                KillVehicle(m.iv);
+                m.iv = nullptr; m.bound = false; m.groundFix = 0; m.rideKnown = false; m.ownSampled = false;
+                ++g_modelSwaps;
+            }
+        }
         if (IsRaceTrafficMirror(m)) {
             // one of our own traffic cars follows the host's car (bound above): never spawn or kill here
             if (m.iv && !NisActive()) {
