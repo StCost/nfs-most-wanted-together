@@ -258,7 +258,8 @@ namespace {
         uint16_t left10 = 0;
         int8_t   bar = 0;                // our pursuit bar, sent for the other player's screen (SharedPursuit::BarFromMeter)
         uint8_t  barKind = 0;
-        bool     localBusted = false;    // our own pursuit is busted right now (any pursuit: free roam, event, prologue)
+        bool     localBusted = false;
+        SharedPursuit::ReadyDebounce peerReady;   // the partner's ready, debounced (shared cooldown decisions)    // our own pursuit is busted right now (any pursuit: free roam, event, prologue)
         SharedPursuit::HeatTracker heat;
         SharedPursuit::BustTracker bust;
         void*    lastBustedPursuit = nullptr;
@@ -920,6 +921,11 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     mine.busted = busted;
     mine.hiding = (g_sp.flags & PURSUIT_HIDING) != 0;
     View theirs = peer.valid ? FromWire(peer.s.pursuitFlags, peer.s.coolLeft10) : View{};
+    // their "ready" debounced (SharedPursuit::DebounceReady): every route into and out of the shared cooldown
+    // (the evade hold, back to the chase) decides on it, so a flicker of theirs can't make ours flap. A fresh
+    // pursuit of theirs (or none) starts it over.
+    if (!theirs.inPursuit || !(g_sp.flags & PURSUIT_ACTIVE)) g_sp.peerReady = SharedPursuit::ReadyDebounce{};
+    else theirs.ready = SharedPursuit::DebounceReady(g_sp.peerReady, theirs.ready, now);
     // In an event their escape counts only once their pursuit was live in this event (an older
     // escape signal must not end ours - that would win the event for us).
     if (sameEvent && theirs.inPursuit) g_sp.peerChasedInEvent = true;

@@ -633,3 +633,17 @@ TEST(pursuit_busted_together_in_a_shared_free_roam_pursuit) {
     CHECK(!BustTogetherInFreeRoam(0, true, true, true, false));      // results screen
     CHECK(!BustTogetherInFreeRoam(0, true, true, false, true));      // already busted
 }
+
+TEST(pursuit_partner_ready_debounced) {
+    using namespace SharedPursuit;
+    ReadyDebounce d;
+    CHECK(!DebounceReady(d, false, 1000));
+    CHECK(!DebounceReady(d, true, 1100));                 // just became ready: not yet
+    CHECK(!DebounceReady(d, false, 1300));                // a flicker: never counted
+    CHECK(!DebounceReady(d, true, 1400));
+    CHECK(DebounceReady(d, true, 1400 + READY_HOLD_MS));  // held: ready
+    CHECK(DebounceReady(d, false, 2200));                 // spotted for a moment: still ready
+    CHECK(DebounceReady(d, true, 2400));
+    CHECK(DebounceReady(d, false, 3000));
+    CHECK(!DebounceReady(d, false, 3000 + READY_HOLD_MS)); // spotted for good: not ready
+}

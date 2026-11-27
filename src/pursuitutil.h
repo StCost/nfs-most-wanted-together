@@ -214,6 +214,18 @@ namespace SharedPursuit {
         return { (int8_t)(w < 0.f ? w - 0.5f : w + 0.5f), 1 };
     }
 
+    // The partner's "ready" (unseen with a full evade bar, or cooling) as one shared decision: a change counts
+    // only once it has held READY_HOLD_MS. Their ready flickers (spotted for a moment, a cop copy passing), and
+    // every flicker moved us into the cooldown and straight back out (10 bounces in 4 minutes in a live test).
+    constexpr uint32_t READY_HOLD_MS = 700;
+    struct ReadyDebounce { bool stable = false, last = false; uint32_t since = 0; bool init = false; };
+    inline bool DebounceReady(ReadyDebounce& d, bool now, uint32_t nowMs, uint32_t holdMs = READY_HOLD_MS) {
+        if (!d.init) { d.init = true; d.stable = d.last = now; d.since = nowMs; return now; }
+        if (now != d.last) { d.last = now; d.since = nowMs; }
+        if (now != d.stable && nowMs - d.since >= holdMs) d.stable = now;
+        return d.stable;
+    }
+
     inline bool CooldownFinished(const View& v, float eps = ESCAPE_HOLD_LEFT_S) {
         return v.cooling && v.left <= eps;
     }
