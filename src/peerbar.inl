@@ -36,8 +36,8 @@ namespace PB {
                        sFadeIn = 0x5079C8F8, sFadeOut = 0x33113AC, sFlipIn = 0x13F51124;
     constexpr uintptr_t kFEGroupVtbl = 0x8A2E24, kFEGroupClone = 0x5C49C0;
     // Stacked under ours: only the moving strip (and its ticks), kStripDown below our strip; the label panel
-    // stays ours alone, and our backup timer (panel + text, under our strip) moves down by kStripDown too, so
-    // it sits under both strips. With no chase meter of our own up, the copy shows whole, in our meter's place.
+    // stays ours alone, and our backup timer (panel + text) stays where it is: it fits under both strips (the
+    // game puts it back there itself when the backup comes; moved down too, it hung a gap too low). With no chase meter of our own up, the copy shows whole, in our meter's place.
     constexpr float kStripDown = 8.f;
     // a copy that failed (the HUD mid-load, a race HUD, an exception) is tried again this much later - never given
     // up for good: the same addresses come back with every race (a pursuit from a race kept no strip after it)
@@ -58,7 +58,6 @@ namespace PB {
         void* lbl[3] = {}; int lblN = 0;                        // in cChase: the label panel and its two words
         float wFar = 54.f, wNear = 48.f;                        // the full widths
         float upChase = 0;                                      // applied now: the copy's offset (up)
-        void* bk[2] = {}; float bkDown = 0;                     // our own backup panel / text, and how far we moved them
         float shownV = 0; DWORD shownAt = 0;                    // the value on the strip now (follows the partner's)
         int objects = 0;
         bool ready = false;
@@ -230,7 +229,6 @@ namespace PB {
         for (int i = 0; i < g.hideN; ++i) HideNow(g.hide[i]);
         Add(pkg, g.parChase, a);                    // (the package frees it; a bad copy is never shown)
         if (bad) return bad;
-        g.bk[0] = Find(pkg, kBackupPanel, 1); g.bk[1] = Find(pkg, kBackupText, 5);
         g.cChase = a; g.objects = count; g.ready = true;
         return nullptr;
     }
@@ -281,11 +279,6 @@ namespace PB {
         applied = want;
     }
 
-    void MoveBackup(float down) {               // our own backup timer, under the partner's strip too
-        if (g.bkDown == down) return;
-        for (void* o : g.bk) MoveBy(o, down - g.bkDown);
-        g.bkDown = down;
-    }
     // The copy lives in the game's pursuit group: when the game hides that whole group (a race HUD:
     // FEngSetInvisible 0x514C70 marks every child, ours too) and later shows only its own meter, ours stayed
     // invisible for good (a pursuit from a race kept no strip after it). Shown: our copy and all in it are
@@ -342,7 +335,6 @@ namespace PB {
         bool show = kind == 1 && own != 2;          // with our cooldown up: none (the cooldown is shared)
         ShowGroup(g.cChase, show);
         bool ownUp = own == 1 || own == 3;          // our chase meter up: only the strip, under ours
-        MoveBackup(show && ownUp ? kStripDown : 0.f);
         if (!show) { g.shownAt = 0; return 0; }
         MoveTo(g.cChase, g.upChase, ownUp ? -kStripDown : 0.f);
         MakeVisible(g.cChase, 0);
@@ -360,7 +352,6 @@ namespace PB {
     void CleanUp() {
         if (!g.ready) return;
         HideNow(g.cChase);
-        MoveBackup(0.f);
     }
     void CleanUpGuarded() {
         __try { CleanUp(); } __except (EXCEPTION_EXECUTE_HANDLER) {}
