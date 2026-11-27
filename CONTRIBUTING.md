@@ -59,8 +59,8 @@ What lives where:
 | `test_protocol.cpp` | struct sizes and offsets, magic, `COOP_VERSION`, packet type numbers |
 | `test_net.cpp` | hello / bye / timeouts, sequence numbers, snapshot ring, interpolation, clock offset, car info |
 | `test_packets.cpp` | traffic, event, roster, racer name, restart: real serializer -> handler round trips |
-| `test_util.cpp` | `src/netutil.h`: name truncation, traffic ids, race traffic binding, Hermite / nlerp, float validation |
-| `test_pursuit.cpp` | `src/pursuitutil.h`: shared heat, cooldown hold / delay, busted together, the pursuit fields of the state packet |
+| `test_util.cpp` | `src/netutil.h`: name truncation, traffic ids, race traffic binding, Hermite / nlerp, float validation, the partner marker's projection and screen box |
+| `test_pursuit.cpp` | `src/pursuitutil.h`: shared heat, cooldown hold / delay, busted together, the pursuit fields of the state packet, the partner meter fill |
 | `test_config.cpp` | `MWTogether.ini` defaults, parsing, clamping; `perf.h` |
 | `test_fuzz.cpp` | random / mutated / truncated datagrams |
 | `test_loopback.cpp` | the real socket code against a raw UDP socket on localhost |

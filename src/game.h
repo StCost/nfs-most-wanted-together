@@ -120,7 +120,7 @@ namespace Game {
     void TrafficTick(bool connected, const Net::Snapshot& peer);
     void OnRaceRestart();           // drop mirrored / leftover cops (vanilla unload can miss co-op copies)
     void PursuitTick(bool connected, const Net::Snapshot& peer);   // cops may chase the other player
-    void MarkerTick(bool linked);   // the friend marker over their car / at the screen edge (marker.inl)
+    void MarkerTick(bool linked);   // the partner marker over their car / at the screen edge (marker.inl)
     void RoadblockTick(bool linked);   // police roadblocks the same in both games (roadblock.inl)
     int16_t LocalPursuitHeat();
     bool InstallPursuitHooks();                 // [Coop] SharedPursuits (minimap / radar)

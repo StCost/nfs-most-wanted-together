@@ -52,6 +52,7 @@ TEST(config_defaults_when_file_is_missing) {
     CHECK(c.sharedPursuits);
     CHECK(c.bossHelper); CHECK(!c.bossHelperSolo); CHECK(c.coopPrologue);
     CHECK(c.hideCursor);
+    CHECK(c.friendMarker);
     CHECK(!c.startInBackground);
     // debug options are all off unless asked for
     CHECK(!c.showOverlay); CHECK(!c.testKeys); CHECK(!c.autoPilot); CHECK(!c.perf);
@@ -69,11 +70,12 @@ TEST(config_parses_values) {
         "[Coop]\r\nNoSpeedbreaker=0\r\nNoPause=0\r\nRunInBackground=0\r\nStreamAroundPeer=0\r\nSyncStoryScenes=2\r\nSharedPursuits=0\r\nNoPursuitCams=0\r\nBossHelper=0\r\n"
         "[Start]\r\nSkipIntro=0\r\nDirectFreeRoam=0\r\nSkipLeaveSafeHouseDialog=0\r\nSkipLoadComplete=1\r\n"
         "[AutoStart]\r\nEnabled=0\r\nTarget=race\r\nDelayMs=10\r\nIntervalMs=20\r\nSequence=ENTER,ENTER\r\n"
-        "[UI]\r\nSkipPursuitResults=1\r\nNoticeSeconds=15\r\n"
+        "[UI]\r\nSkipPursuitResults=1\r\nNoticeSeconds=15\r\nFriendMarker=0\r\n"
         "[Input]\r\nGamepadHotplug=0\r\nKeepPadBindings=0\r\n"
         "[Window]\r\nHideCursor=0\r\nStartInBackground=1\r\n"
         "[Debug]\r\nOverlay=1\r\nToggleKey=0x7A\r\nTestKeys=1\r\nAutoPilot=1\r\nPerf=1\r\nTestEvent=1.2.3\r\nBossHelperSolo=1\r\n");
     CHECK(!c.isHost);
+    CHECK(!c.friendMarker);
     CHECK_STR(c.peerIp, "192.168.1.20");
     CHECK_STR(c.clientIp, "192.168.1.21");
     CHECK_EQ(c.port, 50000);
@@ -245,6 +247,7 @@ TEST(config_shipped_ini_matches_built_in_defaults) {
     CHECK_STR(shipped.autoStartSequence, def.autoStartSequence);
     CHECK_EQ(shipped.syncStoryScenes, def.syncStoryScenes);
     CHECK_EQ(shipped.hideCursor, def.hideCursor);
+    CHECK_EQ(shipped.friendMarker, def.friendMarker);
     CHECK_EQ(shipped.startInBackground, def.startInBackground);
     CHECK_EQ(shipped.showOverlay, def.showOverlay);
     CHECK_EQ(shipped.testKeys, def.testKeys);
