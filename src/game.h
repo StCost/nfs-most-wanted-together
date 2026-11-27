@@ -51,6 +51,7 @@ namespace Game {
     void WeatherTick(bool connected);         // [Coop] NoSlowMotion: everything in real time while connected                 // this profile may play co-op (career started, prologue done)
     void SetCoopLinked(bool linked);    // co-op features on/off this frame (connected and both allowed)
     uint8_t RaceStage();                // 0 none, 1 loading / intro, 2 on the grid
+    bool GridReadyNow();                // this event's intro is over (from its first frame, before the start hold)
     const char* StartStatus();          // "waiting for <name> to load..." while we hold the start
     uint32_t CurrentEventHash();        // event we are in, 0 = none
     std::string DebugRestart();

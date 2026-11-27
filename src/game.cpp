@@ -1495,17 +1495,17 @@ static void HostGridSlotTick(const Net::Snapshot& latest) {
     if (!g_clientSlotEvent) {
         bool fromRacer = g_ghostKind == GK_RACER && g_ghost == g_replacedRacer && g_peerSlotValid;
         float along = 0.f, side = 0.f; int n = 0;
-        // decided once we stand on the grid (intro over) with them on our spot. The slot read when the race
-        // built their racer is not always where the grid has room for them (seen 24 m behind the grid with an
-        // empty slot next to us, 10.3.2): it is taken only if no car stands on it and no free slot of our
-        // grid is nearer to us; else that free slot.
-        if (Game::RaceStage() != 2 || !latest.valid || !latest.s.inRace || latest.s.eventHash != ev) return;
+        // decided on our first frame on the grid (intro over), standing, with them in this event. It used to
+        // wait for the start hold's settle (0.8 s) and their car streamed in on our spot: the client moved ~1 s
+        // after the intro, seen as a teleport. The slot read when the race built their racer is not always
+        // where the grid has room for them (seen 24 m behind the grid with an empty slot next to us, 10.3.2):
+        // it is taken only if no car stands on it and no free slot of our grid is nearer to us; else that free slot.
+        if (!Game::GridReadyNow() || !latest.valid || !latest.s.inRace || latest.s.eventHash != ev) return;
         void* lrb = RigidBodyOf(LocalVehicle());
         if (!lrb) return;
         const float* lp = RB_GetVec(lrb, RB_GetPosition);
         const float* lv = RB_GetVec(lrb, RB_GetLinearVelocity);
-        float mySpeed = sqrtf(lv[0] * lv[0] + lv[1] * lv[1] + lv[2] * lv[2]);
-        if (!NetUtil::SharingStartSpot(lp, mySpeed, latest.s.pos, latest.s.speedMps)) return;
+        if (!(lv[0] * lv[0] + lv[2] * lv[2] < 1.f)) return;   // (still falling onto the grid is fine)
         float freeSlot[3] = {};
         bool haveFree = FreeGridSlotNear(lrb, freeSlot, along, side, n);
         if (fromRacer) {
@@ -1554,13 +1554,14 @@ static void HostGridSlotTick(const Net::Snapshot& latest) {
 // for the host's word, and without it (an older host) takes the slot of the host's racer here as before.
 static void TakePeerSlotTick(const Net::Snapshot& latest, void* ghostRb) {
     static uint32_t winEvent = 0; static void* slotOf = nullptr; static uint8_t lastRestart = 0;
-    static DWORD windowUntil = 0, sharingSince = 0;
+    static DWORD windowUntil = 0, sharingSince = 0; static bool afterRestart = false;
     if (g_cfg.isHost || !g_cfg.separateGridSlots) return;
     uint32_t ev = Game::CurrentEventHash();
     uint8_t restart = 0; Mem::Read(0x91CF28, restart);
     DWORD now = GetTickCount();
     // a new event, a new racer for them or a restart (the game puts everyone back on the grid) opens the window
     if (ev != winEvent || slotOf != g_replacedRacer || (restart && !lastRestart)) {
+        afterRestart = ev == winEvent && restart && !lastRestart;
         winEvent = ev; slotOf = g_replacedRacer; windowUntil = ev ? now + 60000 : 0; sharingSince = 0;
     }
     lastRestart = restart;
@@ -1573,10 +1574,13 @@ static void TakePeerSlotTick(const Net::Snapshot& latest, void* ghostRb) {
     const float* lp = RB_GetVec(lrb, RB_GetPosition);
     const float* lv = RB_GetVec(lrb, RB_GetLinearVelocity);
     float mySpeed = sqrtf(lv[0] * lv[0] + lv[1] * lv[1] + lv[2] * lv[2]);
-    if (!NetUtil::SharingStartSpot(lp, mySpeed, latest.s.pos, latest.s.speedMps)) { sharingSince = 0; return; }
-    if (!sharingSince) sharingSince = now ? now : 1;
     float hostSlot[3] = {}; bool hostRacer = false;
-    bool haveHost = Net::PeerGridSlot(ev, hostSlot, &hostRacer) && NetUtil::ShouldTakePeerSlot(lp, mySpeed, latest.s.pos, latest.s.speedMps, hostSlot);
+    bool gotHost = Net::PeerGridSlot(ev, hostSlot, &hostRacer);
+    bool early = NetUtil::EarlyHostSlot(!afterRestart, Game::GridReadyNow(), gotHost, sqrtf(lv[0] * lv[0] + lv[2] * lv[2]),
+                                        gotHost ? NetUtil::Dist3(lp, hostSlot) : 0.f);
+    if (!early && !NetUtil::SharingStartSpot(lp, mySpeed, latest.s.pos, latest.s.speedMps)) { sharingSince = 0; return; }
+    if (!sharingSince) sharingSince = now ? now : 1;
+    bool haveHost = gotHost && (early || NetUtil::ShouldTakePeerSlot(lp, mySpeed, latest.s.pos, latest.s.speedMps, hostSlot));
     bool haveOwn = g_ghostKind == GK_RACER && g_ghost == g_replacedRacer && g_peerSlotValid &&
                    NetUtil::ShouldTakePeerSlot(lp, mySpeed, latest.s.pos, latest.s.speedMps, g_peerSlot);
     NetUtil::StartSlot pick = NetUtil::PickStartSlot(haveHost, haveOwn, (int)(now - sharingSince));

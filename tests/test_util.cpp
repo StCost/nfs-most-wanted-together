@@ -503,6 +503,17 @@ TEST(util_start_slot_is_the_hosts) {
     CHECK(PickStartSlot(false, false, kHostSlotWaitMs) == StartSlot::None);
     CHECK(PickStartSlot(true, false, kHostSlotWaitMs * 4) == StartSlot::Host);
 }
+TEST(util_early_host_slot) {
+    using namespace NetUtil;
+    CHECK(EarlyHostSlot(true, true, true, 0.f, 6.f));
+    CHECK(EarlyHostSlot(true, true, true, 0.9f, 39.f));
+    CHECK(!EarlyHostSlot(false, true, true, 0.f, 6.f));     // after a restart: the old rule
+    CHECK(!EarlyHostSlot(true, false, true, 0.f, 6.f));     // our intro still plays
+    CHECK(!EarlyHostSlot(true, true, false, 0.f, 6.f));     // no word from the host yet
+    CHECK(!EarlyHostSlot(true, true, true, 3.f, 6.f));      // moving
+    CHECK(!EarlyHostSlot(true, true, true, 0.f, 1.5f));     // already there
+    CHECK(!EarlyHostSlot(true, true, true, 0.f, 45.f));     // far away: not the grid
+}
 TEST(util_take_peer_slot_only_when_sharing_a_slot) {
     float me[3] = { 100, 5, 200 }, peerSame[3] = { 100.5f, 5, 200.4f }, slot[3] = { 104, 5, 196 };
     CHECK(ShouldTakePeerSlot(me, 0.f, peerSame, 0.f, slot));

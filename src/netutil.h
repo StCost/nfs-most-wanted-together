@@ -325,6 +325,14 @@ namespace NetUtil {
     //  Own  - no word from the host for a moment (an older host): the slot our game built the host's racer
     //         on, as before - right only when both races put the two swapped racers on the same slot
     //  None - neither: the other player is shown at their real position (collisions stay off until they are apart)
+    // The first start of an event: once our own intro is over and we stand still, the host's word alone is
+    // enough to move - no wait for the host's car to stream in on our spot (that took ~1 s after the intro,
+    // seen as a teleport). After a restart the game puts the cars back later: there the old rule (both on the
+    // player's spot) still decides when.
+    inline bool EarlyHostSlot(bool firstStart, bool gridReady, bool gotHostSlot, float myFlatSpeed, float slotDist) {
+        if (!firstStart || !gridReady || !gotHostSlot || !(myFlatSpeed < 1.f)) return false;
+        return slotDist > 2.f && slotDist < 40.f;
+    }
     enum class StartSlot { Wait, Host, Own, None };
     constexpr int kHostSlotWaitMs = 2500;
     inline StartSlot PickStartSlot(bool hostSlot, bool ownSlot, int sharingMs) {
