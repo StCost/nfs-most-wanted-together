@@ -122,8 +122,37 @@ namespace {
         return tight;
     }
 
+    // which cars an eviction took (names, ours / a copy / a cop), for the log - noted before the check, as
+    // an evicted car is freed by then
+    struct CarNote { void* iv; char name[16]; bool copy, cop; };
+    void SnapCars(CarNote* out, int& n) {
+        n = 0; void** b = nullptr; int cnt = ListSize(VL_ALL, &b);
+        for (int i = 0; i < cnt && n < 128; ++i) if (void* t = ListGet(VL_ALL, i)) {
+            CarNote& c = out[n++]; c.iv = t;
+            strncpy_s(c.name, VehName(t), _TRUNCATE);
+            c.copy = IsMirrorCar(t); c.cop = ListContainsOne(VL_AICOPS, t);
+        }
+    }
+    void SnapCarsSafe(CarNote* out, int& n) { __try { SnapCars(out, n); } __except (EXCEPTION_EXECUTE_HANDLER) { n = 0; } }
+    void LogEvictedSafe(const CarNote* was, int nWas) {
+        __try {
+            void** b = nullptr; int cnt = ListSize(VL_ALL, &b);
+            char buf[400] = ""; size_t L = 0;
+            for (int i = 0; i < nWas && L < 360; ++i) {
+                bool still = false;
+                for (int j = 0; j < cnt; ++j) if (ListGet(VL_ALL, j) == was[i].iv) { still = true; break; }
+                if (!still) L += sprintf_s(buf + L, sizeof(buf) - L, " %s(%s%s)", was[i].name, was[i].copy ? "copy" : "ours", was[i].cop ? ", cop" : "");
+            }
+            uint32_t pool = 0; Mem::Read(PoolFreeAddr, pool);
+            uint32_t used = ((uint32_t(__cdecl*)())0x683C80)();
+            LOG("Budget: evicted:%s - car models %u KB of %u KB", buf[0] ? buf : " (none found)", used / 1024, pool / 1024);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+
     bool __cdecl hk_BudgetCheck(void* cache, void* request) {
         int before = CarCount(), asked = 0;
+        CarNote was[128]; int nWas = 0;
+        SnapCarsSafe(was, nWas);
         if (request) Mem::Read((uintptr_t)request + 8, asked);
         // the other player's copies: up to 40. The game's own cars: their 20 next to the copies in the world
         // (20 + copies, at most 40), so its traffic and cops are as many as in the plain game.
@@ -147,6 +176,7 @@ namespace {
             if (now - g_budgetLastRefusalLog > 2000) { g_budgetLastRefusalLog = now; LogRefusalSafe(before, asked, cache); }
         } else if (after < before) {
             LOG("Budget: %d car(s) evicted to make room for a new one (%d in the world before, limit 20, %d for copies)", before - after, before, CopyCarLimit());
+            LogEvictedSafe(was, nWas);
         }
         return ok;
     }
@@ -367,3 +397,17 @@ static int FixedListsScan() {
     } __except (EXCEPTION_EXECUTE_HANDLER) { return -1; }
 }
 std::string Game::DebugFixedLists() { int n = FixedListsScan(); return n < 0 ? "scan failed" : "fixed tables: " + std::to_string(n) + " (listed in the log)"; }
+// ---- the car model memory pool ----
+//  At boot (0x664A24) the game sizes its main heap as 0x7EF4000 + *0x8F7EF0 KB and gives the "Cars" pool
+//  (CarLoader::SetMemoryPoolSize 0x75C550) *0x8F7EF0 KB: 50000 KB, made for 20 cars. With more cars - the
+//  partner's traffic adds its own models - a new model often didn't fit and the budget evicted cars that
+//  were in use (cops vanished and came back). Set before the game reads it (DllMain): +32 MB with MaxCars > 20.
+void Game::InstallCarPoolSize() {
+    constexpr uintptr_t kCarsPoolKB = 0x8F7EF0;
+    constexpr int32_t kStock = 50000, kExtraKB = 32 * 1024;
+    int32_t kb = 0;
+    if (!Mem::Read(kCarsPoolKB, kb) || kb != kStock) { LOG("Budget: car model pool not resized (%d KB, not the 1.3 default)", kb); return; }
+    if (g_cfg.maxCars <= 20) return;
+    int32_t want = kStock + kExtraKB;
+    LOG("Budget: car model pool %d KB -> %d KB %s", kStock, want, Mem::Write(kCarsPoolKB, want) ? "" : "(write FAILED)");
+}

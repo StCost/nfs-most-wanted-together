@@ -652,6 +652,7 @@ BOOL APIENTRY DllMain(HMODULE mod, DWORD reason, LPVOID) {
         Perf::Enable(g_cfg.perf);
         g_prevForeground = GetForegroundWindow();
         Game::InstallBootPatches();
+        Game::InstallCarPoolSize();        // before the game sizes its heaps
         Game::InstallExitWatch(false);     // log why the game quits (and keep a stale WM_QUIT from quitting it)
         InstallCrashDialog();
         Pad::InstallHooks();               // controller bindings guard (before the game creates its input devices)
