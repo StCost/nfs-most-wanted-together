@@ -7,10 +7,8 @@
 //       0x47A4E2A9 the middle mark (script only)       0x8E3653A6 EVADE near (48, grows right)
 //       0x30F39A6F EVADE far (54, grows right)         0x988B8325 the track (216)
 //       0x8C20A763 / 0x6A144066 the backup timer panel and text (below the strip)
-//   0x84A226EC  the cooldown meter: the strip at y 196, its panel BELOW it (y 199..231)
-//       0xCF817638 the bar (216, grows right)  0xA1EB7E6E the track
-//       0x5C2A4F20 / 0x60B45523 / 0x38074901 the HIDDEN panel, text and icon (above the strip)
-//   0xE0B1430B  the cop-count row (y 133..164), right above the meter
+//       0xBAE10529 the label panel, 0x6BF5C681 / 0x0B3DF9DF the words BUSTED / EVADE (above the strip)
+// Only the chase meter is copied: the cooldown is shared, so our own cooldown meter is the partner's too.
 // The fill is the WIDTH of a segment (FEngSetSize 0x5155E0), then the fixed edge is put back
 // (FEngSetBottomRight 0x524E20 / FEngSetTopLeft 0x524CC0) - the game's own steps at 0x57B2B0..0x57B612.
 //
@@ -26,35 +24,33 @@
 //
 // Position: every group script carries its own position (track "7" = data +0x1C), so a plain write to the
 // data is undone by the scripts. FEObject::SetPosition (0x5B8190, thiscall(const float[3], bool relative))
-// shifts the data AND that track in every script of the object - used for the copies (up by the offset)
-// and, while the partner bar shows, for the cop row and the HIDDEN icon (put back when it hides).
+// shifts the data AND that track in every script of the object - used to put the copy under our strip.
 // Shown / hidden with the groups' own fade scripts 0x5079C8F8 / 0x33113AC, as PursuitBoard does.
 namespace {
 namespace PB {
-    constexpr uint32_t kChase = 0x7B422BA3, kCool = 0x84A226EC, kIcon = 0x38074901;
+    constexpr uint32_t kChase = 0x7B422BA3;
     constexpr uint32_t kBustFar = 0xE0E0169B, kBustNear = 0x8EEEBD33, kMid = 0x47A4E2A9, kEvadeNear = 0x8E3653A6,
-                       kEvadeFar = 0x30F39A6F, kTrack = 0x988B8325, kBackupPanel = 0x8C20A763, kBackupText = 0x6A144066,
-                       kCoolBar = 0xCF817638, kCoolTrack = 0xA1EB7E6E, kHiddenPanel = 0x5C2A4F20, kHiddenText = 0x60B45523;
+                       kEvadeFar = 0x30F39A6F, kTrack = 0x988B8325, kBackupPanel = 0x8C20A763, kBackupText = 0x6A144066;
     // script names (FEHashUpper): INIT, SHOW, HIDE, PULSE, ALERT; the two fades are not in the exe by name
     constexpr uint32_t sInit = 0x1744B3, sShow = 0x1CA7C0, sHide = 0x16A259, sPulse = 0x3826A28, sAlert = 0x26DED57,
                        sFadeIn = 0x5079C8F8, sFadeOut = 0x33113AC, sFlipIn = 0x13F51124;
     constexpr uintptr_t kFEGroupVtbl = 0x8A2E24, kFEGroupClone = 0x5C49C0;
-    // Stacked under ours: only the moving strip (and its ticks), kStripDown below our strip; the label panel
-    // (BUSTED / EVADE) stays ours alone. With no meter of our own up, the copy shows whole, in our meter's place.
-    constexpr float kStripDown = 8.f;
+    // Stacked under ours: only the moving strip (and its ticks), kStripDown below our strip (kStripDownBackup
+    // while our backup timer shows there); the label panel stays ours alone. With no chase meter of our own up,
+    // the copy shows whole, in our meter's place.
+    constexpr float kStripDown = 8.f, kStripDownBackup = 26.f;
     constexpr uint32_t kLabelPanel = 0xBAE10529, kLabelBusted = 0x6BF5C681, kLabelEvade = 0x0B3DF9DF;
     const char* const kPkgName = "HUD_SingleRace.fng";
 
     struct State {
         void* pkg = nullptr;
-        void* chase = nullptr; void* cool = nullptr; void* row = nullptr; void* icon = nullptr;   // the game's own
-        void* parChase = nullptr; void* parCool = nullptr;      // their parent groups (null: the package's own list)
-        void* cChase = nullptr; void* cCool = nullptr;          // the copies
+        void* chase = nullptr;                                  // the game's own chase meter
+        void* parChase = nullptr;                               // its parent group (null: the package's own list)
+        void* cChase = nullptr;                                 // the copy
         void* seg[5] = {};                                      // in cChase: BUSTED far, near, the middle, EVADE near, far
-        void* coolBar = nullptr;                                // in cCool
-        void* hide[6] = {}; int hideN = 0;                      // parts of the copies that never show (backup timer, HIDDEN)
+        void* hide[2] = {}; int hideN = 0;                      // parts of the copy that never show (the backup timer)
         void* lbl[3] = {}; int lblN = 0;                        // in cChase: the label panel and its two words
-        float wFar = 54.f, wNear = 48.f, wCool = 216.f;         // the full widths
+        float wFar = 54.f, wNear = 48.f;                        // the full widths
         float upChase = 0;                                      // applied now: the copy's offset (up)
         int objects = 0;
         bool ready = false;
@@ -137,14 +133,13 @@ namespace PB {
         switch (Hash(orig)) {
         case kBustFar: g.seg[0] = copy; break;      case kBustNear: g.seg[1] = copy; break;
         case kMid: g.seg[2] = copy; break;          case kEvadeNear: g.seg[3] = copy; break;
-        case kEvadeFar: g.seg[4] = copy; break;     case kCoolBar: g.coolBar = copy; break;
+        case kEvadeFar: g.seg[4] = copy; break;
         case kTrack: { float w = *(float*)(Data(orig) + 0x38); if (w > 20.f && w < 2000.f) { g.wFar = w * 0.25f; g.wNear = w * (48.f / 216.f); } break; }
-        case kCoolTrack: { float w = *(float*)(Data(orig) + 0x38); if (w > 20.f && w < 2000.f) g.wCool = w; break; }
         case kLabelPanel: case kLabelBusted: case kLabelEvade:
             if (g.lblN < 3) g.lbl[g.lblN++] = copy;
             break;
-        case kBackupPanel: case kBackupText: case kHiddenPanel: case kHiddenText: case kIcon:
-            if (g.hideN < 6) g.hide[g.hideN++] = copy;
+        case kBackupPanel: case kBackupText:
+            if (g.hideN < 2) g.hide[g.hideN++] = copy;
             break;
         }
     }
@@ -207,28 +202,21 @@ namespace PB {
         g.pkg = pkg;
         g.chase = Find(pkg, kChase, 5);
         if (pkg == g.deadPkg && g.chase == g.deadChase) return nullptr;      // failed before, said so then
-        g.cool = Find(pkg, kCool, 5);
-        if (!g.chase || !g.cool) return "the meter's groups are not in the HUD (another HUD?)";
-        void* first = *(void**)(B(pkg) + 0x4C);
-        if (!FindParent(first, nullptr, g.chase, &g.parChase, 0) || !FindParent(first, nullptr, g.cool, &g.parCool, 0))
-            return "the meter's groups are not in the package's tree";
+        if (!g.chase) return "the meter's group is not in the HUD (another HUD?)";
+        if (!FindParent(*(void**)(B(pkg) + 0x4C), nullptr, g.chase, &g.parChase, 0)) return "the meter's group is not in the package's tree";
         void* a = CloneGroup(g.chase);
         if (!a) return "the chase group is not a plain FEGroup (or out of memory)";
-        void* b = CloneGroup(g.cool);
         int count = 0;
         // (a copy that cannot be finished is left alone, unattached: a few hundred bytes, once per HUD)
-        if (!b) return "the cooldown group is not a plain FEGroup (or out of memory)";
-        if (!SameShape(g.chase, a, 0, &count) || !SameShape(g.cool, b, 0, &count)) return "the copy does not match the original";
-        Finish(g.chase, a); Finish(g.cool, b);
-        if (!g.seg[0] || !g.seg[1] || !g.seg[2] || !g.seg[3] || !g.seg[4] || !g.coolBar) {
-            // attached all the same (the package frees them), but never shown
-            Settle(a); Settle(b); Add(pkg, g.parChase, a); Add(pkg, g.parCool, b);
-            return "the meter's segments are not in the groups";
-        }
-        Settle(a); Settle(b);
+        if (!SameShape(g.chase, a, 0, &count)) return "the copy does not match the original";
+        Finish(g.chase, a);
+        const char* bad = !g.seg[0] || !g.seg[1] || !g.seg[2] || !g.seg[3] || !g.seg[4] ? "the meter's segments are not in the group"
+                        : g.lblN != 3 ? "the meter's label panel is not in the group" : nullptr;
+        Settle(a);
         for (int i = 0; i < g.hideN; ++i) HideNow(g.hide[i]);
-        Add(pkg, g.parChase, a); Add(pkg, g.parCool, b);
-        g.cChase = a; g.cCool = b; g.objects = count; g.ready = true;
+        Add(pkg, g.parChase, a);                    // (the package frees it; a bad copy is never shown)
+        if (bad) return bad;
+        g.cChase = a; g.objects = count; g.ready = true;
         return nullptr;
     }
 
@@ -236,8 +224,7 @@ namespace PB {
     // often at the same addresses)
     bool StillValid(void* pkg) {
         return g.ready && pkg == g.pkg && Find(pkg, kChase, 5) == g.chase &&
-               IsChild(pkg, g.parChase, g.cChase) && IsChild(pkg, g.parCool, g.cCool) &&
-               Hash(g.cChase) == 0 && Hash(g.cCool) == 0;     // still our silent copies (a reload at the same address: not)
+               IsChild(pkg, g.parChase, g.cChase) && Hash(g.cChase) == 0;     // still our silent copy (a reload at the same address: not)
     }
 
     void SetWidthRight(void* o, float w) {       // the right edge stays (BUSTED side), as at 0x57B2B0
@@ -249,7 +236,7 @@ namespace PB {
         ((void(__cdecl*)(void*, float*, float*))0x515140)(o, &nx, &ny);
         ((void(__cdecl*)(void*, float, float))0x524E20)(o, x, ny);                       // FEngSetBottomRight
     }
-    void SetWidthLeft(void* o, float w) {        // the left edge stays (EVADE side, the cooldown bar), as at 0x57B4CE
+    void SetWidthLeft(void* o, float w) {        // the left edge stays (EVADE side), as at 0x57B4CE
         float x = 0, y = 0, sx = 0, sy = 0, nx = 0, ny = 0;
         ((void(__cdecl*)(void*, float*, float*))0x514FD0)(o, &x, &y);                    // FEngGetTopLeft
         ((void(__cdecl*)(void*, float*, float*))0x515520)(o, &sx, &sy);
@@ -290,14 +277,14 @@ namespace PB {
     }
 
     // kind 0 hides, 1 their chase (value -100 busted .. +100 evade). own: our own meter, 0 none, 1 the chase,
-    // 2 the cooldown. Returns: 1 shown, 0 hidden, -1 no copy (why: once per package)
+    // 2 the cooldown, 3 the chase with the backup timer. Returns: 1 shown, 0 hidden, -1 no copy (why: once per package)
     int Apply(int kind, int value, int own, const char** why) {
         *why = nullptr;
         void* pkg = Package();
         if (!pkg || !Sane(pkg, 0x54)) { Forget(); return kind ? -1 : 0; }
-        if (g.ready && !StillValid(pkg)) {
-            // usually the HUD was loaded again (often at the same addresses): copy again - but only once per
-            // package, so copies that keep going missing don't make new ones every frame
+        if (g.ready && StillValid(pkg)) { g.recopiedPkg = g.recopiedChase = nullptr; }   // a later reload may copy again
+        else if (g.ready) {
+            // the HUD was loaded again (often at the same address): copy again, but at most twice in a row here
             bool samePlace = pkg == g.pkg && Find(pkg, kChase, 5) == g.chase;
             void* chase = g.chase;
             bool again = samePlace && g.recopiedPkg == pkg && g.recopiedChase == chase;
@@ -316,25 +303,21 @@ namespace PB {
                 if (err) { g.deadPkg = pkg; g.deadChase = g.chase; *why = err; }
                 return -1;
             }
-            LOG("Pursuit: partner bar - cloned the game's meter (%d objects; chase %p, cooldown %p; segments %.0f / %.0f, cooldown %.0f wide)",
-                g.objects, g.cChase, g.cCool, g.wFar, g.wNear, g.wCool);
+            LOG("Pursuit: partner bar - cloned the game's meter (%d objects, copy %p, segments %.0f / %.0f)",
+                g.objects, g.cChase, g.wFar, g.wNear);
         }
-        // (the cooldown is shared: one meter, ours - kind 2 never reaches here as a bar)
-        // (with our cooldown meter up, theirs is not shown either: the cooldown is shared)
-        bool show = kind == 1 && own != 2;
+        bool show = kind == 1 && own != 2;          // with our cooldown up: none (the cooldown is shared)
         ShowGroup(g.cChase, show);
-        ShowGroup(g.cCool, false);
         if (!show) return 0;
-        // our own chase meter up: only the strip, right under ours; else the whole copy in its place
-        bool ownUp = own == 1;
-        MoveTo(g.cChase, g.upChase, ownUp ? -kStripDown : 0.f);
+        bool ownUp = own == 1 || own == 3;          // our chase meter up: only the strip, under ours
+        MoveTo(g.cChase, g.upChase, own == 3 ? -kStripDownBackup : ownUp ? -kStripDown : 0.f);
         ShowLabels(!ownUp);
         FillChase(SharedPursuit::MeterV(value));
         return 1;
     }
     void CleanUp() {
         if (!g.ready) return;
-        HideNow(g.cChase); HideNow(g.cCool);
+        HideNow(g.cChase);
     }
     void CleanUpGuarded() {
         __try { CleanUp(); } __except (EXCEPTION_EXECUTE_HANDLER) {}
@@ -343,8 +326,7 @@ namespace PB {
         __try {
             return Apply(kind, value, own, why);
         } __except (EXCEPTION_EXECUTE_HANDLER) {
-            // whatever it was: the copies are hidden and the cop row put back if that still works, and this
-            // package's copy is not touched again
+            // whatever it was: the copy is hidden if that still works, and this package's is not touched again
             void* pkg = g.pkg; void* chase = g.chase;
             CleanUpGuarded();
             Forget();
@@ -370,17 +352,15 @@ static bool PeerBarForced(int* kind, int* value) {
 }
 
 namespace Game {
-    // test: "peerbar chase <-100..100>" | "peerbar cool <0..100>" | "peerbar off" (back to the other player's own)
-    // - shows the partner bar with a fixed value, no partner needed (the HUD must be up).
+    // test: "peerbar chase <-100..100>" | "peerbar off" - the partner strip with a fixed value, no partner needed
     std::string DebugPeerBar(const char* args) {
         std::string a = args ? args : "";
         int v = 0;
         if (sscanf_s(a.c_str(), "chase %d", &v) == 1) { PB::g.forced = true; PB::g.forceKind = 1; PB::g.forceValue = (int)SharedPursuit::Clamp((float)v, -100.f, 100.f); }
-        else if (sscanf_s(a.c_str(), "cool %d", &v) == 1) { PB::g.forced = true; PB::g.forceKind = 2; PB::g.forceValue = (int)SharedPursuit::Clamp((float)v, 0.f, 100.f); }
         else if (a == "off") { PB::g.forced = false; return "peerbar: back to the other player's own bar"; }
-        else return "peerbar chase <-100..100> | peerbar cool <0..100> | peerbar off";
+        else return "peerbar chase <-100..100> | peerbar off";
         char buf[96];
-        sprintf_s(buf, "peerbar: forced %s %d", PB::g.forceKind == 1 ? "chase" : "cooldown", PB::g.forceValue);
+        sprintf_s(buf, "peerbar: forced chase %d", PB::g.forceValue);
         return buf;
     }
 }

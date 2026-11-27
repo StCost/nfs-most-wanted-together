@@ -28,7 +28,7 @@
 //  is full too, then both enter the cooldown; when either is spotted in it, both leave it (even from a
 //  hiding spot). Escape completes only when both have finished. A safe house (open in the cooldown, as
 //  in the game) evades that player as usual, and PURSUIT_EVADED ends the other player's pursuit as an
-//  escape/win too. The other player's bar is drawn above ours (peerbar.inl: a copy of the game's own meter).
+//  escape/win too. The other player's strip is drawn under ours (peerbar.inl: a copy of the game's own).
 //  While both are in cooldown the cooldown is one: the one further on sets it for both, and if one
 //  player is in a hiding spot the other's cooldown runs at the hiding-spot speed too.
 // ---------------------------------------------------------------------------
@@ -995,7 +995,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
 }
 
 // ---- cops of our pursuit go after whichever player is closer (SharedPursuit::CopChasesPeer) ----
-// ---- the other player's pursuit bar above ours (bottom centre; peerbar.inl: a copy of the game's own meter) ----
+// ---- the other player's pursuit strip under ours (bottom centre; peerbar.inl: a copy of the game's own) ----
 // Shown while they are chased in the same place as us (free roam, or the same event), over the plain
 // HUD only (not over menus, the map or a cutscene).
 static void PeerBarTickImpl(bool connected, const Net::Snapshot& peer) {
@@ -1019,11 +1019,11 @@ static void PeerBarTickImpl(bool connected, const Net::Snapshot& peer) {
     if (show) {
         b.kind = forced ? forceKind : peer.s.pursuitBarKind; b.value = forced ? forceValue : peer.s.pursuitBar;
     }
-    if (b.kind == 2) b.kind = 0;        // the cooldown is shared between the two games: our own meter is theirs too
-    int own = 0;                         // our own meter on screen: 1 the chase, 2 the cooldown
+    if (b.kind == 2) b.kind = 0;        // (shared cooldown)
+    int own = 0;                         // our own meter on screen: 1 the chase, 2 the cooldown, 3 the chase + backup timer
     if (void* mp = b.kind ? PursuitOf(LocalVehicle()) : nullptr) {
         int st = PRead<int>(mp, P_Status);
-        own = st == PS_COOLDOWN ? 2 : (st == PS_CHASE || st == PS_BACKUP) ? 1 : 0;
+        own = st == PS_COOLDOWN ? 2 : st == PS_BACKUP ? 3 : st == PS_CHASE ? 1 : 0;
     }
     if (!PeerBarNativeSet(b.kind, b.value, own)) b.kind = 0;      // no copy of the meter (said in the log once): nothing shown
     if (b.kind != lastKind) {

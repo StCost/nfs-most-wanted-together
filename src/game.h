@@ -56,7 +56,7 @@ namespace Game {
     std::string DebugRestart();
     std::string DebugRam(bool cop = false);   // test: hit the other player's car (cop: their nearest police car)
     std::string DebugPos();             // test: our position and speed
-    std::string DebugPeerBar(const char* args);    // test: 'peerbar chase <-100..100> | cool <0..100> | off' - the partner's bar with a fixed value
+    std::string DebugPeerBar(const char* args);    // test: 'peerbar chase <-100..100> | off' - the partner's strip with a fixed value
     std::string DebugTeleport(const char* args);   // test: 'tp x y z' puts our car there (2 m up, stopped)
     bool CloseInGameOverlays();         // PAD_BACK the top in-game FE overlay (pause, map, SMS, ...); true if one was / is still open
     std::string DebugNisSkip();         // test: press skip on the current cutscene

@@ -189,10 +189,9 @@ namespace SharedPursuit {
     }
 
     // The partner bar on the game's own meter (peerbar.inl). The meter's v runs +1 busted .. -1 evaded, so a
-    // PursuitBar chase value (-100 busted .. +100 evade) is -value / 100; a cooldown value is the share done.
+    // PursuitBar chase value (-100 busted .. +100 evade) is -value / 100.
     inline float Clamp(float f, float lo, float hi) { return !(f > lo) ? lo : f > hi ? hi : f; }
     inline float MeterV(int value) { return -Clamp((float)value, -100.f, 100.f) / 100.f; }
-    inline float CooldownDone(int value) { return Clamp((float)value, 0.f, 100.f) / 100.f; }
     // PursuitBoard::Update's fill: each segment as a share of its full width; the far ones flash (ALERT) past
     // half, the middle mark pulses while |v| < 0.1
     struct ChaseFill { float bustFar, bustNear, evadeNear, evadeFar; bool bustAlert, evadeAlert, midPulse; };

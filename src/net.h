@@ -95,7 +95,7 @@ struct CarState {
     uint8_t  bustSeq;       // +1 every time the sender gets busted on its own (the other game follows)
     uint16_t coolLeft10;    // cooldown time left x10 (s) of the sender's pursuit
     uint16_t prologue;      // co-op in the prologue: Prologue::Encode (prologueutil.h); 0 from older builds
-    // the sender's pursuit bar, drawn above ours (SharedPursuit::PursuitBar): kind 0 none, 1 the chase bar
+    // the sender's pursuit bar, drawn under ours (SharedPursuit::PursuitBar): kind 0 none, 1 the chase bar
     // (value -100 busted .. 0 middle .. +100 evade), 2 the cooldown meter (value 0 .. 100 done)
     int8_t   pursuitBar;
     uint8_t  pursuitBarKind;
