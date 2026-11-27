@@ -158,12 +158,13 @@ namespace SharedPursuit {
     // The exe float at 0x890D34: not seen this long in the current state starts cooldown.
     constexpr float COOLDOWN_UNSEEN_S = 2.5f;
     constexpr float WAIT_UNSEEN_SLACK_S = 0.05f;
-    // HoldEvade keeps the unseen time here: under the game's limit by a few frames, over EVADE_READY_S.
-    constexpr float HOLD_UNSEEN_S = COOLDOWN_UNSEEN_S - 0.15f;
-    constexpr float EVADE_READY_S = COOLDOWN_UNSEEN_S - 0.2f;   // the bar counts as full from here
+    // HoldEvade keeps the unseen time here, over EVADE_READY_S. The game's pursuit task adds the unseen time in
+    // steps (one step took it from <= 2.35 to past 2.5 within 62 ms), so the hold keeps half a second clear.
+    constexpr float HOLD_UNSEEN_S = COOLDOWN_UNSEEN_S - 0.5f;
+    constexpr float EVADE_READY_S = COOLDOWN_UNSEEN_S - 0.55f;  // the bar counts as full from here
     // Lowest +0x128 that does not look like "seen again" (that would cancel cooldown).
     constexpr float COOLDOWN_FLOOR_S = SEEN_LIMIT_S + 0.1f;
-    // HoldEscape keeps at least this much cooldown left: more than one pursuit tick (400 ms) of progress.
+    // HoldEscape keeps at least this much cooldown left: more than one tick of the game's pursuit task (~400 ms) of progress.
     constexpr float ESCAPE_HOLD_LEFT_S = 1.0f;
     constexpr float ESCAPE_HOLD_MAX_S = 6.0f;
     constexpr float PURSUIT_TICK_S = 0.4f;
@@ -242,11 +243,6 @@ namespace SharedPursuit {
     constexpr uint32_t COOLDOWN_GRACE_MS = 1000;
     inline bool InCooldownGrace(bool cooling, uint32_t sinceEnteredMs) { return cooling && sinceEnteredMs < COOLDOWN_GRACE_MS; }
 
-    // HoldEvade keeps the escape progress where the wait began (the wait doesn't count); a sighting still lowers it.
-    inline void FreezeProgress(float& accum, float& sinceSeen, float heldAccum, float heldSince) {
-        if (accum > heldAccum) accum = heldAccum;
-        if (sinceSeen > heldSince) sinceSeen = heldSince;
-    }
     inline bool CooldownFinished(const View& v, float eps = ESCAPE_HOLD_LEFT_S) {
         return v.cooling && (v.held || v.left <= eps);
     }
@@ -297,6 +293,14 @@ namespace SharedPursuit {
         accum -= a; excess -= a;
         float room = sinceSeen - (SEEN_LIMIT_S + 0.1f);
         if (excess > 0.f && room > 0.f) sinceSeen -= excess < room ? excess : room;
+    }
+
+    // The wait at the evade limit doesn't count: entering the cooldown, the progress goes back to where the wait
+    // began (as far as DelayProgress can: sinceSeen stays over the seen limit).
+    inline void UndoEvadeWait(float required, float progressAtWait, float& accum, float& sinceSeen) {
+        if (!(required > 0.f) || !(progressAtWait >= 0.f)) return;
+        float wantLeft = required - progressAtWait;
+        DelayProgress(required, wantLeft > 0.f ? wantLeft : 0.f, accum, sinceSeen);
     }
 
     // ---- hiding spot and cooldown progress, shared while both are in cooldown ----------------------

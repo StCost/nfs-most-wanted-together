@@ -261,8 +261,8 @@ namespace {
         bool     localBusted = false;    // our own pursuit is busted right now (any pursuit: free roam, event, prologue)
         SharedPursuit::ReadyDebounce peerReady;   // the partner's ready, debounced (shared cooldown decisions)
         DWORD    coolEnteredAt = 0;       // when our cooldown began (SharedPursuit::InCooldownGrace)
-        bool     holdValid = false;       // waiting at the evade limit: the progress kept (SharedPursuit::FreezeProgress)
-        float    holdSearch = 0.f, holdSince = 0.f;
+        bool     holdValid = false;       // waited at the evade limit: the progress then, put back at the cooldown (UndoEvadeWait)
+        float    holdProgress = 0.f;
         void*    holdPursuit = nullptr;   // the pursuit that snapshot belongs to
         float    coolPrevLeft = -1.f;     // cooldown left at the last tick (progress per tick, EscapeHoldLeft)
         float    coolPerTick = 0.f;       // the most progress seen in one tick of this cooldown
@@ -938,6 +938,20 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     g_sp.coolSkipRate = false;
     float seedTick = PURSUIT_TICK_S * (mine.hiding || g_sp.sharedHidePerp ? 3.f : 1.f);
     float holdLeft = EscapeHoldLeft(g_sp.coolPerTick > seedTick ? g_sp.coolPerTick : seedTick);
+    // the cooldown starts after a wait at the evade limit: the wait doesn't count (the progress goes back)
+    bool undidWait = false;
+    if (g_sp.holdValid && (!pursuit || pursuit != g_sp.holdPursuit || mine.seen)) g_sp.holdValid = false;
+    if (g_sp.holdValid && status == PS_COOLDOWN) {
+        g_sp.holdValid = false;
+        float search = PRead<float>(pursuit, P_Search), since = PRead<float>(pursuit, P_SinceSeen);
+        float need = PRead<float>(pursuit, P_CoolNeed);
+        UndoEvadeWait(need, g_sp.holdProgress, search, since);
+        PWrite<float>(pursuit, P_Search, search);
+        PWrite<float>(pursuit, P_SinceSeen, since);
+        undidWait = true; g_sp.coolSkipRate = true;
+        LOG("Pursuit: cooldown after the wait at the evade limit - %.1f s left (%.1f before; the wait doesn't count)",
+            need - (search + since), left);
+    }
     mine.held = mine.cooling && !mine.seen && (g_sp.lastCool == (int)Cool::HoldEscape || left <= holdLeft);
     View theirs = peer.valid ? FromWire(peer.s.pursuitFlags, peer.s.coolLeft10) : View{};
     // their "ready" debounced (SharedPursuit::DebounceReady): every route into and out of the shared cooldown
@@ -965,14 +979,10 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         } else if (d.what == Cool::HoldEvade && pursuit && status != PS_COOLDOWN) {
             // the game starts the cooldown once the unseen time passes 2.5 s: keep it just under
             if (PRead<float>(pursuit, P_UnseenInState) > HOLD_UNSEEN_S) PWrite<float>(pursuit, P_UnseenInState, HOLD_UNSEEN_S);
-            float search = PRead<float>(pursuit, P_Search), since = PRead<float>(pursuit, P_SinceSeen);
             if (!g_sp.holdValid || g_sp.holdPursuit != pursuit) {
-                g_sp.holdValid = true; g_sp.holdPursuit = pursuit; g_sp.holdSearch = search; g_sp.holdSince = since;
+                g_sp.holdValid = true; g_sp.holdPursuit = pursuit;
+                g_sp.holdProgress = PRead<float>(pursuit, P_Search) + PRead<float>(pursuit, P_SinceSeen);
             }
-            float s0 = search, t0 = since;
-            FreezeProgress(search, since, g_sp.holdSearch, g_sp.holdSince);
-            if (search != s0) PWrite<float>(pursuit, P_Search, search);
-            if (since != t0) PWrite<float>(pursuit, P_SinceSeen, since);
         } else if (d.what == Cool::BackToChase && pursuit && status == PS_COOLDOWN) {
             PWrite<float>(pursuit, P_SinceSeen, 0.f);   // seen: the game ends the cooldown (as for a spot)
         } else if (d.what == Cool::HoldEscape && pursuit && status == PS_COOLDOWN && !mine.seen) {
@@ -990,7 +1000,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
             PWrite<float>(pursuit, P_SinceSeen, since);
         }
         // both in cooldown: one cooldown (the one further on), and the hiding spot of either counts for both
-        if (d.what == Cool::Free && peerHere && !resultsFreeze && pursuit && status == PS_COOLDOWN) {
+        if (d.what == Cool::Free && peerHere && !resultsFreeze && pursuit && status == PS_COOLDOWN && !undidWait) {
             float add = CooldownCatchUp(mine, theirs, true);
             // P_CoolLeft is only recomputed by the game's own pursuit task: while it hasn't run since our
             // last catch-up (pause menu, a sim stall) the same difference must not be added again
@@ -1018,7 +1028,6 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         }
     }
     g_sp.lastCool = coolNow;
-    if (coolNow != (int)Cool::HoldEvade) g_sp.holdValid = false;
     if (hidePerp != g_sp.sharedHidePerp) {
         if (hidePerp) LOG("Pursuit: the other player is in a hiding spot - our cooldown runs at the hiding-spot speed too (HUD: HIDDEN)");
         else if (g_sp.sharedHidePerp) LOG("Pursuit: hiding spot no longer shared (%s)",

@@ -216,12 +216,16 @@ TEST(pursuit_held_escape_stays_finished) {
 }
 
 TEST(pursuit_evade_wait_does_not_count_toward_the_cooldown) {
-    float accum = 0.f, since = 40.f;                           // 40 s waited at the evade limit
-    FreezeProgress(accum, since, 0.f, 9.f);
-    CHECK(accum == 0.f && since == 9.f);                       // back to where the wait began
-    since = 0.f;                                               // spotted: the game's reset stays
-    FreezeProgress(accum, since, 0.f, 9.f);
-    CHECK(since == 0.f);
+    float accum = 3.f, since = 6.f;                            // 9 s of progress after a wait (2 s when it began)
+    UndoEvadeWait(13.f, 2.f, accum, since);
+    CHECK(accum == 0.f && since == 6.f);                       // the accumulated part goes back first
+    accum = 10.f; since = 40.f;                                // a long wait: sinceSeen grew too
+    UndoEvadeWait(13.f, 2.f, accum, since);
+    CHECK(accum == 0.f && since > SEEN_LIMIT_S);               // never back under the seen limit
+    CHECK(13.f - (accum + since) > 5.f);                       // most of the cooldown still ahead
+    accum = 1.f; since = 0.5f;                                 // less progress than when the wait began: untouched
+    UndoEvadeWait(13.f, 2.f, accum, since);
+    CHECK(accum == 1.f && since == 0.5f);
 }
 
 TEST(pursuit_escape_completes_only_when_both_finish) {
