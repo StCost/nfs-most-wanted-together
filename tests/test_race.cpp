@@ -587,6 +587,12 @@ TEST(race_shared_loss) {
     CHECK(!PeerReportedLoss(false, true, true, 2, 3));        // another event (they quit / left)
     CHECK(!PeerReportedLoss(true, false, true, 2, 3));        // a leftover of a run we didn't race together
     CHECK(!PeerReportedLoss(true, true, false, 2, 3));
+    CHECK(PeerLossReportLive(true, 50, 6, 3));
+    CHECK(!PeerLossReportLive(false, 50, 6, 3));              // no report
+    CHECK(!PeerLossReportLive(true, 1500, 6, 3));             // gone quiet (a disconnect)
+    CHECK(!PeerLossReportLive(true, 50, 3, 3));               // out of the world (quit through the pause menu)
+    CHECK(!PeerLossReportLive(true, 50, 6, 1));               // loading the event again
+    CHECK(!PeerLossReportLive(true, 50, 6, kStageLoadHeld));
     CHECK(ShouldLoseWithPeer(true, kSharedLossConfirmMs, false, true, false, false, false, false, false));
     CHECK(!ShouldLoseWithPeer(true, kSharedLossConfirmMs - 1, false, true, false, false, false, false, false));  // their win may follow
     CHECK(!ShouldLoseWithPeer(false, kSharedLossConfirmMs, false, true, false, false, false, false, false));     // shared wins off

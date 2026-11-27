@@ -251,6 +251,13 @@ namespace CoopRace {
         if (!sameEvent || !racedTogether || !peerInRace || peerFinished == 1) return false;
         return peerFinished >= 2 || peerStage == 3;
     }
+    // their "out" counts only from a live report: received within the last second, their game in the world
+    // and not loading the event (again): a report left from before a disconnect, a restart, a new event or a
+    // partner who quit through the pause menu never makes us lose
+    constexpr unsigned kPeerReportLiveMs = 1000;
+    inline bool PeerLossReportLive(bool valid, unsigned ageMs, int peerFlow, uint8_t peerStage) {
+        return valid && ageMs < kPeerReportLiveMs && peerFlow == 6 && peerStage != 1 && peerStage != 4;
+    }
     // we lose with them: still racing here (not out, not finished), the race running, not a scripted loss,
     // no restart on its way, no cutscene, once per run
     inline bool ShouldLoseWithPeer(bool sharedWins, int peerLostForMs, bool peerWon, bool racing, bool localOut,

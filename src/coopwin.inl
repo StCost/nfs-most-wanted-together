@@ -590,14 +590,35 @@ namespace {
     uint32_t g_lossEvent = 0, g_lossGen = 0;   // the run we lost with the other player
 }
 static void SharedLossTickImpl(bool connected, const Net::Snapshot& peer) {
-    static DWORD lostSince = 0;
+    static DWORD lostSince = 0, screenCheckAt = 0; static uint32_t lastEv = 0, lastGen = 0;
     uint32_t ev = Game::CurrentEventHash();
-    bool sameEvent = connected && g_coopLinked && peer.valid && ev && peer.s.eventHash == ev;
+    DWORD now = GetTickCount();
+    // the knockout gave no losing screen (a race whose script has no "raceover" for it; our racer still not
+    // finished 5 s later): show it ourselves
+    if (screenCheckAt && (int)(now - screenCheckAt) >= 0) {
+        screenCheckAt = 0;
+        void* ri = RacerInfoOfLocal(); uint8_t fin = 0;
+        if (ri) Mem::Read((uintptr_t)ri + 0x21, fin);
+        if (!fin && ev == g_lossEvent && g_runGen == g_lossGen && Game::GameFlowState() == 6 && !FEScreens::IsPushed("PostRace_Results.fng") &&
+            !FEScreens::IsPushed("Pause_Main.fng") && !FEScreens::IsPushed("InGamePhotoMaster.fng")) {
+            LOG("Race: no losing screen 5 s after the shared loss - showing it");
+            ShowPostRaceOut(false);
+        }
+    }
+    // only a live report counts, for the whole confirm time: a disconnect, a new run here or a gap in their
+    // reports starts it over
+    bool live = CoopRace::PeerLossReportLive(peer.valid, now - peer.recvTick, peer.s.gameFlowState, peer.s.pad[0]);
+    if (!connected || !live || ev != lastEv || g_runGen != lastGen) lostSince = 0;
+    lastEv = ev; lastGen = g_runGen;
+    if (!connected || !live) return;
+    bool sameEvent = g_coopLinked && ev && peer.s.eventHash == ev;
     bool lost = CoopRace::PeerReportedLoss(sameEvent, g_peerRacedHere, peer.s.inRace != 0, peer.s.finished, peer.s.pad[0]);
+    // busted with them (their bust busts us): the bust ends the race here, no knockout on top of it
+    if (g_sp.pendingBustUntil || LocalBustedThisRun()) lost = false;
     if (!lost) { lostSince = 0; return; }
-    if (!lostSince) lostSince = GetTickCount() | 1;
+    if (!lostSince) lostSince = now | 1;
     uint8_t restart = 0; Mem::Read(0x91CF28, restart);
-    if (!CoopRace::ShouldLoseWithPeer(g_cfg.sharedWins, (int)(GetTickCount() - lostSince), PeerWonThisEvent(), RacingMode(),
+    if (!CoopRace::ShouldLoseWithPeer(g_cfg.sharedWins, (int)(now - lostSince), PeerWonThisEvent(), RacingMode(),
                                       LocalRacerOut(), ScriptedLossEvent(), restart != 0, NisActive(),
                                       g_lossEvent == ev && g_lossGen == g_runGen))
         return;
@@ -609,7 +630,8 @@ static void SharedLossTickImpl(bool connected, const Net::Snapshot& peer) {
     KnockoutRacerOrig(sim);                                        // knocked out: race over, then the losing screen
     void* ri = RacerInfoOfLocal(); uint32_t outs = 0;
     if (ri) Mem::Read((uintptr_t)ri + 0x1C, outs);
-    if (!outs) LOG("Race: our racer is NOT out after the knockout - the race goes on here");
+    if (!outs) { LOG("Race: our racer is NOT out after the knockout - the losing screen comes from us"); ShowPostRaceOut(false); }
+    else screenCheckAt = now + 5000;   // (the game's own screen comes ~3 s after the knockout)
 }
 
 // Out of the event (busted, totaled, beaten), and then the other player wins: the win counts for us too
@@ -671,7 +693,7 @@ void Game::CoopWinTick(bool connected, const Net::Snapshot& peer) {
     // before their racer is marked finished here: our racer then sorts first (rank 1) as well
     __try { if (connected) CoopFinishTickImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Race: exception finishing our racer"); }
     __try { CoopWinTickImpl(connected, peer); } __except (EXCEPTION_EXECUTE_HANDLER) {}
-    __try { if (connected) SharedLossTickImpl(connected, peer); } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    __try { SharedLossTickImpl(connected, peer); } __except (EXCEPTION_EXECUTE_HANDLER) {}
     __try { LoseScreenWinTickImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
