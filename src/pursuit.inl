@@ -256,7 +256,7 @@ namespace {
         uint8_t  flags = 0;
         uint8_t  bustSeq = 0;
         uint16_t left10 = 0;
-        int8_t   bar = 0;                // our pursuit bar, sent for the other player's screen (SharedPursuit::PursuitBar)
+        int8_t   bar = 0;                // our pursuit bar, sent for the other player's screen (SharedPursuit::BarFromMeter)
         uint8_t  barKind = 0;
         bool     localBusted = false;    // our own pursuit is busted right now (any pursuit: free roam, event, prologue)
         SharedPursuit::HeatTracker heat;
@@ -802,9 +802,12 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
                 }
             }
         }
-        {   // our bar for the other player's screen (after the "seen" above: their cops count too)
-            SharedPursuit::Bar b = SharedPursuit::PursuitBar((g_sp.flags & PURSUIT_ACTIVE) != 0, status == PS_COOLDOWN,
-                (g_sp.flags & PURSUIT_SEEN) != 0, PRead<float>(pursuit, P_BustTimer), PRead<float>(pursuit, P_UnseenInState),
+        {   // our bar for the other player's screen (after the "seen" above: their cops count too): exactly what our
+            // own meter shows - LocalPlayer::UpdateHud (0x6F1946) gives the board busted ? 1 : min(TimeUntilBusted, 0.99)
+            // (AIPursuit::TimeUntilBusted 0x40AEC0: the bust timer over a base the pursuit task sets from the cops'
+            // distance, our speed and the time unseen - not a plain timer ratio, which left the strip empty or jumping)
+            float t = ((float(__thiscall*)(void*))0x40AEC0)(pursuit);
+            SharedPursuit::Bar b = SharedPursuit::BarFromMeter((g_sp.flags & PURSUIT_ACTIVE) != 0, status == PS_COOLDOWN, busted, t,
                 left, PRead<float>(pursuit, P_CoolNeed));
             g_sp.bar = b.value; g_sp.barKind = b.kind;
         }
@@ -830,7 +833,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         else if (on) {
             ++g_sp.bustSeq;
             LOG("Pursuit: we were busted (count %u) - %s", (unsigned)g_sp.bustSeq,
-                Game::CurrentEventHash() ? "in an event the other player is busted with us" : "busts are personal in free roam");
+                Game::CurrentEventHash() ? "in an event the other player is busted with us" : "the other player is busted too if they're in this pursuit with us");
         }
         g_sp.bustingForPeerAt = 0;
     }
@@ -863,20 +866,25 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         }
     } else g_sp.heat.lastPeer = 0;
 
-    // ---- 4. the other player was busted: personal in free roam; in an event both of us are in it
-    //      fails the event for both, so we are busted too (the game's own arrest, cutscene and loss screen) ----
+    // ---- 4. the other player was busted: in an event both of us are in it fails the event for both, and in free
+    //      roam a pursuit we share busts both - so we are busted too (the game's own arrest and cutscene) ----
     {
         uint32_t ev = Game::CurrentEventHash();
         bool bustedHere = pursuitAll && (PRead<uint8_t>(pursuitAll, P_PerpBusted) || PRead<int>(pursuitAll, P_Status) == PS_BUSTED);
         if (peer.valid && PeerJustBusted(g_sp.bust, peer.s.bustSeq)) {
+            bool ourLive = pursuitAll && (g_sp.flags & PURSUIT_ACTIVE);
             if (BustWithThem(g_sp.eventBust, ev, now, resultsFreeze, bustedHere)) {
                 g_sp.pendingBustUntil = now + SHARED_BUST_TRY_MS; g_sp.pendingStarted = false; g_sp.pendingEvent = ev;
                 g_sp.nextForce = 0;
                 LOG("Pursuit: the other player was busted in event %08X - %s", ev,
                     pursuitAll ? "busting us too (the event is lost for both)" : "no pursuit here, starting one to bust us too");
+            } else if (g_cfg.sharedPursuits && BustTogetherInFreeRoam(ev, ourLive, g_sp.peerLiveWithOurs, resultsFreeze, bustedHere)) {
+                g_sp.pendingBustUntil = now + SHARED_BUST_TRY_MS; g_sp.pendingStarted = false; g_sp.pendingEvent = 0;
+                g_sp.nextForce = 0;
+                LOG("Pursuit: the other player was busted in our shared pursuit - busting us too");
             } else if (ev && bustedHere) LOG("Pursuit: the other player was busted - we already are");
             else if (ev && resultsFreeze) LOG("Pursuit: the other player was busted - we are done with this event, nothing happens");
-            else LOG("Pursuit: the other player was busted - %s", ev ? "not in the same event, ours continues" : "busts are personal in free roam, ours continues");
+            else LOG("Pursuit: the other player was busted - %s", ev ? "not in the same event, ours continues" : "not in a pursuit with us, nothing happens here");
         }
         if (g_sp.pendingBustUntil) {
             if (ev != g_sp.pendingEvent || resultsFreeze || (int)(now - g_sp.pendingBustUntil) > 0) {
@@ -888,6 +896,8 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
             } else if (pursuitAll && !PRead<uint8_t>(pursuitAll, P_Bailed)) {
                 PWrite<float>(pursuitAll, P_BustTimer, 10.f);   // above the 5 s limit: the game busts us on its next sim tick
                 g_sp.bustingForPeerAt = now;
+            } else if (!pursuitAll && !g_sp.pendingEvent) {
+                g_sp.pendingBustUntil = 0;          // free roam: our pursuit ended meanwhile - nothing to bust
             } else if (!pursuitAll && (int)(now - g_sp.nextForce) >= 0) {
                 g_sp.nextForce = now + 2500;
                 bool ok = DebugForcePursuitImpl();

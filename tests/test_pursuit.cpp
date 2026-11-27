@@ -236,26 +236,12 @@ TEST(pursuit_wire_ready_needs_unseen) {
     CHECK(!v.ready);
 }
 
-TEST(pursuit_bar_for_the_other_player) {
-    Bar b = PursuitBar(false, false, false, 3.f, 1.f, 0.f, 0.f);
-    CHECK_EQ(b.kind, 0);
-    b = PursuitBar(true, false, false, 0.f, 0.f, 0.f, 0.f);
-    CHECK_EQ(b.kind, 1); CHECK_EQ(b.value, 0);                 // chased, neither way
-    b = PursuitBar(true, false, true, 2.5f, 0.f, 0.f, 0.f);
-    CHECK_EQ(b.value, -50);                                     // half way to busted
-    b = PursuitBar(true, false, false, 0.f, EVADE_READY_S, 0.f, 0.f);
-    CHECK_EQ(b.value, 100);                                     // evade bar full (waiting at the limit)
-    b = PursuitBar(true, false, true, 0.f, 2.f, 0.f, 0.f);
-    CHECK_EQ(b.value, 0);                                       // seen: no evade
-    b = PursuitBar(true, false, false, 10.f, 0.f, 0.f, 0.f);
-    CHECK_EQ(b.value, -100);                                    // clamped
-    b = PursuitBar(true, true, false, 0.f, 0.f, 15.f, 60.f);
-    CHECK_EQ(b.kind, 2); CHECK_EQ(b.value, 75);                 // cooldown meter 3/4 done
+TEST(pursuit_bar_from_the_game_meter_nan) {
     float nan = std::numeric_limits<float>::quiet_NaN();
-    b = PursuitBar(true, false, false, nan, nan, 0.f, 0.f);
-    CHECK_EQ(b.value, 0);
-    b = PursuitBar(true, true, false, 0.f, 0.f, nan, 0.f);
-    CHECK_EQ(b.value, 0);
+    Bar b = BarFromMeter(true, false, false, nan, 0.f, 0.f);
+    CHECK_EQ((int)b.kind, 1); CHECK_EQ((int)b.value, 0);
+    b = BarFromMeter(true, true, false, -1.f, nan, 60.f);
+    CHECK_EQ((int)b.kind, 2); CHECK_EQ((int)b.value, 0);
 }
 
 TEST(pursuit_peer_safehouse_forces_our_escape) {
@@ -615,4 +601,35 @@ TEST(pursuit_partner_meter_fill_matches_the_game) {
     CHECK_NEAR(e.evadeNear, 0.5f, 1e-5f); CHECK_NEAR(e.evadeFar, 0.f, 1e-6f); CHECK(!e.evadeAlert);
     ChaseFill f = ChaseMeterFill(-1.f);
     CHECK_NEAR(f.evadeNear, 1.f, 1e-6f); CHECK_NEAR(f.evadeFar, 1.f, 1e-6f); CHECK(f.evadeAlert);
+}
+
+TEST(pursuit_partner_meter_follows_smoothly) {
+    using namespace SharedPursuit;
+    CHECK_NEAR(FollowValue(0.f, 1.f, 0.f, 12.f), 0.f, 1e-6f);        // no time: no step
+    float v = FollowValue(0.f, 1.f, 0.016f, 12.f);
+    CHECK(v > 0.15f && v < 0.25f);                                    // one frame: part of the way
+    CHECK_NEAR(FollowValue(0.f, 1.f, 1.f, 12.f), 1.f, 1e-6f);        // a long gap: there at once
+    CHECK_NEAR(FollowValue(0.998f, 1.f, 0.016f, 12.f), 1.f, 1e-6f);  // lands exactly
+}
+
+TEST(pursuit_bar_from_the_game_meter) {
+    using namespace SharedPursuit;
+    Bar a = BarFromMeter(false, false, false, 0.5f, 0.f, 0.f); CHECK_EQ((int)a.kind, 0);
+    Bar b = BarFromMeter(true, false, false, 0.3f, 0.f, 0.f);  CHECK_EQ((int)b.kind, 1); CHECK_EQ((int)b.value, -30);   // towards busted
+    Bar c = BarFromMeter(true, false, true, 0.2f, 0.f, 0.f);   CHECK_EQ((int)c.value, -99 - 1);                      // busted: full
+    Bar d = BarFromMeter(true, false, false, -0.6f, 0.f, 0.f); CHECK_EQ((int)d.value, 60);                           // towards evade
+    Bar e = BarFromMeter(true, false, false, 1.4f, 0.f, 0.f);  CHECK_EQ((int)e.value, -99);                          // capped at 0.99
+    Bar f = BarFromMeter(true, true, false, -1.f, 30.f, 60.f); CHECK_EQ((int)f.kind, 2); CHECK_EQ((int)f.value, 50); // cooldown
+    Bar g = BarFromMeter(true, false, false, -1.f, 0.f, 0.f);  CHECK_EQ((int)g.kind, 2);                             // -1: the cooldown
+    CHECK_NEAR(MeterV(b.value), 0.3f, 1e-6f);
+}
+
+TEST(pursuit_busted_together_in_a_shared_free_roam_pursuit) {
+    using namespace SharedPursuit;
+    CHECK(BustTogetherInFreeRoam(0, true, true, false, false));      // both in it: busted too
+    CHECK(!BustTogetherInFreeRoam(0, false, true, false, false));    // we already escaped: nothing
+    CHECK(!BustTogetherInFreeRoam(0, true, false, false, false));    // never shared with them
+    CHECK(!BustTogetherInFreeRoam(0x1234, true, true, false, false)); // an event: the event rule decides
+    CHECK(!BustTogetherInFreeRoam(0, true, true, true, false));      // results screen
+    CHECK(!BustTogetherInFreeRoam(0, true, true, false, true));      // already busted
 }

@@ -56,7 +56,7 @@ You can play the prologue (the opening BMW races) together too: start a new care
 - **Your own cars.** You both drive your own car with your tuning and visuals, damage and brake lights included.
 - **Events together.** Start any career event and your partner comes along: same opponents, same start, and you see each other.
 - **Shared wins.** If one of you wins, you both win. Whoever is still driving gets finished as the winner right there. The winner's photo is for whoever crossed the line first; the partner gets the results list, with the win, cash and progress counted, even after being totaled or knocked out.
-- **Police.** In free roam you share the cops: same heat, you lose them together. Your partner's cops show on your minimap and set off your radar. In an event you're both in (Challenge Series, races with cops) your partner's cops chase you too, and if one of you gets busted, you both are.
+- **Police.** In free roam you share the cops: same heat, you lose them together, and if one of you is busted while you're both chased, you both are. Your partner's cops show on your minimap and set off your radar. In an event you're both in (Challenge Series, races with cops) your partner's cops chase you too, and if one of you gets busted, you both are.
 - **One world.** Shared traffic when you're close, collisions between your cars, blips on the minimap and the map.
 - **Saves.** Each of you keeps your own career save on your own PC, as in the plain game.
 

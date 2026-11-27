@@ -169,29 +169,22 @@ namespace SharedPursuit {
         if (cooling) return true;
         return threshold > 0.f && unseenInState + WAIT_UNSEEN_SLACK_S >= threshold;
     }
-    // The pursuit bar as the HUD shows it, for the other player's screen. In the chase: busted to the left
-    // (the busted timer: cops boxing in a slow car; busted at 5 s, 0x890DA4), evade to the right (time
-    // unseen in this state; full where the cooldown may start). In the cooldown: how far its meter is (left of
-    // needed). kind 0: not chased.
+    // The pursuit bar as the HUD shows it, for the other player's screen: kind 0 not chased, 1 the chase
+    // (-100 busted .. +100 evade), 2 the cooldown (share done).
     constexpr float BUSTED_AT_S = 5.0f;
     struct Bar { int8_t value; uint8_t kind; };
-    inline Bar PursuitBar(bool active, bool cooling, bool seen, float bustTimer, float unseenInState, float left, float need) {
-        auto clamp01 = [](float f) { return !(f > 0.f) ? 0.f : f > 1.f ? 1.f : f; };
-        if (!active) return { 0, 0 };
-        if (cooling) {
-            float done = need > 0.f ? clamp01(1.f - left / need) : 0.f;
-            return { (int8_t)(done * 100.f + 0.5f), 2 };
-        }
-        float bust = clamp01(bustTimer / BUSTED_AT_S);
-        float evade = seen ? 0.f : clamp01(unseenInState / EVADE_READY_S);   // full: waiting at the evade limit
-        float v = (evade - bust) * 100.f;
-        return { (int8_t)(v < 0.f ? v - 0.5f : v + 0.5f), 1 };
-    }
 
     // The partner bar on the game's own meter (peerbar.inl). The meter's v runs +1 busted .. -1 evaded, so a
-    // PursuitBar chase value (-100 busted .. +100 evade) is -value / 100.
+    // chase value on the wire (-100 busted .. +100 evade) is -value / 100.
     inline float Clamp(float f, float lo, float hi) { return !(f > lo) ? lo : f > hi ? hi : f; }
     inline float MeterV(int value) { return -Clamp((float)value, -100.f, 100.f) / 100.f; }
+    // a shown value easing toward the latest one (rate 1/s; 0 s = no step); jumps the last bit so it lands
+    inline float FollowValue(float shown, float target, float dtS, float rate) {
+        if (!(dtS > 0.f)) return shown;
+        float k = dtS * rate; if (k > 1.f) k = 1.f;
+        float v = shown + (target - shown) * k;
+        return (v - target < 0.005f && target - v < 0.005f) ? target : v;
+    }
     // PursuitBoard::Update's fill: each segment as a share of its full width; the far ones flash (ALERT) past
     // half, the middle mark pulses while |v| < 0.1
     struct ChaseFill { float bustFar, bustNear, evadeNear, evadeFar; bool bustAlert, evadeAlert, midPulse; };
@@ -204,6 +197,21 @@ namespace SharedPursuit {
         f.bustAlert = v > 0.5f; f.evadeAlert = v < -0.5f;
         f.midPulse = v < 0.1f && v > -0.1f;
         return f;
+    }
+
+    // From the game's own meter value (TimeUntilBusted: +1 busted .. -1 evaded, <= -1 the cooldown):
+    // on the wire as -100 busted .. +100 evade, so older builds read it as before.
+    inline Bar BarFromMeter(bool active, bool cooling, bool busted, float timeUntilBusted, float left, float need) {
+        if (!active) return { 0, 0 };
+        float t = timeUntilBusted == timeUntilBusted ? timeUntilBusted : 0.f;
+        float v = busted ? 1.f : (t < 0.99f ? t : 0.99f);
+        if (cooling || !(v > -1.f)) {
+            float done = need > 0.f ? 1.f - left / need : 0.f;
+            done = !(done > 0.f) ? 0.f : done > 1.f ? 1.f : done;
+            return { (int8_t)(done * 100.f + 0.5f), 2 };
+        }
+        float w = -v * 100.f;
+        return { (int8_t)(w < 0.f ? w - 0.5f : w + 0.5f), 1 };
     }
 
     inline bool CooldownFinished(const View& v, float eps = ESCAPE_HOLD_LEFT_S) {
@@ -432,6 +440,11 @@ namespace SharedPursuit {
     };
     inline void EventSeenTogether(EventBust& b, bool sameEvent, uint32_t eventHash, uint32_t now) {
         if (sameEvent && eventHash) { b.lastSameEvent = eventHash; b.lastSameAt = now; }
+    }
+    // Free roam: one shared pursuit (both chased, together in it): a bust of one busts the other too, as the
+    // escape is shared. Not when we are no longer chased (we escaped first, or never were) or already busted.
+    inline bool BustTogetherInFreeRoam(uint32_t eventHash, bool ourPursuitLive, bool peerWasLiveWithOurs, bool resultsFreeze, bool alreadyBusted) {
+        return !eventHash && ourPursuitLive && peerWasLiveWithOurs && !resultsFreeze && !alreadyBusted;
     }
     inline bool BustWithThem(const EventBust& b, uint32_t eventHash, uint32_t now, bool resultsFreeze, bool alreadyBusted) {
         if (!eventHash || resultsFreeze || alreadyBusted) return false;

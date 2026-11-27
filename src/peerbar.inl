@@ -35,10 +35,15 @@ namespace PB {
     constexpr uint32_t sInit = 0x1744B3, sShow = 0x1CA7C0, sHide = 0x16A259, sPulse = 0x3826A28, sAlert = 0x26DED57,
                        sFadeIn = 0x5079C8F8, sFadeOut = 0x33113AC, sFlipIn = 0x13F51124;
     constexpr uintptr_t kFEGroupVtbl = 0x8A2E24, kFEGroupClone = 0x5C49C0;
-    // Stacked under ours: only the moving strip (and its ticks), kStripDown below our strip (kStripDownBackup
-    // while our backup timer shows there); the label panel stays ours alone. With no chase meter of our own up,
-    // the copy shows whole, in our meter's place.
-    constexpr float kStripDown = 8.f, kStripDownBackup = 26.f;
+    // Stacked under ours: only the moving strip (and its ticks), kStripDown below our strip; the label panel
+    // stays ours alone, and our backup timer (panel + text, under our strip) moves down by kStripDown too, so
+    // it sits under both strips. With no chase meter of our own up, the copy shows whole, in our meter's place.
+    constexpr float kStripDown = 8.f;
+    // a copy that failed (the HUD mid-load, a race HUD, an exception) is tried again this much later - never given
+    // up for good: the same addresses come back with every race (a pursuit from a race kept no strip after it)
+    constexpr DWORD kRetryMs = 10000;
+    // the shown value follows the partner's at this rate (1/s; the packets come ~every 50 ms, in steps)
+    constexpr float kFollowRate = 12.f;
     constexpr uint32_t kLabelPanel = 0xBAE10529, kLabelBusted = 0x6BF5C681, kLabelEvade = 0x0B3DF9DF;
     const char* const kPkgName = "HUD_SingleRace.fng";
 
@@ -52,9 +57,12 @@ namespace PB {
         void* lbl[3] = {}; int lblN = 0;                        // in cChase: the label panel and its two words
         float wFar = 54.f, wNear = 48.f;                        // the full widths
         float upChase = 0;                                      // applied now: the copy's offset (up)
+        void* bk[2] = {}; float bkDown = 0;                     // our own backup panel / text, and how far we moved them
+        float shownV = 0; DWORD shownAt = 0;                    // the value on the strip now (follows the partner's)
         int objects = 0;
         bool ready = false;
-        void* deadPkg = nullptr; void* deadChase = nullptr;     // cloning failed for this package: not tried again
+        void* deadPkg = nullptr; void* deadChase = nullptr;     // cloning failed for this package: tried again kRetryMs later
+        DWORD deadAt = 0;
         void* recopiedPkg = nullptr; void* recopiedChase = nullptr;   // copied a second time here once already
         bool forced = false; int forceKind = 0, forceValue = 0; // test: DebugPeerBar
     } g;
@@ -193,7 +201,7 @@ namespace PB {
     void Forget() {             // the package is gone: nothing of ours is left to touch
         State keep = g;
         g = State{}; g.forced = keep.forced; g.forceKind = keep.forceKind; g.forceValue = keep.forceValue;
-        g.deadPkg = keep.deadPkg; g.deadChase = keep.deadChase;
+        g.deadPkg = keep.deadPkg; g.deadChase = keep.deadChase; g.deadAt = keep.deadAt;
         g.recopiedPkg = keep.recopiedPkg; g.recopiedChase = keep.recopiedChase;
     }
 
@@ -201,7 +209,7 @@ namespace PB {
         Forget();
         g.pkg = pkg;
         g.chase = Find(pkg, kChase, 5);
-        if (pkg == g.deadPkg && g.chase == g.deadChase) return nullptr;      // failed before, said so then
+        if (pkg == g.deadPkg && g.chase == g.deadChase && GetTickCount() - g.deadAt < kRetryMs) return nullptr;   // failed just now, said so then
         if (!g.chase) return "the meter's group is not in the HUD (another HUD?)";
         if (!FindParent(*(void**)(B(pkg) + 0x4C), nullptr, g.chase, &g.parChase, 0)) return "the meter's group is not in the package's tree";
         void* a = CloneGroup(g.chase);
@@ -216,6 +224,7 @@ namespace PB {
         for (int i = 0; i < g.hideN; ++i) HideNow(g.hide[i]);
         Add(pkg, g.parChase, a);                    // (the package frees it; a bad copy is never shown)
         if (bad) return bad;
+        g.bk[0] = Find(pkg, kBackupPanel, 1); g.bk[1] = Find(pkg, kBackupText, 5);
         g.cChase = a; g.objects = count; g.ready = true;
         return nullptr;
     }
@@ -266,6 +275,23 @@ namespace PB {
         applied = want;
     }
 
+    void MoveBackup(float down) {               // our own backup timer, under the partner's strip too
+        if (g.bkDown == down) return;
+        for (void* o : g.bk) MoveBy(o, down - g.bkDown);
+        g.bkDown = down;
+    }
+    // The copy lives in the game's pursuit group: when the game hides that whole group (a race HUD:
+    // FEngSetInvisible 0x514C70 marks every child, ours too) and later shows only its own meter, ours stayed
+    // invisible for good (a pursuit from a race kept no strip after it). Shown: our copy and all in it are
+    // made visible again every frame (the same flag the game uses, +0x1C bit 0); the labels are hidden after.
+    void MakeVisible(void* o, int depth) {
+        if (!o || depth > 8) return;
+        uint32_t& f = *(uint32_t*)(B(o) + 0x1C);
+        if (f & 1) f = (f & ~1u) | 0x2400000;
+        if (Type(o) != 5) return;
+        void* c = FirstChild(o);
+        for (int i = 0, n = ChildCount(o); i < n && c && i < 64; ++i, c = Next(c)) MakeVisible(c, depth + 1);
+    }
     // the copy's label panel and words: the object's own invisible flag (+0x1C bit 0, as FEngSetInvisible /
     // FEngSetVisible 0x514C70 / 0x514CC0 set it), every frame - a parent shown again would show them too
     void ShowLabels(bool show) {
@@ -290,7 +316,7 @@ namespace PB {
             bool again = samePlace && g.recopiedPkg == pkg && g.recopiedChase == chase;
             Forget();
             if (again) {
-                g.deadPkg = pkg; g.deadChase = chase;
+                g.deadPkg = pkg; g.deadChase = chase; g.deadAt = GetTickCount();
                 *why = "the copies went missing again";
                 return -1;
             }
@@ -300,7 +326,7 @@ namespace PB {
             if (!kind) return 0;                    // copied when first needed
             const char* err = Setup(pkg);
             if (!g.ready) {
-                if (err) { g.deadPkg = pkg; g.deadChase = g.chase; *why = err; }
+                if (err) { g.deadPkg = pkg; g.deadChase = g.chase; g.deadAt = GetTickCount(); *why = err; }
                 return -1;
             }
             LOG("Pursuit: partner bar - cloned the game's meter (%d objects, copy %p, segments %.0f / %.0f)",
@@ -308,16 +334,26 @@ namespace PB {
         }
         bool show = kind == 1 && own != 2;          // with our cooldown up: none (the cooldown is shared)
         ShowGroup(g.cChase, show);
-        if (!show) return 0;
         bool ownUp = own == 1 || own == 3;          // our chase meter up: only the strip, under ours
-        MoveTo(g.cChase, g.upChase, own == 3 ? -kStripDownBackup : ownUp ? -kStripDown : 0.f);
+        MoveBackup(show && ownUp ? kStripDown : 0.f);
+        if (!show) { g.shownAt = 0; return 0; }
+        MoveTo(g.cChase, g.upChase, ownUp ? -kStripDown : 0.f);
+        MakeVisible(g.cChase, 0);
+        for (int i = 0; i < g.hideN; ++i) HideNow(g.hide[i]);     // (made visible above: the backup timer stays hidden)
         ShowLabels(!ownUp);
-        FillChase(SharedPursuit::MeterV(value));
+        DWORD now = GetTickCount();
+        float target = SharedPursuit::MeterV(value);
+        // between packets it eases; a real step (seen / unseen, as on their own meter) is shown at once
+        bool step = !g.shownAt || fabsf(target - g.shownV) > 0.3f;
+        g.shownV = step ? target : SharedPursuit::FollowValue(g.shownV, target, (now - g.shownAt) / 1000.f, kFollowRate);
+        g.shownAt = now;
+        FillChase(g.shownV);
         return 1;
     }
     void CleanUp() {
         if (!g.ready) return;
         HideNow(g.cChase);
+        MoveBackup(0.f);
     }
     void CleanUpGuarded() {
         __try { CleanUp(); } __except (EXCEPTION_EXECUTE_HANDLER) {}
@@ -330,7 +366,7 @@ namespace PB {
             void* pkg = g.pkg; void* chase = g.chase;
             CleanUpGuarded();
             Forget();
-            g.deadPkg = pkg; g.deadChase = chase;
+            g.deadPkg = pkg; g.deadChase = chase; g.deadAt = GetTickCount();
             *why = "exception";
             return -1;
         }
