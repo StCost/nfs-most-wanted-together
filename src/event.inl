@@ -611,11 +611,12 @@ namespace {
     }
     // minAbove: how far over its ride height the car must be. A car we never drove in free roam (a Challenge
     // Series car) has no learned ride height: only a clear drop (minAbove >= 0.25 m) is cut, to a usual 0.75 m
+    bool g_guessSnapped = false;   // set down to a guessed height once in this settle window (a tall car would bounce)
     void SnapToGround(const char* when, float minAbove = 0.03f) {
         void* me = LocalVehicle(); void* rb = me ? RigidBodyOf(me) : nullptr;
         if (!rb) return;
         bool known = g_myRide > 0 && ModelKeyOf(me) == g_myRideModel;
-        if (!known && minAbove < 0.25f) return;
+        if (!known && (minAbove < 0.25f || g_guessSnapped)) return;
         float ride = known ? g_myRide : 0.75f;
         const float* p = RB_GetVec(rb, RB_GetPosition);
         const float* v = RB_GetVec(rb, RB_GetLinearVelocity);
@@ -627,6 +628,7 @@ namespace {
         float to[3] = { p[0], g + ride, p[2] }, zero[3] = { 0, 0, 0 };
         RB_SetVec(rb, RB_SetPosition, to);
         RB_SetVec(rb, RB_SetLinearVelocity, zero);
+        if (!known) g_guessSnapped = true;
         LOG("Start: our car put on the road %s (was %.2f m above it, ride height %.2f m%s)", when, d - ride, ride, known ? "" : ", a guess");
     }
     void SnapToGroundSafe(const char* when, float minAbove = 0.03f) { __try { SnapToGround(when, minAbove); } __except (EXCEPTION_EXECUTE_HANDLER) {} }
@@ -642,7 +644,10 @@ static void StartSyncTickImpl(bool connected) {
     // a restart puts the cars back on the grid, again a little above the road (seen 2-2.4 m): set down too
     static uint8_t lastRestart = 0;
     uint8_t restart = 0; Mem::Read(0x91CF28, restart);
-    if (restart && !lastRestart) g_settleUntil = now + 6000;
+    if (restart && !lastRestart) {   // back on the grid: ready again only once the cars are there
+        g_settleUntil = now + 6000; g_guessSnapped = false;
+        if (g_stage >= 2) { g_stage = 1; g_readyAt = 0; g_modeSince = 0; }
+    }
     else if (!restart && lastRestart && g_settleUntil) g_settleUntil = now + 3000;
     lastRestart = restart;
     if (!hash || Game::GameFlowState() != 6) { g_stage = hash ? 1 : 0; g_stageEvent = hash; g_sawNis = false; g_modeSince = 0; g_readyAt = 0; ReleaseHold("event over"); return; }
@@ -655,14 +660,14 @@ static void StartSyncTickImpl(bool connected) {
     // on the grid: the intro cutscene is over (or the event has none: 3 s of racing mode without one)
     bool ready = mode == 1 && !nis && g_modeSince && (g_sawNis || now - g_modeSince > 3000);
     if (g_stage == 1 && ready) {
-        if (!g_readyAt) { g_readyAt = now; g_settleUntil = now + 2500; SnapToGroundSafe("on the grid"); }
+        if (!g_readyAt) { g_readyAt = now; g_settleUntil = now + 2500; g_guessSnapped = false; SnapToGroundSafe("on the grid"); }
         // the race puts the cars on the grid a little above the road: let them land (0.8 s) before the hold
         // stops the world - holding at once left them hanging, and they dropped onto the road at the go
         int settle = g_cfg.readyDelayMs > 800 ? g_cfg.readyDelayMs : 800;     // (ReadyDelayMs: test, pretend to load slowly)
         if ((int)(now - g_readyAt) < settle) ready = false;
     }
     if (g_settleUntil && (int)(now - g_settleUntil) < 0 && mode == 1 && !nis) SnapToGroundSafe("settling", 0.25f);
-    else if (g_settleUntil && (int)(now - g_settleUntil) >= 0) g_settleUntil = 0;
+    else if (g_settleUntil && (int)(now - g_settleUntil) >= 0) { g_settleUntil = 0; g_guessSnapped = false; }
     if (g_stage == 1 && ready) {
         g_stage = 2;
         SnapToGroundSafe("before the start hold");

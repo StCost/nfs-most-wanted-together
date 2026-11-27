@@ -1561,7 +1561,8 @@ static void TakePeerSlotTick(const Net::Snapshot& latest, void* ghostRb) {
     DWORD now = GetTickCount();
     // a new event, a new racer for them or a restart (the game puts everyone back on the grid) opens the window
     if (ev != winEvent || slotOf != g_replacedRacer || (restart && !lastRestart)) {
-        afterRestart = ev == winEvent && restart && !lastRestart;
+        if (ev != winEvent) afterRestart = false;                  // (once restarted: for the rest of this event)
+        if (ev == winEvent && restart && !lastRestart) afterRestart = true;
         winEvent = ev; slotOf = g_replacedRacer; windowUntil = ev ? now + 60000 : 0; sharingSince = 0;
     }
     lastRestart = restart;
@@ -1576,7 +1577,10 @@ static void TakePeerSlotTick(const Net::Snapshot& latest, void* ghostRb) {
     float mySpeed = sqrtf(lv[0] * lv[0] + lv[1] * lv[1] + lv[2] * lv[2]);
     float hostSlot[3] = {}; bool hostRacer = false;
     bool gotHost = Net::PeerGridSlot(ev, hostSlot, &hostRacer);
-    bool early = NetUtil::EarlyHostSlot(!afterRestart, Game::GridReadyNow(), gotHost, sqrtf(lv[0] * lv[0] + lv[2] * lv[2]),
+    // before the go only (our race clock not running): a word arriving later must not pull us back
+    void* lri = RacerInfoOfLocal(); uint8_t clock = 1;
+    if (lri) Mem::Read((uintptr_t)lri + 0x154, clock);
+    bool early = NetUtil::EarlyHostSlot(!afterRestart && !clock, Game::GridReadyNow(), gotHost, sqrtf(lv[0] * lv[0] + lv[2] * lv[2]),
                                         gotHost ? NetUtil::Dist3(lp, hostSlot) : 0.f);
     if (!early && !NetUtil::SharingStartSpot(lp, mySpeed, latest.s.pos, latest.s.speedMps)) { sharingSince = 0; return; }
     if (!sharingSince) sharingSince = now ? now : 1;
