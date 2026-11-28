@@ -332,9 +332,12 @@ namespace PB {
             LOG("Pursuit: partner bar - cloned the game's meter (%d objects, copy %p, segments %.0f / %.0f)",
                 g.objects, g.cChase, g.wFar, g.wNear);
         }
-        bool ownUp = own == 1 || own == 3;          // our chase meter up: only the strip, under ours
-        // the game keeps our chase meter hidden (a race hides the police HUD: FEngSetInvisible, +0x1C bit 0): none
-        bool gameHides = ownUp && (*(uint32_t*)(B(g.chase) + 0x1C) & 1);
+        // the game's own chase meter flagged invisible (+0x1C bit 0: FEngSetInvisible - a race hides the police HUD)
+        bool meterHidden = (*(uint32_t*)(B(g.chase) + 0x1C) & 1) != 0;
+        // in an event that hides it: none. In free roam it hides nothing - after a race in which a pursuit began the
+        // flag stays set on the reloaded HUD (1.9.2 then showed no strip at all): the full bar, as with no meter of ours
+        bool gameHides = (own == 1 || own == 3) && meterHidden && Game::CurrentEventHash() != 0;
+        bool ownUp = (own == 1 || own == 3) && !meterHidden;   // our chase meter up: only the strip, under ours
         bool show = kind == 1 && own != 2 && !gameHides;   // with our cooldown up: none (the cooldown is shared)
         ShowGroup(g.cChase, show);
         if (!show) { g.shownAt = 0; return 0; }
