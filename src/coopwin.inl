@@ -178,34 +178,48 @@ namespace {
     constexpr uintptr_t kCamCodeLo = 0x468000, kCamCodeHi = 0x486000;
     using PlayerSimFn = void*(__thiscall*)(void*);
     uint32_t g_peerPhotoEvent = 0;     // event whose winner's photo is the partner's (cameras on their car)
+    void* g_photoCar = nullptr;        // the partner's racer when their photo came up: the only car the cameras get
     void* volatile g_camPeerSim = nullptr;   // ISimable the cameras get instead of ours (null: ours)
-    void* volatile g_camPeerCar = nullptr;   // the IVehicle it came from: the cameras drop it once g_ghost moves on
+    void CamDrop() { g_camPeerSim = nullptr; g_photoCar = nullptr; g_peerPhotoEvent = 0; }
+    // still the same live racer of the partner's, the photo still up, no restart under way: a race's racers are
+    // freed without notice when it ends or restarts, so this is checked on every camera call, not once a tick
+    bool PhotoCarUp() {
+        uint8_t restart = 0; Mem::Read(0x91CF28, restart);
+        return g_photoCar && g_ghost == g_photoCar && g_ghostKind == GK_RACER && !restart &&
+               Game::GameFlowState() == 6 && FEScreens::IsPushed("InGamePhotoMaster.fng") &&
+               ListContains(g_ghostList, g_photoCar);
+    }
     void* __fastcall hk_PlayerSimable(void* self, void*) {
         void* own = ((PlayerSimFn)kPlayerSimFn)(self);
         void* peer = g_camPeerSim;
-        if (!peer || !own || g_camPeerCar != g_ghost) return own;   // the partner's car gone since the last tick
+        if (!peer || !own) return own;
         uintptr_t ra = (uintptr_t)_ReturnAddress();
-        return (ra >= kCamCodeLo && ra < kCamCodeHi) ? peer : own;
+        if (ra < kCamCodeLo || ra >= kCamCodeHi) return own;
+        bool up = false;
+        __try { up = PhotoCarUp(); } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        if (!up) { g_camPeerSim = nullptr; return own; }
+        return peer;
     }
-    // per tick: the partner's car for the cameras while their win's photo is up
+    // per tick: the partner's car for the cameras while their win's photo is up. Another car in its place (the
+    // partner went on and their racer was swapped): the photo stays on ours, not on that car.
     void CamOnPeerTick() {
         void* sim = nullptr;
         uint32_t ev = Game::CurrentEventHash();
-        if (g_peerPhotoEvent && ev == g_peerPhotoEvent && Game::GameFlowState() == 6 &&
-            FEScreens::IsPushed("InGamePhotoMaster.fng") && IsVehicle(g_ghost) && VehActive(g_ghost))
-            sim = VCall<void* (__thiscall*)(void*)>(g_ghost, IV_GetSimable)(g_ghost);
+        if (g_photoCar && g_ghost != g_photoCar) { LOG("Race: the partner's racer is gone - the photo's cameras back on our car"); g_photoCar = nullptr; }
+        if (g_peerPhotoEvent && ev == g_peerPhotoEvent && PhotoCarUp() && VehActive(g_photoCar))
+            sim = VCall<void* (__thiscall*)(void*)>(g_photoCar, IV_GetSimable)(g_photoCar);
         if (sim != g_camPeerSim) {
             LOG("Race: winner's photo cameras on %s", sim ? "the partner's car" : "our car");
             g_camPeerSim = sim;
         }
-        g_camPeerCar = sim ? g_ghost : nullptr;
-        if (ev != g_peerPhotoEvent && Game::GameFlowState() == 6) g_peerPhotoEvent = 0;
+        if (ev != g_peerPhotoEvent && Game::GameFlowState() == 6) CamDrop();
     }
 }
 static void ShowPeerWinPhoto(bool won, const char* why) {
     uint32_t ev = Game::CurrentEventHash();
     bool peers = CoopRace::TeamWinResults(won, ev, g_teamWinEvent);
-    g_peerPhotoEvent = peers ? ev : 0;                                 // our own win: the cameras stay on us
+    CamDrop();                                                         // our own win: the cameras stay on us
+    if (peers && g_ghostKind == GK_RACER && g_ghost) { g_peerPhotoEvent = ev; g_photoCar = g_ghost; }
     if (peers) {
         LOG("Race: the other player won - the winner's photo around their car (%s)", why);
     }
@@ -290,6 +304,8 @@ namespace {
         if (un) ((void(__thiscall*)(void*))0x625870)(un);
     }
     void __fastcall hk_PhotoNotify(void* scr, void*, uint32_t msg, void* obj, uint32_t a, uint32_t b) {
+        // leaving the photo (Continue, Restart, its exit): the cameras back on our car before the race's racers go
+        if (msg == CoopRace::kFeAccept || msg == CoopRace::kFeExitComplete || msg == CoopRace::kFeRestart) CamDrop();
         if (msg == CoopRace::kFeAccept) {
             int step = CoopRace::kPhotoAsIs; int type = -1;
             __try {
@@ -348,7 +364,7 @@ static void CoopWinLatchTick(bool connected, const Net::Snapshot& peer) {
     uint8_t pfin = sameEvent ? peer.s.finished : 0;
     if (ev != lastEvent || (restart && !lastRestart) || (lastPeerFin && !pfin && sameEvent && peer.s.inRace)) {
         g_coopWinLogged = false; g_peerWonEvent = 0; g_peerRacedHere = false; g_teamWinEvent = 0; g_outWinEvent = 0; g_swapEvent = 0;
-        g_peerPhotoEvent = 0;
+        CamDrop();
         g_bustedEvent = 0;   // a new run: not busted in it (yet)
         ++g_runGen;
     }
@@ -694,7 +710,7 @@ static void CoopWinTickImpl(bool connected, const Net::Snapshot& peer) {
 void Game::CoopWinTick(bool connected, const Net::Snapshot& peer) {
     if (!g_ok) return;
     __try { CoopWinLatchTick(connected, peer); } __except (EXCEPTION_EXECUTE_HANDLER) {}
-    __try { CamOnPeerTick(); } __except (EXCEPTION_EXECUTE_HANDLER) { g_camPeerSim = nullptr; }
+    __try { CamOnPeerTick(); } __except (EXCEPTION_EXECUTE_HANDLER) { CamDrop(); }
     if (GameFlowState() != 6) return;
     // before their racer is marked finished here: our racer then sorts first (rank 1) as well
     __try { if (connected) CoopFinishTickImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Race: exception finishing our racer"); }

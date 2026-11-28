@@ -379,7 +379,7 @@ namespace CoopRace {
     inline bool TeamWinPhoto(uint32_t event, uint32_t teamWinEvent) {
         return event && event == teamWinEvent;
     }
-    constexpr uint32_t kFeAccept = 0x406415E3u, kFeExitComplete = 0xE1FDE1D1u;
+    constexpr uint32_t kFeAccept = 0x406415E3u, kFeExitComplete = 0xE1FDE1D1u, kFeRestart = 0xE1A57D51u;
     // The photo's Continue (coopwin.inl hk_PhotoNotify). outWinEvent: the event whose win was counted for us after we
     // were out - the race script is in "raceover" and waits for MNotifyRaceAbandoned, not the photo's
     // MFlowReadyForOutro: a career race then ends the way the results list ends it. Anywhere else the photo's own.
