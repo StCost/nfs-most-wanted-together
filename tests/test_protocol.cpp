@@ -103,7 +103,7 @@ TEST(protocol_magic_and_version) {
     PacketHeader h = th::Hdr(PKT_PING, 1);
     CHECK(memcmp(&h, "MWCO", 4) == 0);              // little-endian bytes on the wire
     // Pinned on purpose: if you changed a packet layout, bump COOP_VERSION and this number together.
-    CHECK_EQ(COOP_VERSION, 21);
+    CHECK_EQ(COOP_VERSION, 22);
 }
 
 TEST(protocol_packet_type_numbers) {

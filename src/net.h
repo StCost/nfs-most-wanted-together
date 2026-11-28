@@ -312,10 +312,11 @@ struct TrailerPacket {
 #pragma pack(pop)
 
 constexpr uint32_t COOP_MAGIC   = 0x4F43574D; // "MWCO"
-constexpr uint16_t COOP_VERSION = 21;   // 18: shared pursuits (CarState heat100 / pursuitFlags / bustSeq / coolLeft10)
+constexpr uint16_t COOP_VERSION = 22;   // 18: shared pursuits (CarState heat100 / pursuitFlags / bustSeq / coolLeft10)
                                         // 19: pursuit flags READY / EVADED / HIDING (an 18 build drops states carrying them)
                                         // 20: one cooldown for both, the other player's pursuit bar (CarState pursuitBar)
                                         // 21: a bust in a shared free-roam pursuit busts both; the bar is the game's meter value
+                                        // 22: hits on the partner's cars (PKT_CARHOLD), a race loss is shared
 
 struct NetStats {
     bool        connected = false;
