@@ -925,6 +925,26 @@ namespace {
         LOG("KillVehicle %p", iv);
     }
 
+    // A cop car the game (or we) puts back into the world must come fresh: the game reuses its car
+    // objects, and a roadblock sometimes stood with a wrecked or burned-out cop (1.9.3). IDamageable
+    // (handle 0x405000) slot 8 GetZoneDamage, slot 6 IsDestroyed, slot 4 ResetDamage (DamageCopCar
+    // 0x69CA10 -> DamageVehicle::ResetDamage 0x69C660: zones, parts, lights, the destroyed state).
+    bool RepairCar(void* iv, const char* why) {
+        if (!IsVehicle(iv)) return false;
+        __try {
+            void* dmg = Find(iv, 0x405000);
+            if (!dmg) return false;
+            uint32_t z = 0;
+            VCall<void*(__thiscall*)(void*, uint32_t*)>(dmg, 8)(dmg, &z);
+            bool wreck = VCall<bool(__thiscall*)(void*)>(dmg, 6)(dmg);
+            if (!z && !wreck) return false;
+            VCall<void(__thiscall*)(void*)>(dmg, 4)(dmg);
+            static int logs = 0;
+            if (logs < 40) { ++logs; LOG("Cops: repaired %s car %p (%s, damage %08X%s)", wreck ? "a wrecked" : "a damaged", iv, why, z, wreck ? ", destroyed" : ""); }
+            return true;
+        } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Cops: exception repairing car %p", iv); return false; }
+    }
+
     void* g_clone = nullptr;
 }
 

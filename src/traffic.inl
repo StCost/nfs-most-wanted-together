@@ -1300,6 +1300,7 @@ static int MaintainMirrors(double now) {
             ++spawned;
             if (!m.iv) { ++m.fails; LOG("Traffic: mirror spawn of %08X failed (%d)", e.model, m.fails); continue; }
             m.trailerSnap = true;   // a truck builds its trailer facing our spawn direction: put it at the hitch once the truck is in place
+            if (e.flags & 1) RepairCar(m.iv, "copy of the partner's cop, from the car pool");
             if (e.flags & 1) LOG("Cops: showing the other player's police car (id %u, model %08X%s%s)", (unsigned)m.id, e.model,
                                  (e.flags & 4) ? ", chasing" : "", (e.flags & TE_ROADBLOCK) ? ", in their roadblock" : "");
         }
@@ -1396,6 +1397,7 @@ static int CollectOwned(std::initializer_list<int> lists, const float* to, Traff
             if (pai && VCall<bool(__thiscall*)(void*)>(pai, 5)(pai)) e.flags |= 4;
         }
         if (EmulatedPhysics(cand[i].iv)) e.flags |= 8;     // floating here: the other game puts its copy on the ground
+        if ((e.flags & 1) && VCall<bool(__thiscall*)(void*)>(cand[i].iv, 31)(cand[i].iv)) e.flags |= TE_WRECKED;   // IVehicle destroyed
         // host: a racer's slot and role, so the client's racer in the same slot follows it (not just one of the same model)
         if (g_cfg.isHost && (e.flags & 2)) {
             int slot = RacerSlotOfInfo(RacerInfoOf(cand[i].iv));
@@ -1767,7 +1769,7 @@ static void MirrorHitTick() {
             Net::SendCarHit(target, dv);
             LOG("Collision: hit the other player's car %u, lost %.0f km/h - sent to them", (unsigned)target, mag * 3.6f);
             Mirror* m = FindMirror(target);
-            if (m && m->n && (m->s[m->n - 1].e.flags & 1)) SharedPursuitCopHit(target);   // one of their cops
+            if (m && m->n && (m->s[m->n - 1].e.flags & 1) && !(m->s[m->n - 1].e.flags & TE_WRECKED)) SharedPursuitCopHit(target);   // one of their cops
         }
     }
     memcpy(prevV, lv, 12); prevT = now;

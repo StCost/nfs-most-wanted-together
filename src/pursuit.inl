@@ -146,6 +146,7 @@ static void PeerBarTickImpl(bool connected, const Net::Snapshot& peer);
 static bool PeerBarNativeSet(int kind, int value, int own);      // peerbar.inl: the copy of the game's own meter (guards itself)
 static bool PeerBarForced(int* kind, int* value);       // test: DebugPeerBar
 static void HidePeerBar() { PeerBarNativeSet(0, 0, 0); }
+static void ApplyPeerBreakers();   // pursuit breakers: the partner's, on our map
 
 void Game::PursuitTick(bool connected, const Net::Snapshot& peer) {
     if (!g_ok) return;
@@ -292,6 +293,8 @@ namespace {
         void*    sharedHidePerp = nullptr;    // our IPerpetrator: its pursuit runs the cooldown as if hidden
         float    catchUpLogged = 0.f;
         float    catchUpLeftSeen = -1.f;      // our P_CoolLeft when we last added a catch-up
+        uint8_t  copsNow = 0, copsInvolved = 0;        // ours, for the wire
+        int      peerCopsNow = 0, peerCopsInvolved = 0; // theirs, added on our board while both chases are on
     } g_sp;
 
     // IPerpetrator slots 11 / 12 (hidden from cars / helicopters). Vanilla for everyone, except that our
@@ -328,6 +331,22 @@ namespace {
         if (!Mem::Read(s2, c2) || !Mem::Read(s3, c3)) return false;
         if (c2 != BoardSetIsHidingFn || c3 != BoardSetTimeUntilHiddenFn) return false;
         return Mem::PatchPointer((void*)s2, (void*)&hk_BoardSetIsHiding) && Mem::PatchPointer((void*)s3, (void*)&hk_BoardSetTimeUntilHidden);
+    }
+    // slot 10 SetNumCopsInPursuit(int) / slot 13 SetTotalNumCopsInvolved(int): the board shows the sum of both
+    // chases while both are on (each game has its own cops and backup; the partner's are only mirrors here,
+    // never in our pursuit, so nothing is counted twice). Destroyed / damaged come from the shared tally.
+    constexpr uintptr_t BoardSetCopsNowFn = 0x568D60, BoardSetCopsInvolvedFn = 0x568E80;
+    void __fastcall hk_BoardSetCopsNow(void* self, void*, int n) {
+        ((void(__thiscall*)(void*, int))BoardSetCopsNowFn)(self, n + g_sp.peerCopsNow);
+    }
+    void __fastcall hk_BoardSetCopsInvolved(void* self, void*, int n) {
+        ((void(__thiscall*)(void*, int))BoardSetCopsInvolvedFn)(self, n + g_sp.peerCopsInvolved);
+    }
+    bool PatchBoardCops() {
+        uintptr_t s10 = BoardVtable + 10 * 4, s13 = BoardVtable + 13 * 4, c10 = 0, c13 = 0;
+        if (!Mem::Read(s10, c10) || !Mem::Read(s13, c13)) return false;
+        if (c10 != BoardSetCopsNowFn || c13 != BoardSetCopsInvolvedFn) return false;
+        return Mem::PatchPointer((void*)s10, (void*)&hk_BoardSetCopsNow) && Mem::PatchPointer((void*)s13, (void*)&hk_BoardSetCopsInvolved);
     }
 
     template <typename T> T PRead(void* p, uint32_t off) { T v{}; Mem::Read((uintptr_t)p + off, v); return v; }
@@ -398,7 +417,7 @@ namespace {
     bool IsPeerCop(const Mirror& m, bool inPursuitOnly) {
         if (!m.used || !m.iv || !m.n || m.racer || m.bound) return false;
         uint16_t f = m.s[m.n - 1].e.flags;
-        return (f & 1) && (!inPursuitOnly || (f & 4)) && IsVehicle(m.iv);
+        return (f & 1) && !(f & TE_WRECKED) && (!inPursuitOnly || (f & 4)) && IsVehicle(m.iv);   // a wreck there is no cop here
     }
     // when each of the other player's cops last saw us in our current pursuit (minimap: SharedPursuit::PeerCopOnOurMap)
     struct PeerCopSeen { uint16_t id; DWORD at; };
@@ -754,7 +773,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     }
 
     // ---- our own pursuit, as the other game sees it ----
-    g_sp.heat100 = 0; g_sp.flags = 0; g_sp.left10 = 0; g_sp.bar = 0; g_sp.barKind = 0;
+    g_sp.heat100 = 0; g_sp.flags = 0; g_sp.left10 = 0; g_sp.bar = 0; g_sp.barKind = 0; g_sp.copsNow = 0; g_sp.copsInvolved = 0;
     {   // a new event (or back to free roam): an escape from before is not news there
         uint32_t ev = Game::CurrentEventHash();
         if (ev != g_sp.lastEvent) { g_sp.lastEvent = ev; g_sp.sentEvaded = false; g_sp.peerChasedInEvent = false; }
@@ -769,6 +788,11 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         left = PRead<float>(pursuit, P_CoolLeft);
         if (!busted && !bailed && status != PS_BUSTED && status != PS_EVADED) {
             g_sp.flags |= PURSUIT_ACTIVE;
+            {   // AIPursuit::GetNumCops 0x433C90 / GetTotalNumCopsInvolved 0x4339D0
+                int n = PRead<int>(pursuit, 0x20), all = PRead<int>(pursuit, 0x138);
+                g_sp.copsNow = (uint8_t)(n < 0 ? 0 : n > 255 ? 255 : n);
+                g_sp.copsInvolved = (uint8_t)(all < 0 ? 0 : all > 255 ? 255 : all);
+            }
             // evade bar / seen: local cops only (vanilla). Mirrored peer cops must not fill or empty it.
             if (SeenByOwnCops(pursuit)) g_sp.flags |= PURSUIT_SEEN;
             if (status == PS_COOLDOWN) g_sp.flags |= PURSUIT_COOLDOWN;
@@ -1057,6 +1081,11 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         bool joint = live && peerHere && theirs.inPursuit && !theirs.busted;
         void* perpAll = (pursuit && me) ? Find(me, IPerpetratorHandle) : nullptr;
         SharedTallyTick(pursuit, perpAll, live, joint);
+        int pn = joint && peer.valid ? peer.s.copsNow : 0, pa = joint && peer.valid ? peer.s.copsInvolved : 0;
+        if (pn != g_sp.peerCopsNow || pa != g_sp.peerCopsInvolved) {
+            if (pn || pa || g_sp.peerCopsInvolved) LOG("Pursuit: board adds the partner's cops - %d chasing, %d involved", pn, pa);
+            g_sp.peerCopsNow = pn; g_sp.peerCopsInvolved = pa;
+        }
     }
 
     // status line every 5 s while either of you is chased
@@ -1112,11 +1141,33 @@ static void PeerBarTickImpl(bool connected, const Net::Snapshot& peer) {
     }
 }
 
+// Every cop car that joins the world (newly listed, or active again) comes fresh: the game reuses
+// its car objects and sometimes sent out a wreck (1.9.3). Not on the first look after a load (the
+// cops standing there then are not new), not the partner's cop copies (repaired when we build them).
+static void RepairNewCops() {
+    static void* seen[48] = {}; static int nSeen = 0; static bool armed = false;
+    if (Game::GameFlowState() != 6) { nSeen = 0; armed = false; return; }
+    void* now[48] = {}; int n = 0;
+    void** b = nullptr;
+    int cnt = ListSize(VL_AICOPS, &b);
+    for (int i = 0; i < cnt && n < 48; ++i) {
+        void* c = ListGet(VL_AICOPS, i);
+        if (!c || !IsVehicle(c) || c == g_ghost || IsMirrorCar(c) || !VehActive(c)) continue;
+        now[n++] = c;
+        bool known = false;
+        for (int k = 0; k < nSeen && !known; ++k) known = seen[k] == c;
+        if (!known && armed) RepairCar(c, "a cop the game put back into the world");
+    }
+    memcpy(seen, now, sizeof(seen)); nSeen = n; armed = true;
+}
+
 static void PursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     double now = Net::LocalClockMs();
     if (g_nextPursuitCheck - now > 1000) g_nextPursuitCheck = now;   // sim clock restarted
     if (now < g_nextPursuitCheck) return;
     g_nextPursuitCheck = now + 400;
+    RepairNewCops();
+    ApplyPeerBreakers();
     void* me = LocalVehicle();
     // our pursuit whether or not the other player is still there: after a disconnect the cops we sent after
     // their car must come back to us. (Up to 1.7.14 the pursuit was looked up only while connected, so at a
@@ -1216,6 +1267,8 @@ void Game::FillSharedPursuit(CarState& s) {
     s.coolLeft10 = g_sp.left10;
     s.pursuitBar = g_sp.bar;
     s.pursuitBarKind = g_sp.barKind;
+    s.copsNow = g_sp.copsNow;
+    s.copsInvolved = g_sp.copsInvolved;
 }
 
 // ---- 2. the other player's cops on the minimap and the radar detector ----
@@ -1303,7 +1356,42 @@ void __fastcall hk_RadarDetector(void* self, void*, uint32_t a, uint32_t b) {
     }
 }
 
+// ---- pursuit breakers: when one of us sets one off, its map icon goes off for both ----
+// The breaker handler (0x620DF0) ends with GManager(0x91E00C)->HideBreakerIconsNear(pos, 20 m) (0x5E4850,
+// clears bit 0 of +2 on every type-0xC map icon in range; RestorePursuitBreakerIcons 0x5E48F0 turns them
+// back on when their track section loads again, as in the single-player game).
+constexpr uintptr_t BreakerIconOffCall = 0x620EC0, BreakerIconOffFn = 0x5E4850, BreakerGManager = 0x91E00C;
+static float g_breakerIn[4][4]; static volatile LONG g_breakerInN = 0;
+void __fastcall hk_BreakerIconOff(void* gm, void*, const float* pos, float radius) {
+    ((void(__thiscall*)(void*, const float*, float))BreakerIconOffFn)(gm, pos, radius);
+    __try {
+        if (g_coopLinked && pos) { Net::SendBreaker(pos, radius); LOG("Pursuit breaker: we set one off - its icon goes off for the partner too"); }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+static void OnBreakerPacket(const float* pos, float radius) {
+    LONG n = g_breakerInN;
+    if (n >= 4) return;
+    memcpy(g_breakerIn[n], pos, 12); g_breakerIn[n][3] = radius;
+    g_breakerInN = n + 1;
+}
+// on the game thread (PursuitTick)
+static void ApplyPeerBreakers() {
+    LONG n = g_breakerInN;
+    if (!n) return;
+    g_breakerInN = 0;
+    void* gm = nullptr;
+    if (Game::GameFlowState() != 6 || !Mem::Read(BreakerGManager, gm) || !gm) return;
+    static DWORD lastLog = 0;
+    for (LONG i = 0; i < n; ++i) {
+        ((void(__thiscall*)(void*, const float*, float))BreakerIconOffFn)(gm, g_breakerIn[i], g_breakerIn[i][3]);
+        if (GetTickCount() - lastLog > 2000) { lastLog = GetTickCount(); LOG("Pursuit breaker: the partner set one off - its icon is off here too"); }
+    }
+}
+
 bool Game::InstallPursuitHooks() {
+    bool brk = PatchCallChecked(BreakerIconOffCall, BreakerIconOffFn, (void*)&hk_BreakerIconOff);
+    Net::OnBreaker = &OnBreakerPacket;
+    LOG("Pursuit breaker: shared map icons %s", brk ? "on" : "FAIL (call site differs)");
     bool seen = PatchPursuitSeen();
     LOG("Pursuit: cops chasing the other player %s count as seeing us", seen ? "no longer" : "STILL (seen hook failed)");
     bool np1 = PatchCallChecked(NewPursuitCall1, NewPursuitFn, (void*)&hk_NewPursuitFor);
@@ -1315,7 +1403,8 @@ bool Game::InstallPursuitHooks() {
     bool r = PatchCallChecked(RadarCall, RadarFn, (void*)&hk_RadarDetector);
     bool hs = PatchPerpHidden();
     bool hb = PatchBoardHidden();
-    LOG("Pursuit: shared pursuits on (minimap cops %s, radar detector %s, shared hiding spot %s, HIDDEN on the HUD %s)",
-        m ? "hooked" : "NOT hooked", r ? "hooked" : "NOT hooked", hs ? "ok" : "FAIL", hb ? "ok" : "FAIL");
+    bool bc = PatchBoardCops();
+    LOG("Pursuit: shared pursuits on (minimap cops %s, radar detector %s, shared hiding spot %s, HIDDEN on the HUD %s, summed cop counts %s)",
+        m ? "hooked" : "NOT hooked", r ? "hooked" : "NOT hooked", hs ? "ok" : "FAIL", hb ? "ok" : "FAIL", bc ? "ok" : "FAIL");
     return m && r;
 }

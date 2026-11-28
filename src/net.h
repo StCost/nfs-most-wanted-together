@@ -36,6 +36,7 @@ enum PacketType : uint16_t {
     PKT_GRIDSLOT = 26,  // host -> client: the grid slot the client starts on at this event start (older builds ignore it)
     PKT_ROADBLOCK = 27, // a police roadblock the sender's game built (or removed): its sawhorses / spike strips (older builds ignore it)
     PKT_CARHOLD = 28,   // "my physics moves YOUR car <id> after a hit: it is here now" - the owner follows it (older builds ignore it)
+    PKT_BREAKER = 29,   // the sender set off a pursuit breaker here: its map icon goes off for both (older builds ignore it)
 };
 
 struct PacketHeader {
@@ -100,6 +101,10 @@ struct CarState {
     // (value -100 busted .. 0 middle .. +100 evade), 2 the cooldown meter (value 0 .. 100 done)
     int8_t   pursuitBar;
     uint8_t  pursuitBarKind;
+    // the sender's own pursuit: cops chasing it now / all cops it has drawn in (AIPursuit +0x20 / +0x138,
+    // capped at 255), 0 when not chased. The other board shows the sum while both chases are on (23)
+    uint8_t  copsNow;
+    uint8_t  copsInvolved;
 };
 enum : uint8_t {
     PURSUIT_ACTIVE   = 1,   // in a pursuit that is still running (not busted / escaped)
@@ -201,6 +206,7 @@ struct TrafficEntry {
     uint16_t flags;       // bit0 = cop car, bit1 = race opponent, bit2 = cop in a pursuit (radar icon),
                           // bit3 = emulated physics on the owner (height from the road path: put the copy on the ground)
                           // bit4 = cop standing in a roadblock (TE_ROADBLOCK; sent first, shown even at the car limit)
+                          // bit5 = wrecked (TE_WRECKED)
     uint32_t model;       // model key (hash of the model name)
     uint32_t glare;       // light bits (IVehicle+0x9C): head/brake/reverse/signals/cop lights
     float    pos[3];
@@ -210,6 +216,7 @@ struct TrafficEntry {
 };
 constexpr int MAX_TRAFFIC_PER_PACKET = 20;
 constexpr uint16_t TE_ROADBLOCK = 0x10;
+constexpr uint16_t TE_WRECKED = 0x20;   // a cop car wrecked in the owner's game: not a cop on the other map / radar any more
 struct EventPacket {
     PacketHeader h;
     uint32_t eventHash;   // Attrib::StringHash32 of the event ID
@@ -258,6 +265,11 @@ struct CarHoldPacket {
     uint8_t  last;         // 1: the sender lets it go - the owner drives on from here
     uint8_t  pad;
     float    pos[3], rot[4], linVel[3], angVel[3];
+};
+struct BreakerPacket {
+    PacketHeader h;
+    float    pos[3];       // as the game hands it to GManager's icon-off call (0x5E4850)
+    float    radius;
 };
 struct MilestonePacket {
     PacketHeader h;
@@ -312,11 +324,13 @@ struct TrailerPacket {
 #pragma pack(pop)
 
 constexpr uint32_t COOP_MAGIC   = 0x4F43574D; // "MWCO"
-constexpr uint16_t COOP_VERSION = 22;   // 18: shared pursuits (CarState heat100 / pursuitFlags / bustSeq / coolLeft10)
+constexpr uint16_t COOP_VERSION = 23;   // 18: shared pursuits (CarState heat100 / pursuitFlags / bustSeq / coolLeft10)
                                         // 19: pursuit flags READY / EVADED / HIDING (an 18 build drops states carrying them)
                                         // 20: one cooldown for both, the other player's pursuit bar (CarState pursuitBar)
                                         // 21: a bust in a shared free-roam pursuit busts both; the bar is the game's meter value
                                         // 22: hits on the partner's cars (PKT_CARHOLD), a race loss is shared
+                                        // 23: CarState copsNow / copsInvolved (summed cop counts on the pursuit board),
+                                        //     TrafficEntry flag TE_WRECKED, PKT_BREAKER
 
 struct NetStats {
     bool        connected = false;
@@ -386,6 +400,8 @@ namespace Net {
     extern void (*OnCarHit)(uint16_t id, const float* dv);
     void SendCarHold(uint16_t id, bool last, const float* pos, const float* rot, const float* vel, const float* av);
     extern void (*OnCarHold)(const CarHoldPacket& p);
+    void SendBreaker(const float* pos, float radius);          // sent 3 times (hiding an icon twice is harmless)
+    extern void (*OnBreaker)(const float* pos, float radius);
     extern void (*OnFollow)(const float* pos, const float* fwd, const float* right, const float* quat);
     extern void (*OnRaceProg)(const RaceProgEntry* e, int count);
     void SendRaceProg(const RaceProgEntry* e, int count);

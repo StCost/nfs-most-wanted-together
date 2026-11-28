@@ -158,6 +158,12 @@ namespace {
     void RbOnOurs(void* pursuit, bool heavy) {
         void* rb = pursuit ? VCall<void* (__thiscall*)(void*)>(pursuit, 0x3C / 4)(pursuit) : nullptr;
         if (!rb) { LOG("Roadblock: built, but the pursuit has none - not shared"); return; }
+        {   // its cars (rb +0x0C .. +0x10, IVehicle*) come fresh, never a reused wreck
+            uintptr_t vb = 0, ve = 0;
+            Mem::Read((uintptr_t)rb + 0x0C, vb); Mem::Read((uintptr_t)rb + 0x10, ve);
+            if (vb && ve > vb && ve - vb <= 32)
+                for (uintptr_t p = vb; p < ve; p += 4) { void* c = nullptr; if (Mem::Read(p, c)) RepairCar(c, "in our new roadblock"); }
+        }
         Roadblock::Desc d = RbDescribe(rb, heavy);
         ++g_rbBuilt;
         LOG("Roadblock: our game built #%u (%s setup %d%s): %d car(s), %d sawhorse(s), %d spike strip(s) at %.1f %.1f %.1f, facing %.2f %.2f",

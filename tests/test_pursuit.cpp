@@ -514,14 +514,20 @@ TEST(pursuit_tally_only_while_both_live) {
     int32_t add[T_COUNT];
     CHECK(!TallyToAdd(a, add));
     t.v[T_SPIKES] = 3;
-    TallyPeer(a, 5, t.v, false);                             // not joint (other event, a menu): not credited later
+    TallyPeer(a, 5, t.v, false);                             // not joint (other event, a menu): not yet
+    CHECK(!TallyToAdd(a, add));
     t.v[T_SPIKES] = 5;
-    TallyPeer(a, 5, t.v, true);                              // joint again: only what came now
+    TallyPeer(a, 5, t.v, true);                              // joint: their whole count (1.9.3)
     TallyToAdd(a, add);
-    CHECK_EQ(add[T_SPIKES], 2);
+    CHECK_EQ(add[T_SPIKES], 5);
+    TallyGave(a, add, g.v);
     TallyStop(a);                                            // our pursuit ended (escaped / busted)
     t.v[T_SPIKES] = 9; TallyPeer(a, 5, t.v, true);
     CHECK(!TallyToAdd(a, add));
+    TallyStart(a, g.v);                                      // our next pursuit, theirs goes on
+    t.v[T_SPIKES] = 10; TallyPeer(a, 5, t.v, true);
+    TallyToAdd(a, add);
+    CHECK_EQ(add[T_SPIKES], 5);                              // 6..10 only: 1..5 went to our last pursuit
 }
 TEST(pursuit_tally_new_pursuit_and_bank_reset) {
     TallyShare a; Tal g; g.v[T_BOUNTY28] = 5000;             // pending bounty from before

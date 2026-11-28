@@ -389,8 +389,10 @@ namespace SharedPursuit {
     // players' own counts (a max would drop whatever the other player did differently, and no event
     // is in both, so the sum can't count one twice).
     // Rule: each side sends what it earned itself in its current pursuit (never what it was
-    // credited), cumulative, so a lost packet loses nothing. The other side credits only what they
-    // gained while both pursuits were live together, and adds it to its own pursuit counters, so
+    // credited), cumulative, so a lost packet loses nothing. Once both pursuits are live together the
+    // other side credits their whole count for that pursuit (1.9.3: both players see the same
+    // numbers, also what they did before the chases met), each of their gains once, and adds it to
+    // its own pursuit counters, so
     // the HUD Cost to State, the milestone / Challenge goals, the rap sheet and the bounty all see
     // the joint total. Infractions stay personal: they are tickets against your own car.
     enum TallyStat {
@@ -403,10 +405,10 @@ namespace SharedPursuit {
         bool     live = false;          // our pursuit is running
         int32_t  last[T_COUNT] = {};    // the game's values at our last look
         int32_t  own[T_COUNT] = {};     // what we earned ourselves in this pursuit (sent)
-        int32_t  owed[T_COUNT] = {};    // their gains while both were live (to credit here)
+        int32_t  owed[T_COUNT] = {};    // their gains credited to this pursuit of ours
         int32_t  given[T_COUNT] = {};   // what we already added to our counters
         uint32_t peerId = 0;            // their pursuit (a new id starts at 0)
-        int32_t  peerPrev[T_COUNT] = {};
+        int32_t  peerCred[T_COUNT] = {}; // how much of their pursuit's count we already credited (any of ours)
     };
     inline int32_t ClampTally(int64_t v) { return v < 0 ? 0 : v > TALLY_MAX ? TALLY_MAX : (int32_t)v; }
     // our pursuit started (a new pursuit object): count from the game's values now
@@ -425,14 +427,17 @@ namespace SharedPursuit {
         }
     }
     // their own counts (cumulative for their pursuit `id`). joint: both pursuits are live together
-    // (and in the same place). Gains made while not joint are never credited later.
+    // (and in the same place). While joint, all of their count not credited yet is credited, also
+    // what they got before (1.9.3). Each of their gains is credited once, to one pursuit of ours: a
+    // new pursuit of ours does not get their earlier gains again.
     inline void TallyPeer(TallyShare& t, uint32_t id, const int32_t theirs[T_COUNT], bool joint) {
-        if (id != t.peerId) { t.peerId = id; for (int i = 0; i < T_COUNT; ++i) t.peerPrev[i] = 0; }
+        if (id != t.peerId) { t.peerId = id; for (int i = 0; i < T_COUNT; ++i) t.peerCred[i] = 0; }
+        if (!joint || !t.live) return;
         for (int i = 0; i < T_COUNT; ++i) {
             int32_t v = ClampTally(theirs[i]);
-            if (v <= t.peerPrev[i]) continue;           // old / reordered copy, or nothing new
-            if (joint && t.live) t.owed[i] = ClampTally((int64_t)t.owed[i] + (v - t.peerPrev[i]));
-            t.peerPrev[i] = v;
+            if (v <= t.peerCred[i]) continue;           // old / reordered copy, or nothing new
+            t.owed[i] = ClampTally((int64_t)t.owed[i] + (v - t.peerCred[i]));
+            t.peerCred[i] = v;
         }
     }
     // what to add to our counters now; call TallyGave with the same values once they are added

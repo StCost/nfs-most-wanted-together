@@ -507,6 +507,14 @@ namespace {
             if (std::isfinite(p->dv[0]) && std::isfinite(p->dv[1]) && std::isfinite(p->dv[2]) && Net::OnCarHit) Net::OnCarHit(p->id, p->dv);
             break;
         }
+        case PKT_BREAKER: {
+            if (len < (int)sizeof(BreakerPacket)) return;
+            const BreakerPacket* p = (const BreakerPacket*)buf;
+            for (float f : p->pos) if (!std::isfinite(f) || f < -100000.f || f > 100000.f) return;
+            if (!std::isfinite(p->radius) || p->radius <= 0.f || p->radius > 200.f) return;
+            if (Net::OnBreaker) Net::OnBreaker(p->pos, p->radius);
+            break;
+        }
         case PKT_CARHOLD: {
             if (len < (int)sizeof(CarHoldPacket)) return;
             const CarHoldPacket* p = (const CarHoldPacket*)buf;
@@ -1183,6 +1191,15 @@ void Net::SendCarHold(uint16_t id, bool last, const float* pos, const float* rot
     p.id = id; p.last = last ? 1 : 0;
     memcpy(p.pos, pos, 12); memcpy(p.rot, rot, 16); memcpy(p.linVel, vel, 12); memcpy(p.angVel, av, 12);
     for (int i = 0; i < (last ? 2 : 1); ++i) SendRaw(&p, sizeof(p));
+}
+
+void (*Net::OnBreaker)(const float*, float) = nullptr;
+void Net::SendBreaker(const float* pos, float radius) {
+    if (!g_stats.connected) return;
+    BreakerPacket p{};
+    FillHeader(p.h, PKT_BREAKER);
+    memcpy(p.pos, pos, 12); p.radius = radius;
+    for (int i = 0; i < 3; ++i) SendRaw(&p, sizeof(p));
 }
 
 void (*Net::OnMilestone)(uint32_t, uint8_t, uint32_t, uint16_t, float) = nullptr;
