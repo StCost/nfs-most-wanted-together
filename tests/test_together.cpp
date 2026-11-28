@@ -136,6 +136,13 @@ TEST(native_auto_connect_ini) {
     CHECK_STR(IniValue(ToIni(s), "Network", "AutoConnect").c_str(), "0");
 }
 
+TEST(native_marker_ini) {
+    Settings s;                                           // on unless turned off
+    CHECK_STR(IniValue(ToIni(s), "UI", "FriendMarker").c_str(), "1");
+    s.marker = false;
+    CHECK_STR(IniValue(ToIni(s), "UI", "FriendMarker").c_str(), "0");
+}
+
 TEST(native_together_rows) {
     auto hostSet = TogetherRows(Screen::Settings, true);
     auto joinSet = TogetherRows(Screen::Settings, false);
@@ -148,8 +155,9 @@ TEST(native_together_rows) {
     CHECK(std::find(joinCon.begin(), joinCon.end(), W_START) != joinCon.end());
     CHECK(std::find(hostCon.begin(), hostCon.end(), W_MODE) != hostCon.end());
     CHECK(std::find(hostCon.begin(), hostCon.end(), W_AUTO) != hostCon.end());
-    CHECK_EQ((int)hostCon.size(), 3);     // no nickname row (1.7.6: the profile alias), no gamepad row (ini only)
-    CHECK_EQ((int)joinCon.size(), 4);
+    CHECK(std::find(hostCon.begin(), hostCon.end(), W_MARKER) != hostCon.end());
+    CHECK_EQ((int)hostCon.size(), 4);     // no nickname row (1.7.6: the profile alias), no gamepad row (ini only)
+    CHECK_EQ((int)joinCon.size(), 5);
     CHECK((int)hostCon.size() <= 9);
     CHECK((int)joinCon.size() <= 9);
     // Options > Together is the same list
@@ -184,7 +192,7 @@ TEST(native_scroll_window) {
     CHECK_EQ(NativeUtil::ClampScroll(15, 10, 9), 5);
     CHECK_EQ(NativeUtil::ClampScroll(4, 10, 2), 0);
     auto set = TogetherRows(Screen::Settings, false);
-    CHECK_EQ((int)set.size(), 4);        // Connection, Connect to IP, Reconnect on launch, Connect
+    CHECK_EQ((int)set.size(), 5);        // Connection, Connect to IP, Reconnect on launch, Partner marker, Connect
     CHECK(NativeUtil::VisibleIndex((int)set.size(), 9, 0, 0) == 0);
     CHECK(NativeUtil::VisibleIndex((int)set.size(), 9, 0, (int)set.size() - 1) >= 0);   // the last row fits
 }

@@ -67,10 +67,10 @@ inline std::string ProfileBoxText(const std::string& profile, const std::string&
 }
 
 // One Together screen (main menu Together, pause Together, and Options > Together):
-// Connection, Connect to IP (Join only), Reconnect on launch, the start /
+// Connection, Connect to IP (Join only), Reconnect on launch, Partner marker, the start /
 // stop action, then the remaining settings. The list fits in the 9 visible row slots.
 enum Row {
-    W_MODE, W_HOSTIP, W_AUTO, W_START, W_COUNT
+    W_MODE, W_HOSTIP, W_AUTO, W_MARKER, W_START, W_COUNT
 };
 enum class Screen { Settings, Connect };
 
@@ -79,6 +79,7 @@ inline std::vector<int> TogetherRows(Screen /*screen*/, bool host) {
     v.push_back(W_MODE);
     if (!host) v.push_back(W_HOSTIP);
     v.push_back(W_AUTO);
+    v.push_back(W_MARKER);
     v.push_back(W_START);
     return v;
 }

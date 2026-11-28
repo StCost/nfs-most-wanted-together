@@ -22,7 +22,7 @@
 using namespace TogetherUtil;
 
 namespace {
-    enum Row { R_MODE, R_HOSTIP, R_AUTOCONNECT, R_OVERLAY, R_SAVE, R_CANCEL, R_COUNT };
+    enum Row { R_MODE, R_HOSTIP, R_AUTOCONNECT, R_MARKER, R_OVERLAY, R_SAVE, R_CANCEL, R_COUNT };
 
     std::string g_ini;
     bool     g_open = false;
@@ -67,6 +67,7 @@ namespace {
         s.port = std::to_string(g_cfg.port);
         s.overlay = Overlay::IsVisible();
         s.autoConnect = ReadIni("Network", "AutoConnect", "1") != "0";
+        s.marker = g_cfg.friendMarker;
         return s;
     }
 
@@ -164,6 +165,7 @@ namespace {
         if (!g_netRunning && !connect) net = false;     // not connected yet (waiting for Host / Join): just remember
         g_pendingNet = ed;    // mode / address / port: applied with the reconnect (TakeNetworkChange)
         g_cfg.showOverlay = ed.overlay; Overlay::SetVisible(ed.overlay);
+        g_cfg.friendMarker = ed.marker;                 // the marker follows at once
         if (net) g_netChange = true;
         else ApplyNetwork(ed);
         if (connect) g_chosen = true;
@@ -197,6 +199,7 @@ namespace {
         case R_MODE: g_ed.host = !g_ed.host; break;
         case R_OVERLAY: g_ed.overlay = !g_ed.overlay; break;
         case R_AUTOCONNECT: g_ed.autoConnect = !g_ed.autoConnect; break;
+        case R_MARKER: g_ed.marker = !g_ed.marker; break;
         case R_SAVE: case R_CANCEL: g_sel = g_sel == R_SAVE ? R_CANCEL : R_SAVE; break;
         default:
             if (IsText(g_sel) && g_padEdit) {       // pad: right adds a character, left removes one
@@ -457,6 +460,7 @@ namespace {
         switch (r) {
         case R_MODE: return "Connection"; case R_HOSTIP: return "Connect to IP";
         case R_AUTOCONNECT: return "Reconnect on launch";
+        case R_MARKER: return "Partner marker";
         case R_OVERLAY: return "Show status overlay (F8)";
         }
         return "";
@@ -514,7 +518,7 @@ bool Together::Paint(uint32_t* pixels, int pitch, int maxW, int maxH, int* outW,
             switch (r) {
             case R_MODE: v = g_ed.host ? "<  Host LAN  >" : "<  Join LAN  >"; vc = kAccent; break;
             default: {
-                bool on = r == R_OVERLAY ? g_ed.overlay : g_ed.autoConnect;
+                bool on = r == R_OVERLAY ? g_ed.overlay : r == R_MARKER ? g_ed.marker : g_ed.autoConnect;
                 v = on ? "ON" : "OFF"; vc = on ? kAccent : kDim; break; }
             }
             Text(dc, fLabel, vx, y, vw - 26, rowH - 3, v, vc, DT_LEFT);

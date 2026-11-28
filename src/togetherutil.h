@@ -43,6 +43,7 @@ struct Settings {
     std::string port = "47555";        // kept in the ini only (default 47555); not shown in menus
     bool        autoConnect = true;     // [Network] AutoConnect: host / join again by itself on the next start
     bool        overlay = false;
+    bool        marker = true;          // [UI] FriendMarker: the partner's marker over their car
 };
 
 inline std::string Trim(const std::string& s) {
@@ -90,6 +91,7 @@ inline std::vector<IniLine> ToIni(const Settings& s) {
     v.push_back({ "Network", "Port", std::to_string(strtol(Trim(s.port).c_str(), nullptr, 10)) });
     v.push_back({ "Network", "AutoConnect", s.autoConnect ? "1" : "0" });
     v.push_back({ "Debug", "Overlay", s.overlay ? "1" : "0" });
+    v.push_back({ "UI", "FriendMarker", s.marker ? "1" : "0" });
     v.push_back({ "UI", "TogetherSetupDone", "1" });
     return v;
 }

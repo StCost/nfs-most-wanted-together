@@ -106,7 +106,7 @@ namespace {
     enum : uint32_t { S_OPT_NAME = kStrBase, S_OPT_DESC, S_MAIN_NAME, S_MAIN_DESC, S_HEADER, S_HEADER_CONNECT,
                       S_TITLE = kStrBase + 0x20, S_VALUE = kStrBase + 0x40 };
     using NativeUtil::W_MODE; using NativeUtil::W_HOSTIP;
-    using NativeUtil::W_AUTO; using NativeUtil::W_START;
+    using NativeUtil::W_AUTO; using NativeUtil::W_MARKER; using NativeUtil::W_START;
     using NativeUtil::W_COUNT;
     char g_title[W_COUNT][48], g_value[W_COUNT][96];
     std::vector<StringRec> g_ours;
@@ -228,10 +228,11 @@ namespace {
     }
 
     bool IsText(int r) { return r == W_HOSTIP; }
-    bool IsOnOff(int r) { return r == W_AUTO; }
+    bool IsOnOff(int r) { return r == W_AUTO || r == W_MARKER; }
     bool* Flag(int r) {
         switch (r) {
         case W_AUTO: return &g_ed.autoConnect;
+        case W_MARKER: return &g_ed.marker;
         }
         return nullptr;
     }
@@ -246,6 +247,7 @@ namespace {
         case W_MODE: return "Connection";
         case W_HOSTIP: return "Connect to IP";
         case W_AUTO: return "Reconnect on launch";
+        case W_MARKER: return "Partner marker";
         case W_START: return NativeUtil::ConnectionActionTitle(g_ed.host, Together::SessionActive());
         }
         return "";
