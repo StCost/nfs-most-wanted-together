@@ -281,8 +281,24 @@ namespace {
         PWrite<int32_t>(pursuit, 0x154, before + 1);
         void* gm = nullptr;
         if (Mem::Read(GManagerPtr, gm) && gm) ((void(__thiscall*)(void*, const char*))GM_IncStat)(gm, (const char*)S_Roadblocks);
-        LOG("Roadblock: drove through the other player's roadblock #%u (%.0f m from its centre) - roadblock dodged here (pursuit %d -> %d)",
-            x.d.id, std::fabs(across), before, before + 1);
+        // its spike strips count as dodged too, as UpdateRoadBlocks does for ours (0x43A0B4): stat
+        // "tire_spikes_dodged" += strips (when the game mode keeps it), then IPursuit slot 63 (+0x16C)
+        int spikes = Roadblock::CountKind(x.d, Roadblock::PIECE_SPIKES);
+        if (spikes > 0) {
+            bool statOk = true;
+            void* gs = nullptr;
+            if (Mem::Read(0x91E000, gs) && gs && PRead<int32_t>(gs, 0x1960) == 1) {
+                void* o = PRead<void*>(gs, 0x1968);
+                statOk = o && ((bool(__thiscall*)(void*))0x5FBE70)(o);
+            }
+            if (statOk && gm) {
+                float cur = ((float(__thiscall*)(void*, const char*))GM_GetStat)(gm, (const char*)S_Spikes);
+                SetStat(S_Spikes, (cur > 0.f ? cur : 0.f) + (float)spikes);
+            }
+            VCall<void(__thiscall*)(void*, int)>(pursuit, 63)(pursuit, spikes);
+        }
+        LOG("Roadblock: drove through the other player's roadblock #%u (%.0f m from its centre) - roadblock dodged here (pursuit %d -> %d), spike strips +%d",
+            x.d.id, std::fabs(across), before, before + 1, spikes);
     }
 
     void RoadblockTickImpl(bool linked) {

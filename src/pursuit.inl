@@ -582,6 +582,7 @@ static void SharedTallyTick(void* pursuit, void* perp, bool live, bool joint) {
     if (Net::PeerPursuitStats(pid, theirs, cnt) && cnt != g_tallyPeerCount) {
         g_tallyPeerCount = cnt;
         theirs[T_ROADBLOCKS] = 0;   // personal: each player counts the roadblocks they drove through (roadblock.inl)
+        theirs[T_SPIKES] = 0;       // and their spike strips, the same way
         TallyPeer(g_tally, pid, theirs, joint);
     }
     int32_t add[T_COUNT];
