@@ -733,9 +733,11 @@ namespace {
     // A free slot of the grid around this car (CoopRace::GridSlotFor - behind it, beside that, beside it),
     // at its height, facing the same way; with no cars around, one car length (6 m) straight behind it.
     // False when every slot it knows is taken (out: behind it all the same).
-    bool FreeGridSlotNear(void* rb, float out[3], float& along, float& side, int& n) {
+    // moving (optional): how many of those cars are still rolling (an intro may drive them onto the grid)
+    bool FreeGridSlotNear(void* rb, float out[3], float& along, float& side, int& n, int* moving = nullptr) {
         void* exclude = nullptr;
         along = -CoopRace::kGridDefaultRow; side = 0.f; n = 0;
+        if (moving) *moving = 0;
         float f[3];
         VCall<void(__thiscall*)(void*, float*)>(rb, 13 /*GetForwardVector*/)(rb, f);
         const float* p = RB_GetVec(rb, RB_GetPosition);
@@ -755,6 +757,10 @@ namespace {
             if (!q) continue;
             float dx = q[0] - p[0], dy = q[1] - p[1], dz = q[2] - p[2];
             if (fabsf(dy) > 4.f || dx * dx + dz * dz > 40.f * 40.f) continue;
+            if (moving) {
+                const float* v = RB_GetVec(orb, RB_GetLinearVelocity);
+                if (v && !(v[0] * v[0] + v[2] * v[2] < 1.f)) ++*moving;
+            }
             cars[n].along = dx * fx + dz * fz; cars[n].side = dx * rx + dz * rz; ++n;
         }
         bool found = CoopRace::GridSlotFor(cars, n, along, side);
@@ -1501,7 +1507,7 @@ static void PeerRacerInfoTick() {
 // while the slot meant for them stayed empty.
 // Host: decides where the client starts and tells them (PKT_GRIDSLOT, for a minute from the start or a
 // restart): the slot of the client's racer, or - no racer for them in this race - a free slot read from
-// its own grid once it stands there (intro over).
+// its own grid once it stands still there (during the intro cutscene already, or once it is over).
 static void HostGridSlotTick(const Net::Snapshot& latest) {
     static uint32_t forEvent = 0; static uint8_t lastRestart = 0; static DWORD sendUntil = 0, nextSend = 0;
     if (!g_cfg.isHost || !g_cfg.separateGridSlots) return;
@@ -1520,14 +1526,29 @@ static void HostGridSlotTick(const Net::Snapshot& latest) {
         // after the intro, seen as a teleport. The slot read when the race built their racer is not always
         // where the grid has room for them (seen 24 m behind the grid with an empty slot next to us, 10.3.2):
         // it is taken only if no car stands on it and no free slot of our grid is nearer to us; else that free slot.
-        if (!Game::GridReadyNow() || !latest.valid || !latest.s.inRace || latest.s.eventHash != ev) return;
+        // 1.9.4: decided already during the intro cutscene once the grid stands still (0.5 s), so the client
+        // gets the slot before its own intro ends and moves while its cutscene still plays (1.9.2 logs: the
+        // word came 0.1-1.4 s after the client's intro, seen as a teleport on the grid).
+        static uint32_t stillEvent = 0; static DWORD stillSince = 0;
+        bool gridReady = Game::GridReadyNow();
+        if (!latest.valid || !latest.s.inRace || latest.s.eventHash != ev) return;
+        if (!gridReady) {
+            void* rs = nullptr; int mode = 0;
+            if (!NisActive() || !Mem::Read(0x91E000, rs) || !rs || !Mem::Read((uintptr_t)rs + 0x1960, mode) || mode != 1) { stillSince = 0; return; }
+        }
         void* lrb = RigidBodyOf(LocalVehicle());
         if (!lrb) return;
         const float* lp = RB_GetVec(lrb, RB_GetPosition);
         const float* lv = RB_GetVec(lrb, RB_GetLinearVelocity);
-        if (!(lv[0] * lv[0] + lv[2] * lv[2] < 1.f)) return;   // (still falling onto the grid is fine)
+        if (!(lv[0] * lv[0] + lv[2] * lv[2] < 1.f)) { stillSince = 0; return; }   // (still falling onto the grid is fine)
         float freeSlot[3] = {};
-        bool haveFree = FreeGridSlotNear(lrb, freeSlot, along, side, n);
+        int moving = 0;
+        bool haveFree = FreeGridSlotNear(lrb, freeSlot, along, side, n, &moving);
+        if (!gridReady) {           // in the intro: only a grid that has stood still for a moment
+            if (moving) { stillSince = 0; return; }
+            if (stillEvent != ev || !stillSince) { stillEvent = ev; stillSince = now ? now : 1; }
+            if ((int)(now - stillSince) < 500) return;
+        }
         if (fromRacer) {
             bool taken = false;
             void** lb = nullptr;
@@ -1560,6 +1581,7 @@ static void HostGridSlotTick(const Net::Snapshot& latest) {
         }
         g_clientSlotEvent = ev; g_clientSlotRacer = fromRacer; sendUntil = now + 60000; nextSend = 0;
         { char cars[512]; GridCarsText(lrb, cars, sizeof(cars)); LOG("Start: cars around us (m ahead/right): %s", cars); }
+        if (!gridReady) LOG("Start: the client's slot decided during our intro cutscene");
         if (fromRacer) LOG("Start: the client starts on the slot our race gave their racer %.1f %.1f %.1f - telling them", g_clientSlot[0], g_clientSlot[1], g_clientSlot[2]);
         else LOG("Start: the client starts on a free slot of our grid, %.1f m %s, %.1f m %s of us (%d car(s) around) - telling them",
                  fabsf(along), along < 0 ? "behind" : "ahead", fabsf(side), side < 0 ? "left" : "right", n);
@@ -1572,8 +1594,12 @@ static void HostGridSlotTick(const Net::Snapshot& latest) {
 
 // Client: moves there once both stand still on the player's slot (NetUtil::PickStartSlot); waits a moment
 // for the host's word, and without it (an older host) takes the slot of the host's racer here as before.
-static void TakePeerSlotTick(const Net::Snapshot& latest, void* ghostRb) {
+// inIntro: called during our intro cutscene too (1.9.4): with the host's word already here we move while the
+// cutscene still plays, so the grid shows us on our slot from its first frame. The window stays open: if the
+// cutscene puts us back on the player's spot, the move is made again after it.
+static void TakePeerSlotTick(const Net::Snapshot& latest, void* ghostRb, bool inIntro) {
     static uint32_t winEvent = 0; static void* slotOf = nullptr; static uint8_t lastRestart = 0;
+    static uint32_t introMovedFor = 0; static DWORD introMovedAt = 0;
     static DWORD windowUntil = 0, sharingSince = 0; static bool afterRestart = false;
     if (g_cfg.isHost || !g_cfg.separateGridSlots) return;
     uint32_t ev = Game::CurrentEventHash();
@@ -1600,8 +1626,22 @@ static void TakePeerSlotTick(const Net::Snapshot& latest, void* ghostRb) {
     // before the go only (our race clock not running): a word arriving later must not pull us back
     void* lri = RacerInfoOfLocal(); uint8_t clock = 1;
     if (lri) Mem::Read((uintptr_t)lri + 0x154, clock);
-    bool early = NetUtil::EarlyHostSlot(!afterRestart && !clock, Game::GridReadyNow(), gotHost, sqrtf(lv[0] * lv[0] + lv[2] * lv[2]),
+    bool early = NetUtil::EarlyHostSlot(!afterRestart && !clock, inIntro || Game::GridReadyNow(), gotHost, sqrtf(lv[0] * lv[0] + lv[2] * lv[2]),
                                         gotHost ? NetUtil::Dist3(lp, hostSlot) : 0.f);
+    if (inIntro) {                     // the host's word only, at most once a second (a cutscene may hold the car)
+        if (!early || (introMovedFor == ev && (int)(now - introMovedAt) < 1000)) return;
+        bool first = introMovedFor != ev;
+        introMovedFor = ev; introMovedAt = now;
+        float to[3] = { hostSlot[0], fabsf(hostSlot[1] - lp[1]) < 1.f ? lp[1] : hostSlot[1] + 0.05f, hostSlot[2] }, zero[3] = { 0, 0, 0 };
+        float d = NetUtil::Dist3(lp, to);
+        RB_SetVec(lrb, RB_SetPosition, to);
+        RB_SetVec(lrb, RB_SetLinearVelocity, zero); RB_SetVec(lrb, RB_SetAngularVelocity, zero);
+        if (first) LOG("Start: moved to %s during our intro cutscene (%.1f m)",
+                       hostRacer ? "the slot the host's race gave our racer" : "the free slot the host gave us", d);
+        else LOG("Start: the cutscene put us back on the player's spot - moved to the host's slot again (%.1f m)", d);
+        SnapToGroundSafe("on our grid slot");
+        return;
+    }
     if (!early && !NetUtil::SharingStartSpot(lp, mySpeed, latest.s.pos, latest.s.speedMps)) { sharingSince = 0; return; }
     if (!sharingSince) sharingSince = now ? now : 1;
     bool haveHost = gotHost && (early || NetUtil::ShouldTakePeerSlot(lp, mySpeed, latest.s.pos, latest.s.speedMps, hostSlot));
@@ -1827,8 +1867,8 @@ static void UpdateGhostImpl(const Net::Snapshot& latest, const Net::Snapshot& pr
 
     SetStreamPeer(rb);   // keep the world (and full physics) loaded around the other player too
     HostGridSlotTick(latest);                           // (the client's slot is sent during the intro too)
-    if (NisActive()) { g_protectHoldReset = true; ClearCarControls(g_ghost); sprintf_s(out, outLen, "%s  (cutscene)", g_ghostName); return; }
-    TakePeerSlotTick(latest, rb);
+    if (NisActive()) { TakePeerSlotTick(latest, rb, true); g_protectHoldReset = true; ClearCarControls(g_ghost); sprintf_s(out, outLen, "%s  (cutscene)", g_ghostName); return; }
+    TakePeerSlotTick(latest, rb, false);
 
     // --- target state: snapshot interpolation ~InterpDelayMs in the past (smooth, no guessing) ---
     CarState s = latest.s;

@@ -265,6 +265,11 @@ bool        g_noProfile = false;          // no profile loaded yet (title screen
                     else if (c == "icons") r = Game::DebugIcons();
                     else if (c == "key enter") { Input::TapBackground(0x1C); r = "enter pressed (background)"; }
                     else if (c == "key esc") { Input::TapBackground(0x01); r = "escape pressed (background)"; }
+                    else if (c.rfind("keyhold 0x", 0) == 0) {   // keyhold 0xNN <ms>: held that long (look-back)
+                        char* e = nullptr; unsigned char k = (unsigned char)strtoul(c.c_str() + 8, &e, 16);
+                        unsigned ms = e ? (unsigned)strtoul(e, nullptr, 10) : 0;
+                        Input::TapBackground(k, ms ? ms : 120); r = "key held (background)";
+                    }
                     else if (c.rfind("key 0x", 0) == 0) { Input::TapBackground((unsigned char)strtoul(c.c_str() + 4, nullptr, 16)); r = "key pressed (background)"; }
                     else if (c.rfind("together ", 0) == 0) r = Together::DebugCommand(c.substr(9));
                     else if (c.rfind("native ", 0) == 0) r = NativeUI::DebugCommand(c.substr(7));

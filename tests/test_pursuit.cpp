@@ -173,9 +173,13 @@ TEST(pursuit_full_evade_bar_waits_for_the_other_player) {
     b.cooling = true; b.left = 20;
     CHECK(DecideCooldown(b, a).what == Cool::Free);
     CHECK(DecideCooldown(a, b).what == Cool::Free);
-    // our bar not full: nothing to hold
+    // our bar not full yet, theirs not either: the hold is already on (the game can step past "full" into the
+    // cooldown in one go - from backup it did, every time)
     View notFull = V(true, false, false, 0, false);
-    CHECK(DecideCooldown(notFull, V(true, true, false, 0, false)).what == Cool::Free);
+    CHECK(DecideCooldown(notFull, V(true, true, false, 0, false)).what == Cool::HoldEvade);
+    // we are seen ourselves: vanilla (nothing to hold)
+    View seenMe = V(true, true, false, 0, false);
+    CHECK(DecideCooldown(seenMe, V(true, true, false, 0, false)).what == Cool::Free);
 }
 
 TEST(pursuit_spotted_in_cooldown_takes_both_back_to_the_chase) {

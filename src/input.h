@@ -7,7 +7,7 @@
 namespace Input {
     bool InstallHooks();              // IAT hook on DirectInput8Create; call from DllMain
 #ifdef MWT_DEVTOOLS
-    void TapBackground(unsigned char dik);   // test: a key the game sees without focus
+    void TapBackground(unsigned char dik, unsigned holdMs = 120);   // test: a key the game sees without focus
     // Press-and-release a DirectInput key (DIK_* scan code) over the next few frames.
     bool Tap(unsigned char dik);      // false if not sent (game window not focused / busy)
     bool Busy();                      // a tap is in progress
@@ -41,7 +41,7 @@ namespace Macro {
 // ([Input] KeepPadBindings).
 namespace Pad {
     bool InstallHooks();
-    void TapBackground(unsigned char dik);   // test: a key press the game sees without focus (keyboard device state)              // call from DllMain, after the config is loaded
+    void TapBackground(unsigned char dik, unsigned holdMs = 120);   // test: a key press the game sees without focus (keyboard device state)              // call from DllMain, after the config is loaded
     void OnDeviceChange();            // WM_DEVICECHANGE on the game window
     void Tick(int gameFlowState);     // once per frame, game thread
 }

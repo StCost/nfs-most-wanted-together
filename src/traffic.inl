@@ -194,6 +194,7 @@ namespace {
     void RemoveMirror(Mirror& m);   // below
     int  HandToTrafficAI(void* iv); // below
     void Retire(void* iv, bool ai); // below
+    void NoteHanded(void* iv);       // below
     void OnTrafficPacket(const TrafficEntry* e, int count, double sendMs) {
         double now = Net::LocalClockMs();
         g_lastTrafficPkt = now;
@@ -231,7 +232,7 @@ namespace {
                 bool wasCop = (m->s[m->n - 1].e.flags & 1) != 0;
                 if (m->iv && !wasCop && IsVehicle(m->iv)) {
                     int h = HandToTrafficAI(m->iv);
-                    if (h != 2 /*HAND_AI_MANAGED*/) Retire(m->iv, h == 1 /*HAND_AI*/);
+                    if (h != 2 /*HAND_AI_MANAGED*/) Retire(m->iv, h == 1 /*HAND_AI*/); else NoteHanded(m->iv);
                     m->iv = nullptr; m->localSince = m->localUntil = 0; m->localTouched = false;
                 }
                 RemoveMirror(*m);
@@ -715,7 +716,28 @@ namespace {
         }
         return removed;
     }
-    void ForgetRetired() { for (auto& r : g_retired) r.iv = nullptr; }   // the world is gone
+    // Copies we handed to the game's traffic manager: the game culls them, but until then they are extra
+    // cars in its 20. The budget counts them next to the copies, so the game doesn't make room for them by
+    // deleting its own cars (it took all its pursuit cops at once when the partner drove away - "every
+    // car blinks"). Counted for at most 90 s.
+    struct HandedCar { void* iv; DWORD at; };
+    HandedCar g_handed[48] = {};
+    void NoteHanded(void* iv) {
+        if (!iv) return;
+        DWORD now = GetTickCount();
+        for (auto& h : g_handed) if (h.iv == iv) { h.at = now; return; }
+        for (auto& h : g_handed) if (!h.iv || now - h.at > 90000) { h.iv = iv; h.at = now; return; }
+    }
+    int HandedInWorld() {
+        int n = 0; DWORD now = GetTickCount();
+        for (auto& h : g_handed) {
+            if (!h.iv) continue;
+            if (now - h.at > 90000 || WasRemovedByGame(h.iv) || IsKeptCar(h.iv) || !ListContains(-1, h.iv)) { h.iv = nullptr; continue; }
+            ++n;
+        }
+        return n;
+    }
+    void ForgetRetired() { for (auto& r : g_retired) r.iv = nullptr; for (auto& h : g_handed) h.iv = nullptr; }   // the world is gone
 
     int g_handoverLogs = 0;   // per-car handover lines logged since the last switch (only the first few)
     int g_hoWaiting = 0;      // host cars waiting for a spot out of view (last MaintainMirrors)
@@ -773,7 +795,11 @@ namespace {
 
 static void OnCarHitImpl(uint16_t id, const float* dv);
 static void OnCarHoldImpl(const CarHoldPacket& p);
-static void SharedPursuitCopHit(uint16_t mirrorId);   // pursuit.inl
+static void SharedPursuitCopHit(uint16_t mirrorId, void* mirrorIv);   // pursuit.inl
+static bool CopRammed(void* iv);                       // pursuit.inl: IPursuitAI DamagedByPerp
+static void MarkCopRammed(void* iv, bool on);
+static void PeerCopRamTick();
+extern void* g_ramPendingIv;
 
 bool Game::InstallTrafficHooks() {
     // the game deleted one of our mirror cars to make room (and may build a new car in its memory): forget it now
@@ -953,7 +979,7 @@ static void LetGoOfMirror(Mirror& m, bool keepUnseen, int& handed, int& managed,
     if (r == HAND_FAILED) { Retire(iv, false); ++coasting; }
     else {
         ++handed;
-        if (r == HAND_AI_MANAGED) ++managed; else Retire(iv, true);
+        if (r == HAND_AI_MANAGED) { ++managed; NoteHanded(iv); } else Retire(iv, true);
         if (g_handoverLogs < 8) {
             ++g_handoverLogs;
             LOG("Traffic: the host's car %u (%s) drives on as our own traffic car %p (%s)", (unsigned)m.id, VehName(iv), iv,
@@ -1395,6 +1421,7 @@ static int CollectOwned(std::initializer_list<int> lists, const float* to, Traff
         if (e.flags & 1) {   // a cop in a pursuit (IPursuitAI 0x4038E0, slot 5 GetInPursuit - what the minimap checks)
             void* pai = Find(cand[i].iv, 0x4038E0);
             if (pai && VCall<bool(__thiscall*)(void*)>(pai, 5)(pai)) e.flags |= 4;
+            if (CopRammed(cand[i].iv)) e.flags |= TE_RAMMED;   // counted already: the other game won't count it again
         }
         if (EmulatedPhysics(cand[i].iv)) e.flags |= 8;     // floating here: the other game puts its copy on the ground
         if ((e.flags & 1) && VCall<bool(__thiscall*)(void*)>(cand[i].iv, 31)(cand[i].iv)) e.flags |= TE_WRECKED;   // IVehicle destroyed
@@ -1769,7 +1796,7 @@ static void MirrorHitTick() {
             Net::SendCarHit(target, dv);
             LOG("Collision: hit the other player's car %u, lost %.0f km/h - sent to them", (unsigned)target, mag * 3.6f);
             Mirror* m = FindMirror(target);
-            if (m && m->n && (m->s[m->n - 1].e.flags & 1) && !(m->s[m->n - 1].e.flags & TE_WRECKED)) SharedPursuitCopHit(target);   // one of their cops
+            if (m && m->n && (m->s[m->n - 1].e.flags & 1) && !(m->s[m->n - 1].e.flags & TE_WRECKED)) SharedPursuitCopHit(target, m->iv);   // one of their cops
         }
     }
     memcpy(prevV, lv, 12); prevT = now;
@@ -1896,6 +1923,9 @@ static void OnCarHitImpl(uint16_t id, const float* dv) {
         float nv[3] = { v[0] + push[0], v[1], v[2] + push[2] };
         RB_SetVec(rb, RB_SetLinearVelocity, nv);
         StartCarPush(h.iv, id, push);
+        // our cop rammed by them: their game counts it as a damaged cop (SharedPursuitCopHit) - ours must not
+        // count the same cop again when we hit it later (the game counts each cop once, DamagedByPerp)
+        if (mag > 4.f && Find(h.iv, 0x4038E0) && !CopRammed(h.iv)) { MarkCopRammed(h.iv, true); LOG("Cops: our cop %u was rammed by the other player - counted in their pursuit", (unsigned)id); }
         LOG("Collision: the other player hit our car %u (%s), pushed by %.0f km/h", (unsigned)id, VehName(h.iv), mag * k * 3.6f);
         return;
     }
@@ -1905,6 +1935,9 @@ void Game::TrafficTick(bool connected, const Net::Snapshot& peer) {
     if (!g_ok || !g_cfg.trafficSync) return;
     __try {
         TrafficTickImpl(connected, peer);
+        // the partner's cops they (or we) already rammed: marked here too, so neither of us counts one twice
+        for (auto& m : g_mirrors)
+            if (m.used && m.iv && m.n && (m.s[m.n - 1].e.flags & 1) && (m.s[m.n - 1].e.flags & TE_RAMMED) && !CopRammed(m.iv)) MarkCopRammed(m.iv, true);
         if (connected && GameFlowState() == 6) { MirrorHitTick(); ApplyCarPushes(); }
         else if (GameFlowState() == 6) ApplyCarPushes();
     }

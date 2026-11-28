@@ -335,9 +335,10 @@ namespace PB {
         // the game's own chase meter flagged invisible (+0x1C bit 0: FEngSetInvisible - a race hides the police HUD)
         bool meterHidden = (*(uint32_t*)(B(g.chase) + 0x1C) & 1) != 0;
         // in an event that hides it: none. In free roam it hides nothing - after a race in which a pursuit began the
-        // flag stays set on the reloaded HUD (1.9.2 then showed no strip at all): the full bar, as with no meter of ours
+        // flag stays set on the reloaded HUD (1.9.2 then showed no strip at all) while our meter is drawn all the same
+        // (1.9.3/1.9.4 put the full copy right on top of it): there it is up, and the copy goes under it
         bool gameHides = (own == 1 || own == 3) && meterHidden && Game::CurrentEventHash() != 0;
-        bool ownUp = (own == 1 || own == 3) && !meterHidden;   // our chase meter up: only the strip, under ours
+        bool ownUp = (own == 1 || own == 3) && !gameHides;     // our chase meter up: only the strip, under ours
         bool show = kind == 1 && own != 2 && !gameHides;   // with our cooldown up: none (the cooldown is shared)
         ShowGroup(g.cChase, show);
         if (!show) { g.shownAt = 0; return 0; }
@@ -354,6 +355,21 @@ namespace PB {
         FillChase(g.shownV);
         return 1;
     }
+    // test: "peerbar dump" - every object of the meter and of the copy, to the log
+    void Dump(void* o, int depth, const char* tag) {
+        if (!o || depth > 4) return;
+        float x = 0, y = 0, sx = 0, sy = 0;
+        ((void(__cdecl*)(void*, float*, float*))0x514FD0)(o, &x, &y);
+        ((void(__cdecl*)(void*, float*, float*))0x515520)(o, &sx, &sy);
+        uint32_t* d = (uint32_t*)Data(o);
+        LOG("peerbar %s %*s%p type %d hash %08X flags %08X at %.1f,%.1f size %.1f x %.1f colour %08X %08X %08X %08X",
+            tag, depth * 2, "", o, Type(o), Hash(o), *(uint32_t*)(B(o) + 0x1C), x, y, sx, sy,
+            d ? d[0] : 0, d ? d[1] : 0, d ? d[2] : 0, d ? d[3] : 0);
+        if (Type(o) != 5) return;
+        void* c = FirstChild(o);
+        for (int i = 0, n = ChildCount(o); i < n && c && i < 64; ++i, c = Next(c)) Dump(c, depth + 1, tag);
+    }
+    void DumpGuarded() { __try { Dump(g.chase, 0, "orig"); Dump(g.cChase, 0, "copy"); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("peerbar dump: exception"); } }
     void CleanUp() {
         if (!g.ready) return;
         HideNow(g.cChase);
@@ -384,6 +400,24 @@ static bool PeerBarNativeSet(int kind, int value, int own) {
     if (why) LOG("Pursuit: partner bar - not shown, the game's meter could not be cloned: %s", why);
     return r == 1;
 }
+// The game's HUD switched off as a whole (look-back, and the other moments FEngHud::DetermineHudFeatures
+// 0x57CA60 gives no features): the local IPlayer's GetHud (slot 8: +0x28, an FEngHud, vtable 0x8A2538),
+// its IsHudVisible (slot 6, 0x5A0C20: the feature mask +0x18/+0x1C not empty). Our copy is made visible
+// every frame (PB::MakeVisible), so without this it stayed on screen alone.
+static bool GameHudOff() {
+    __try {
+        void** begin = nullptr;
+        if (!Mem::Read(0x92D87C, begin) || !begin) return false;
+        void* pl = nullptr;
+        if (!Mem::Read((uintptr_t)begin, pl) || !pl || VTable(pl) != 0x8B0B10) return false;
+        void* hud = nullptr;
+        if (!Mem::Read((uintptr_t)pl + 0x28, hud) || !hud || VTable(hud) != 0x8A2538) return false;
+        uint32_t lo = 0, hi = 0;
+        Mem::Read((uintptr_t)hud + 0x18, lo); Mem::Read((uintptr_t)hud + 0x1C, hi);
+        return (lo | hi) == 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
 static bool PeerBarForced(int* kind, int* value) {
     if (!PB::g.forced) return false;
     *kind = PB::g.forceKind; *value = PB::g.forceValue;
@@ -397,7 +431,8 @@ namespace Game {
         int v = 0;
         if (sscanf_s(a.c_str(), "chase %d", &v) == 1) { PB::g.forced = true; PB::g.forceKind = 1; PB::g.forceValue = (int)SharedPursuit::Clamp((float)v, -100.f, 100.f); }
         else if (a == "off") { PB::g.forced = false; return "peerbar: back to the other player's own bar"; }
-        else return "peerbar chase <-100..100> | peerbar off";
+        else if (a == "dump") { PB::DumpGuarded(); return "peerbar: dumped to the log"; }
+        else return "peerbar chase <-100..100> | peerbar off | peerbar dump";
         char buf[96];
         sprintf_s(buf, "peerbar: forced chase %d", PB::g.forceValue);
         return buf;

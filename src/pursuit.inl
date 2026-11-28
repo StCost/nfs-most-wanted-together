@@ -143,7 +143,8 @@ int16_t Game::LocalPursuitHeat() {
 static void PursuitTickImpl(bool connected, const Net::Snapshot& peer);
 static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer);
 static void PeerBarTickImpl(bool connected, const Net::Snapshot& peer);
-static bool PeerBarNativeSet(int kind, int value, int own);      // peerbar.inl: the copy of the game's own meter (guards itself)
+static bool PeerBarNativeSet(int kind, int value, int own);
+static bool GameHudOff();                                         // peerbar.inl: the game switched its whole HUD off (look-back)      // peerbar.inl: the copy of the game's own meter (guards itself)
 static bool PeerBarForced(int* kind, int* value);       // test: DebugPeerBar
 static void HidePeerBar() { PeerBarNativeSet(0, 0, 0); }
 static void ApplyPeerBreakers();   // pursuit breakers: the partner's, on our map
@@ -262,6 +263,8 @@ namespace {
         bool     localBusted = false;    // our own pursuit is busted right now (any pursuit: free roam, event, prologue)
         SharedPursuit::ReadyDebounce peerReady;   // the partner's ready, debounced (shared cooldown decisions)
         DWORD    coolEnteredAt = 0;       // when our cooldown began (SharedPursuit::InCooldownGrace)
+        void*    backHoldPursuit = nullptr; // left the cooldown for the partner: back at full evade, not the middle
+        float    backHoldSince = 0.f; DWORD backHoldUntil = 0;
         bool     holdValid = false;       // waited at the evade limit: the progress then, put back at the cooldown (UndoEvadeWait)
         float    holdProgress = 0.f;
         void*    holdPursuit = nullptr;   // the pursuit that snapshot belongs to
@@ -992,8 +995,12 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     // their "ready" debounced (SharedPursuit::DebounceReady): every route into and out of the shared cooldown
     // (the evade hold, back to the chase) decides on it, so a flicker of theirs can't make ours flap. A fresh
     // pursuit of theirs (or none) starts it over.
+    bool theirReadyRaw = theirs.ready;
     if (!theirs.inPursuit || !(g_sp.flags & PURSUIT_ACTIVE)) g_sp.peerReady = SharedPursuit::ReadyDebounce{};
     else theirs.ready = SharedPursuit::DebounceReady(g_sp.peerReady, theirs.ready, now);
+    // into the cooldown only while their bar is full right now too (debounced it stayed "ready" for 0.7 s
+    // after they were spotted: we went in alone, and straight back out - the user's flip-flop)
+    View theirsIn = theirs; theirsIn.ready = theirs.ready && theirReadyRaw && !theirs.seen;
     // In an event their escape counts only once their pursuit was live in this event (an older
     // escape signal must not end ours - that would win the event for us).
     if (sameEvent && theirs.inPursuit) g_sp.peerChasedInEvent = true;
@@ -1004,8 +1011,18 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     bool peerEvadedHere = peer.valid && PeerEscapeCounts(place, theirs.evaded, g_sp.peerChasedInEvent, g_sp.peerLiveWithOurs);
     if (!peerEvadedHere) theirs.evaded = false;
     bool peerForCool = peerHere || peerEvadedHere;
+    if (g_sp.backHoldPursuit) {
+        if (pursuit != g_sp.backHoldPursuit || mine.seen || (int)(now - g_sp.backHoldUntil) > 0) g_sp.backHoldPursuit = nullptr;
+        else if (status != PS_COOLDOWN) {
+            float since = g_sp.backHoldSince > SEEN_LIMIT_S + 0.5f ? g_sp.backHoldSince : SEEN_LIMIT_S + 0.5f;
+            PWrite<float>(pursuit, P_SinceSeen, since);
+            PWrite<float>(pursuit, P_UnseenInState, HOLD_UNSEEN_S);
+            g_sp.backHoldPursuit = nullptr;
+            LOG("Pursuit: out of the cooldown for the other player - our evade bar stays full (%.1f s unseen)", since);
+        }
+    }
     if ((g_sp.flags & PURSUIT_ACTIVE) && peerForCool) {
-        Decision d = peerHere || theirs.evaded ? DecideCooldown(mine, theirs, true) : Decision{ Cool::Free };
+        Decision d = peerHere || theirs.evaded ? DecideCooldown(mine, mine.cooling ? theirs : theirsIn, true) : Decision{ Cool::Free };
         if (d.what == Cool::BackToChase && InCooldownGrace(status == PS_COOLDOWN, now - g_sp.coolEnteredAt)) d = Decision{ Cool::Free };
         coolNow = (int)d.what;
         if (d.what == Cool::ForceEscape) {
@@ -1016,12 +1033,15 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         } else if (d.what == Cool::HoldEvade && pursuit && status != PS_COOLDOWN) {
             // the game starts the cooldown once the unseen time passes 2.5 s: keep it just under
             if (PRead<float>(pursuit, P_UnseenInState) > HOLD_UNSEEN_S) PWrite<float>(pursuit, P_UnseenInState, HOLD_UNSEEN_S);
-            if (!g_sp.holdValid || g_sp.holdPursuit != pursuit) {
+            if (mine.ready && (!g_sp.holdValid || g_sp.holdPursuit != pursuit)) {   // the wait starts once ours is full
                 g_sp.holdValid = true; g_sp.holdPursuit = pursuit;
                 g_sp.holdProgress = PRead<float>(pursuit, P_Search) + PRead<float>(pursuit, P_SinceSeen);
             }
         } else if (d.what == Cool::BackToChase && pursuit && status == PS_COOLDOWN) {
-            PWrite<float>(pursuit, P_SinceSeen, 0.f);   // seen: the game ends the cooldown (as for a spot)
+            // seen: the game ends the cooldown (as for a spot). We were not seen ourselves: once out, our evade
+            // bar is put back full (held there by HoldEvade) - not reset to the middle
+            if (!g_sp.backHoldPursuit) { g_sp.backHoldPursuit = pursuit; g_sp.backHoldSince = PRead<float>(pursuit, P_SinceSeen); g_sp.backHoldUntil = now + 2000; }
+            PWrite<float>(pursuit, P_SinceSeen, 0.f);
         } else if (d.what == Cool::HoldEscape && pursuit && status == PS_COOLDOWN && !mine.seen) {
             float search = PRead<float>(pursuit, P_Search), since = PRead<float>(pursuit, P_SinceSeen);
             float need = PRead<float>(pursuit, P_CoolNeed);
@@ -1058,7 +1078,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
             if (ShareHidingSpot(mine, theirs, true) && me) hidePerp = Find(me, IPerpetratorHandle);
         } else { g_sp.catchUpLogged = 0.f; g_sp.catchUpLeftSeen = -1.f; }
         if (coolNow != g_sp.lastCool) {
-            if (d.what == Cool::HoldEvade) LOG("Pursuit: our evade bar is full - waiting at the evade limit until the other player's is full too");
+            if (d.what == Cool::HoldEvade) LOG("Pursuit: the other player's evade bar is not full - ours stops at the evade limit, no cooldown until both are full");
             else if (d.what == Cool::BackToChase) LOG("Pursuit: the other player is not in the cooldown (spotted) - we leave it too, back to the chase%s",
                                                        mine.hiding ? " (from a hiding spot)" : "");
             else if (d.what == Cool::HoldEscape) LOG("Pursuit: our cooldown is finished - waiting for the other player to finish before we escape");
@@ -1118,6 +1138,7 @@ static void PeerBarTickImpl(bool connected, const Net::Snapshot& peer) {
                     : g_sp.localBusted ? "we are busted"
                     : !forced && SharedPlaceNow(peer) == SharedPursuit::Place::None ? "not in the same place"
                     : !FEScreens::IsPushed("HUD_SingleRace.fng") ? "no HUD"
+                    : GameHudOff() ? "the game's HUD is off (look-back)"
                     : FEScreens::AnyCloseableOverlay() || FEScreens::IsPushed("Pause_Main.fng") || FEScreens::IsPushed("WorldMapMain.fng") ? "a menu is open"
                     : nullptr;
     bool show = why == nullptr;
@@ -1156,7 +1177,10 @@ static void RepairNewCops() {
         now[n++] = c;
         bool known = false;
         for (int k = 0; k < nSeen && !known; ++k) known = seen[k] == c;
-        if (!known && armed) RepairCar(c, "a cop the game put back into the world");
+        if (!known && armed) {
+            RepairCar(c, "a cop the game put back into the world");
+            if (CopRammed(c)) { MarkCopRammed(c, false); LOG("Cops: a cop back in the world still counted as rammed - cleared"); }
+        }
     }
     memcpy(seen, now, sizeof(seen)); nSeen = n; armed = true;
 }
@@ -1167,6 +1191,7 @@ static void PursuitTickImpl(bool connected, const Net::Snapshot& peer) {
     if (now < g_nextPursuitCheck) return;
     g_nextPursuitCheck = now + 400;
     RepairNewCops();
+    __try { PeerCopRamTick(); } __except (EXCEPTION_EXECUTE_HANDLER) { g_ramPendingIv = nullptr; }
     ApplyPeerBreakers();
     void* me = LocalVehicle();
     // our pursuit whether or not the other player is still there: after a disconnect the cops we sent after
@@ -1246,8 +1271,45 @@ static void PursuitTickImpl(bool connected, const Net::Snapshot& peer) {
 }
 
 // ---- 3. we rammed one of the other player's cops (traffic.inl MirrorHitTick) ----
-static void SharedPursuitCopHit(uint16_t mirrorId) {
+// ---- rams on the other player's cops count as damaged cops (1.9.4) ----
+// The game counts a cop as damaged when the perp hits it (AIPerpVehicle::OnCausedCollision 0x4299B0): once
+// per cop, IPursuitAI slot 27 GetDamagedByPerp / slot 26 SetDamagedByPerp, then IPursuit slot 60
+// NotifyCopDamaged 0x40AF40 (+0x15C, stat "cops_damaged"). The other player's cops are only copies here
+// and the hit reaches the owner as a push, so neither game counted it. Our game counts it now (shared
+// with the partner through the tally); TE_RAMMED marks a counted cop on both sides.
+static bool CopRammed(void* iv) {
+    void* pai = iv ? Find(iv, 0x4038E0) : nullptr;
+    return pai && VCall<bool(__thiscall*)(void*)>(pai, 27)(pai);
+}
+static void MarkCopRammed(void* iv, bool on) {
+    void* pai = iv ? Find(iv, 0x4038E0) : nullptr;
+    if (pai) VCall<void(__thiscall*)(void*, bool)>(pai, 26)(pai, on);
+}
+void* g_ramPendingIv = nullptr; static DWORD g_ramPendingUntil = 0;
+static bool CreditPeerCopRam(void* mirrorIv) {
+    void* p = PursuitOf(LocalVehicle());
+    if (!p || !mirrorIv || !IsVehicle(mirrorIv) || !Find(mirrorIv, 0x4038E0)) return false;
+    if (!PRead<uint8_t>(p, 0xA8)) return false;                                  // (NotifyCopDamaged's own check)
+    if (CopRammed(mirrorIv)) { LOG("Pursuit: rammed the other player's cop - already counted as damaged"); return true; }
+    MarkCopRammed(mirrorIv, true);
+    VCall<void(__thiscall*)(void*, void*)>(p, 60)(p, mirrorIv);                  // NotifyCopDamaged: +1 cops damaged
+    LOG("Pursuit: rammed the other player's cop - counted as a damaged cop (now %d)", PRead<int>(p, 0x15C));
+    return true;
+}
+static void PeerCopRamTick() {   // a ram that started our pursuit: counted once the pursuit is there
+    if (!g_ramPendingIv) return;
+    if ((int)(GetTickCount() - g_ramPendingUntil) > 0) { g_ramPendingIv = nullptr; return; }
+    bool alive = false;
+    for (auto& m : g_mirrors) if (m.used && m.iv == g_ramPendingIv) alive = true;
+    if (!alive) { g_ramPendingIv = nullptr; return; }
+    if (CreditPeerCopRam(g_ramPendingIv)) g_ramPendingIv = nullptr;
+}
+
+static void SharedPursuitCopHit(uint16_t mirrorId, void* mirrorIv) {
     if (!g_cfg.sharedPursuits || !g_coopLinked || !g_sp.peerCopsEngage) return;   // free roam, or the same event
+    __try {
+        if (!CreditPeerCopRam(mirrorIv) && mirrorIv && !CopRammed(mirrorIv)) { g_ramPendingIv = mirrorIv; g_ramPendingUntil = GetTickCount() + 4000; }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
     DWORD now = GetTickCount();
     if (now - g_sp.lastCopHit < 3000) return;
     g_sp.lastCopHit = now;

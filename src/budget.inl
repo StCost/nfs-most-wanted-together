@@ -159,7 +159,7 @@ namespace {
         bool roomy = g_tablesBig && g_limitPatchOk && !AddressSpaceTight();
         if (roomy) {
             int copies = 0;
-            if (!g_copySpawn) for (void* k : g_keepCars) if (k && ListContains(-1, k)) ++copies;
+            if (!g_copySpawn) { for (void* k : g_keepCars) if (k && ListContains(-1, k)) ++copies; copies += HandedInWorld(); }
             int lim = g_copySpawn ? CopyCarCap() : kGameCarLimit + copies;
             SetCountLimit(lim > CopyCarCap() ? CopyCarCap() : lim);
         }

@@ -265,8 +265,10 @@ namespace SharedPursuit {
         if (peerConnected && peer.evaded && !me.busted) return { Cool::ForceEscape };
         if (PeerAllowsSolo(peer, peerConnected)) return { Cool::Free };  // disconnect / busted / left: vanilla
         if (!me.cooling) {
-            // our bar is full, theirs not: wait at the evade limit (both enter the cooldown together)
-            if (me.ready && !me.seen && !peer.ready) return { Cool::HoldEvade };
+            // theirs is not full: ours can't start the cooldown either - it waits at the evade limit (both enter
+            // together). Not only once ours counts as full: the game went from backup (or a long step) straight
+            // into the cooldown, past the "full" point, and we flapped in and out (1.9.3 PC log: 30+ times)
+            if (!me.seen && !peer.ready) return { Cool::HoldEvade };
             return { Cool::Free };
         }
         if (me.seen) return { Cool::Free };       // we were spotted: vanilla drops us

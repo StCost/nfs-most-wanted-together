@@ -12,3 +12,4 @@ package/
 dist/
 tools/re/huff.exe
 tools/re/out/
+pclogs/

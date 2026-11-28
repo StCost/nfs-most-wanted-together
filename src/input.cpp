@@ -53,7 +53,7 @@ namespace {
     unsigned char g_kb[256] = {}; // last polled keyboard state (not swallowed)
 
 #ifdef MWT_DEVTOOLS
-    volatile unsigned char g_bgKey = 0; volatile DWORD g_bgKeyAt = 0;   // test command "key" (no focus needed)
+    volatile unsigned char g_bgKey = 0; volatile DWORD g_bgKeyAt = 0, g_bgKeyHold = 120;   // test command "key" (no focus needed)
 #endif
     bool     g_loggedState = false, g_loggedData = false;
 
@@ -79,8 +79,8 @@ namespace {
             // even without focus - the device state is filled in for ~120 ms, then left up for ~120 ms
             if (g_bgKey) {
                 DWORD t = GetTickCount() - g_bgKeyAt;
-                if (t < 120) { if (FAILED(hr)) { memset(data, 0, 256); hr = DI_OK; } ((unsigned char*)data)[g_bgKey] = 0x80; }
-                else if (t < 240) { if (FAILED(hr)) { memset(data, 0, 256); hr = DI_OK; } ((unsigned char*)data)[g_bgKey] = 0; }
+                if (t < g_bgKeyHold) { if (FAILED(hr)) { memset(data, 0, 256); hr = DI_OK; } ((unsigned char*)data)[g_bgKey] = 0x80; }
+                else if (t < g_bgKeyHold + 120) { if (FAILED(hr)) { memset(data, 0, 256); hr = DI_OK; } ((unsigned char*)data)[g_bgKey] = 0; }
                 else g_bgKey = 0;
             }
 #endif
@@ -193,7 +193,7 @@ static void SendScan(unsigned char dik, bool up) {
     SendInput(1, &in, sizeof(in));
 }
 
-void Input::TapBackground(unsigned char dik) { g_bgKeyAt = GetTickCount(); g_bgKey = dik; }
+void Input::TapBackground(unsigned char dik, unsigned holdMs) { g_bgKeyHold = holdMs; g_bgKeyAt = GetTickCount(); g_bgKey = dik; }
 
 bool Input::Tap(unsigned char dik) {
     if (Busy()) return false;

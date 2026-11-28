@@ -207,6 +207,7 @@ struct TrafficEntry {
                           // bit3 = emulated physics on the owner (height from the road path: put the copy on the ground)
                           // bit4 = cop standing in a roadblock (TE_ROADBLOCK; sent first, shown even at the car limit)
                           // bit5 = wrecked (TE_WRECKED)
+                          // bit6 = already rammed by a player (TE_RAMMED: counted once as a damaged cop, by either player)
     uint32_t model;       // model key (hash of the model name)
     uint32_t glare;       // light bits (IVehicle+0x9C): head/brake/reverse/signals/cop lights
     float    pos[3];
@@ -216,6 +217,7 @@ struct TrafficEntry {
 };
 constexpr int MAX_TRAFFIC_PER_PACKET = 20;
 constexpr uint16_t TE_ROADBLOCK = 0x10;
+constexpr uint16_t TE_RAMMED = 0x40;    // a cop the owner's game marks as damaged by the player (IPursuitAI DamagedByPerp)
 constexpr uint16_t TE_WRECKED = 0x20;   // a cop car wrecked in the owner's game: not a cop on the other map / radar any more
 struct EventPacket {
     PacketHeader h;
