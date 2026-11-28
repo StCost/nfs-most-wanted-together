@@ -186,6 +186,21 @@ namespace SharedPursuit {
     constexpr float BUSTED_AT_S = 5.0f;
     struct Bar { int8_t value; uint8_t kind; };
 
+    // The other player's cops are copies here with no AI, so our game's bust timer (AIPursuit +0xDC, busted past
+    // BUSTED_AT_S) never counts them. One of them this close while we are this slow fills it as a cop of ours
+    // would; away again (or moving) it drains, twice as fast.
+    constexpr float PEER_COP_BUST_M = 12.f;
+    constexpr float PEER_COP_BUST_SPEED = 8.f;     // m/s (~29 km/h)
+    inline bool PeerCopPinsUs(float copDist, float speed) {
+        return copDist >= 0.f && copDist <= PEER_COP_BUST_M && speed < PEER_COP_BUST_SPEED;
+    }
+    inline float PeerCopBustStep(float t, bool pinned, float dtS) {
+        if (!(dtS > 0.f)) return t;
+        if (dtS > 0.5f) dtS = 0.5f;                  // a hitch (pause, loading) is not seconds next to a cop
+        t = pinned ? t + dtS : t - 2.f * dtS;
+        return !(t > 0.f) ? 0.f : t > BUSTED_AT_S + 1.f ? BUSTED_AT_S + 1.f : t;
+    }
+
     // The partner bar on the game's own meter (peerbar.inl). The meter's v runs +1 busted .. -1 evaded, so a
     // chase value on the wire (-100 busted .. +100 evade) is -value / 100.
     inline float Clamp(float f, float lo, float hi) { return !(f > lo) ? lo : f > hi ? hi : f; }
@@ -267,8 +282,10 @@ namespace SharedPursuit {
         if (!me.cooling) {
             // theirs is not full: ours can't start the cooldown either - it waits at the evade limit (both enter
             // together). Not only once ours counts as full: the game went from backup (or a long step) straight
-            // into the cooldown, past the "full" point, and we flapped in and out (1.9.3 PC log: 30+ times)
-            if (!me.seen && !peer.ready) return { Cool::HoldEvade };
+            // into the cooldown, past the "full" point, and we flapped in and out (1.9.3 PC log: 30+ times).
+            // Not only while our own "seen" is off either: that one counts any cop that saw us in the last 7 s,
+            // the game's cooldown start doesn't - it went in alone while ours said "seen" (1.9.6 PC log)
+            if (!peer.ready) return { Cool::HoldEvade };
             return { Cool::Free };
         }
         if (me.seen) return { Cool::Free };       // we were spotted: vanilla drops us

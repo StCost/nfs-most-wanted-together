@@ -105,13 +105,8 @@ namespace {
     bool g_localChased = false;   // set by pursuit.inl each tick
     bool __fastcall hk_CopSpotOk(void* self, void*, const float* pos, int a, int b, int c, int d) {
         if (!((bool(__fastcall*)(void*, void*, const float*, int, int, int, int))CopSpotOkFn)(self, nullptr, pos, a, b, c, d)) return false;
-        // a pursuit on us: its cops may come from anywhere near us (as in the plain game), but not in the
-        // other player's face far from us (they saw our pursuit cops pop up right in front of them)
-        if (g_localChased) {
-            void* rb = RigidBodyOf(LocalVehicle());
-            float s[3];
-            if (!rb || !pos || !Mem::SafeRead(pos, s, 12) || NetUtil::Dist3(s, RB_GetVec(rb, RB_GetPosition)) < 100.f) return true;
-        }
+        // our pursuit's cops too, also near us: in a joint chase the other player drives next to us, and
+        // our cops kept popping up right in front of them (the game finds another spot behind or beside)
         if (Game::CurrentEventHash() != 0) return true;  // both on the same route; first pursuit cops must be able to spawn
         return !SpotNearPeer(pos, true);
     }
@@ -701,8 +696,15 @@ namespace {
         for (auto& r : g_retired) if (!r.iv) { r.iv = iv; r.ai = ai; return; }
         if (!ai) KillVehicle(iv);    // no room to track it (never seen in practice): the old behaviour
     }
+    // The world near the 40-car room (MaxCars): leftovers the other player dropped kept their place on
+    // screen up to 500 m away, and the budget took the game's own pursuit cops for room instead (cops
+    // blinking out and back in a big two-player chase). Then a leftover goes from RETIRED_TIGHT_M on.
+    constexpr float RETIRED_TIGHT_M = 150.f;
+    bool CarShouldStay(void* iv);                    // below: either player can still see it
     int TickRetired(const NetUtil::CamView& cam) {
-        int removed = 0;
+        int removed = 0, inWorld = 0;
+        Mem::Read(0x92CD24, inWorld);                  // cars in the world (budget.inl CarCountAddr)
+        bool tight = inWorld >= CopyCarLimit() - 3;
         for (auto& r : g_retired) {
             if (!r.iv) continue;
             if (WasRemovedByGame(r.iv) || !IsKeptCar(r.iv) || !ListContains(-1, r.iv)) { r.iv = nullptr; continue; }
@@ -712,6 +714,7 @@ namespace {
             float on = OnScreenS(r.iv), off = OffScreenS(r.iv);
             bool go = r.ai ? (d >= NetUtil::HANDOVER_GONE_M || (on <= 0.f && off >= 3.f && d >= 120.f))
                            : NetUtil::OwnCarMayGo(on, off, d);
+            if (!go && tight && d >= RETIRED_TIGHT_M && !CarShouldStay(r.iv)) go = true;
             if (go) { KillVehicle(r.iv); r.iv = nullptr; ++removed; }
         }
         return removed;

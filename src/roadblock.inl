@@ -170,6 +170,12 @@ namespace {
             d.id, (d.flags & Roadblock::RB_SPIKES) ? "spike" : "plain", (int)d.setup, heavy ? ", heavy SUVs" : "", (int)d.nCars,
             Roadblock::CountKind(d, Roadblock::PIECE_SAWHORSE), Roadblock::CountKind(d, Roadblock::PIECE_SPIKES),
             d.centre[0], d.centre[1], d.centre[2], d.dir[0], d.dir[2]);
+        {   // how close to the other player it came (reported: roadblocks right in front of them)
+            float pp[3], dirs[6]; int nd = 0;
+            if (PeerForSpawnCheck(pp, dirs, nd))
+                LOG("Roadblock: #%u is %.0f m from the other player%s", d.id, NetUtil::Dist3(d.centre, pp),
+                    NetUtil::SpawnSpotBlocked(d.centre, pp, dirs, nd) ? " - in front of them (too close)" : "");
+        }
         if (!Roadblock::ValidDesc(d)) { LOG("Roadblock: #%u doesn't read as a valid roadblock - not shared", d.id); return; }
         int slot = -1;
         for (int i = 0; i < Roadblock::MAX_OURS; ++i) if (!g_rbOurs[i].used) { slot = i; break; }

@@ -26,6 +26,7 @@ namespace FEScreens {
     const char* Current();                // comma-separated open screens (from a known list)
     const char* NextCloseableOverlay();   // top in-game overlay that should be closed, or nullptr
     bool        AnyCloseableOverlay();
+    bool        InGameMenuOpen();      // pause, map, SMS, Blacklist, race list, photo mode...
 }
 
 // Macro: run a short key/screen sequence in any game state (same step syntax as AutoStart),

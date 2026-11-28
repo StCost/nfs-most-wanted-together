@@ -1628,17 +1628,38 @@ static void TakePeerSlotTick(const Net::Snapshot& latest, void* ghostRb, bool in
     if (lri) Mem::Read((uintptr_t)lri + 0x154, clock);
     bool early = NetUtil::EarlyHostSlot(!afterRestart && !clock, inIntro || Game::GridReadyNow(), gotHost, sqrtf(lv[0] * lv[0] + lv[2] * lv[2]),
                                         gotHost ? NetUtil::Dist3(lp, hostSlot) : 0.f);
-    if (inIntro) {                     // the host's word only, at most once a second (a cutscene may hold the car)
-        if (!early || (introMovedFor == ev && (int)(now - introMovedAt) < 1000)) return;
+    if (inIntro) {                     // at most once a second (a cutscene may hold the car)
+        static uint32_t stillEvent = 0; static DWORD stillSince = 0;
+        float slot[3] = { hostSlot[0], hostSlot[1], hostSlot[2] };
+        bool own = false;
+        if (!early) {
+            // No word from the host yet (1.9.6 PC log: it came 1.7 s after our intro, seen as a teleport on the
+            // grid). With no racer of theirs swapped in, the host gives us a free slot of its grid - the same race
+            // put its AI racers on the same slots here, so the same free slot of OUR grid is the one it will name.
+            // Taken while our cutscene still plays, once the grid stands still and both cars are on the player's
+            // spot; the host's word moves us again only if it names another slot.
+            bool swapped = g_ghostKind == GK_RACER && g_ghost == g_replacedRacer;
+            float along = 0, side = 0; int n = 0, moving = 0;
+            if (gotHost || afterRestart || clock || swapped || !(lv[0] * lv[0] + lv[2] * lv[2] < 1.f) ||
+                !(NetUtil::Dist3(lp, latest.s.pos) < 3.f) || !FreeGridSlotNear(lrb, slot, along, side, n, &moving) || moving) {
+                stillSince = 0; return;
+            }
+            if (stillEvent != ev || !stillSince) { stillEvent = ev; stillSince = now ? now : 1; }
+            if ((int)(now - stillSince) < 500) return;
+            own = true;
+        }
+        if (introMovedFor == ev && (int)(now - introMovedAt) < 1000) return;
         bool first = introMovedFor != ev;
         introMovedFor = ev; introMovedAt = now;
-        float to[3] = { hostSlot[0], fabsf(hostSlot[1] - lp[1]) < 1.f ? lp[1] : hostSlot[1] + 0.05f, hostSlot[2] }, zero[3] = { 0, 0, 0 };
+        float to[3] = { slot[0], fabsf(slot[1] - lp[1]) < 1.f ? lp[1] : slot[1] + 0.05f, slot[2] }, zero[3] = { 0, 0, 0 };
         float d = NetUtil::Dist3(lp, to);
+        if (own && !first && d < 1.f) return;            // still there
         RB_SetVec(lrb, RB_SetPosition, to);
         RB_SetVec(lrb, RB_SetLinearVelocity, zero); RB_SetVec(lrb, RB_SetAngularVelocity, zero);
-        if (first) LOG("Start: moved to %s during our intro cutscene (%.1f m)",
-                       hostRacer ? "the slot the host's race gave our racer" : "the free slot the host gave us", d);
-        else LOG("Start: the cutscene put us back on the player's spot - moved to the host's slot again (%.1f m)", d);
+        if (own) LOG("Start: no word from the host yet - moved to the free slot of our grid during our intro cutscene (%.1f m)", d);
+        else if (first) LOG("Start: moved to %s during our intro cutscene (%.1f m)",
+                            hostRacer ? "the slot the host's race gave our racer" : "the free slot the host gave us", d);
+        else LOG("Start: moved to the host's slot again (%.1f m)", d);
         SnapToGroundSafe("on our grid slot");
         return;
     }

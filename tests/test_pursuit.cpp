@@ -177,9 +177,27 @@ TEST(pursuit_full_evade_bar_waits_for_the_other_player) {
     // cooldown in one go - from backup it did, every time)
     View notFull = V(true, false, false, 0, false);
     CHECK(DecideCooldown(notFull, V(true, true, false, 0, false)).what == Cool::HoldEvade);
-    // we are seen ourselves: vanilla (nothing to hold)
+    // we are seen ourselves: still held (our "seen" is looser than the game's cooldown start: it went in alone)
     View seenMe = V(true, true, false, 0, false);
-    CHECK(DecideCooldown(seenMe, V(true, true, false, 0, false)).what == Cool::Free);
+    CHECK(DecideCooldown(seenMe, V(true, true, false, 0, false)).what == Cool::HoldEvade);
+    CHECK(DecideCooldown(seenMe, V(true, false, false, 0, true)).what == Cool::Free);   // theirs is full: vanilla
+}
+
+TEST(pursuit_partner_cop_fills_the_bust_meter) {
+    CHECK(PeerCopPinsUs(5.f, 2.f));
+    CHECK(!PeerCopPinsUs(5.f, PEER_COP_BUST_SPEED));       // moving: no bust
+    CHECK(!PeerCopPinsUs(PEER_COP_BUST_M + 1.f, 0.f));      // too far
+    CHECK(!PeerCopPinsUs(-1.f, 0.f));                       // no cop
+    float t = 0.f;
+    for (int i = 0; i < 60; i++) t = PeerCopBustStep(t, true, 0.1f);
+    CHECK(t > BUSTED_AT_S);                                 // 6 s pinned: busted
+    CHECK(t <= BUSTED_AT_S + 1.f);
+    t = 2.f;
+    t = PeerCopBustStep(t, false, 0.5f);
+    CHECK(t > 0.99f && t < 1.01f);                          // drains twice as fast
+    CHECK(PeerCopBustStep(0.f, false, 1.f) == 0.f);
+    CHECK(PeerCopBustStep(1.f, true, 10.f) == 1.5f);        // a hitch counts as half a second at most
+    CHECK(PeerCopBustStep(1.f, true, 0.f) == 1.f);
 }
 
 TEST(pursuit_spotted_in_cooldown_takes_both_back_to_the_chase) {
@@ -257,10 +275,10 @@ TEST(pursuit_cooldown_solo_without_the_other_player) {
 
 TEST(pursuit_cooldown_walkthrough_both_roles) {
     View a = V(true, true, false, 20, false), b = V(true, true, false, 20, false);
-    CHECK(DecideCooldown(a, b).what == Cool::Free);
-    CHECK(DecideCooldown(b, a).what == Cool::Free);
+    CHECK(DecideCooldown(a, b).what == Cool::HoldEvade);                 // neither full: both held
     a.seen = false; a.ready = true;                                     // A's bar fills
     CHECK(DecideCooldown(a, b).what == Cool::HoldEvade);
+    CHECK(DecideCooldown(b, a).what == Cool::Free);                      // B: A is full, B vanilla
     b.seen = false; b.ready = true;                                     // B's too
     CHECK(DecideCooldown(a, b).what == Cool::Free);
     a.cooling = true; b.cooling = true;                                 // both in cooldown
@@ -269,7 +287,7 @@ TEST(pursuit_cooldown_walkthrough_both_roles) {
     b.seen = true; b.ready = false; b.cooling = false;                 // B spotted
     CHECK(DecideCooldown(a, b).what == Cool::BackToChase);
     a.cooling = false; a.ready = false; a.seen = true;                 // A back in the chase
-    CHECK(DecideCooldown(a, b).what == Cool::Free);
+    CHECK(DecideCooldown(a, b).what == Cool::HoldEvade);
     a.seen = false; a.ready = true;                                     // A loses them again first
     CHECK(DecideCooldown(a, b).what == Cool::HoldEvade);
 }

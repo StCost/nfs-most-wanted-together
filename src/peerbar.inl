@@ -36,8 +36,8 @@ namespace PB {
                        sFadeIn = 0x5079C8F8, sFadeOut = 0x33113AC, sFlipIn = 0x13F51124;
     constexpr uintptr_t kFEGroupVtbl = 0x8A2E24, kFEGroupClone = 0x5C49C0;
     // Stacked under ours: only the moving strip (and its ticks), kStripDown below our strip; the label panel
-    // stays ours alone. Our backup timer stays put; it fits under both strips. With no chase meter of our own
-    // up, the copy shows whole, in our meter's place.
+    // stays ours alone. Our backup timer moves down by as much, under both strips (it overlapped the partner's
+    // strip). With no chase meter of our own up, the copy shows whole, in our meter's place.
     constexpr float kStripDown = 8.f;
     // a copy that failed (the HUD mid-load, a race HUD, an exception) is tried again this much later - never given
     // up for good: the same addresses come back with every race (a pursuit from a race kept no strip after it)
@@ -58,6 +58,8 @@ namespace PB {
         void* lbl[3] = {}; int lblN = 0;                        // in cChase: the label panel and its two words
         float wFar = 54.f, wNear = 48.f;                        // the full widths
         float upChase = 0;                                      // applied now: the copy's offset (up)
+        void* backup[2] = {}; int backupN = 0;                  // the game's own backup timer (panel, text): moved down
+        float upBackup[2] = {};                                 // applied now: their offsets (up)
         float shownV = 0; DWORD shownAt = 0;                    // the value on the strip now (follows the partner's)
         int objects = 0;
         bool ready = false;
@@ -148,6 +150,7 @@ namespace PB {
             break;
         case kBackupPanel: case kBackupText:
             if (g.hideN < 2) g.hide[g.hideN++] = copy;
+            if (g.backupN < 2) g.backup[g.backupN++] = orig;
             break;
         }
     }
@@ -341,6 +344,8 @@ namespace PB {
         bool ownUp = (own == 1 || own == 3) && !gameHides;     // our chase meter up: only the strip, under ours
         bool show = kind == 1 && own != 2 && !gameHides;   // with our cooldown up: none (the cooldown is shared)
         ShowGroup(g.cChase, show);
+        // the partner's strip right under ours: our backup timer goes under both
+        for (int i = 0; i < g.backupN; ++i) MoveTo(g.backup[i], g.upBackup[i], show && ownUp ? -kStripDown : 0.f);
         if (!show) { g.shownAt = 0; return 0; }
         MoveTo(g.cChase, g.upChase, ownUp ? -kStripDown : 0.f);
         MakeVisible(g.cChase, 0);
@@ -370,11 +375,16 @@ namespace PB {
         for (int i = 0, n = ChildCount(o); i < n && c && i < 64; ++i, c = Next(c)) Dump(c, depth + 1, tag);
     }
     void DumpGuarded() { __try { Dump(g.chase, 0, "orig"); Dump(g.cChase, 0, "copy"); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("peerbar dump: exception"); } }
+    void BackupHome() {   // our backup timer back in place
+        for (int i = 0; i < g.backupN; ++i) MoveTo(g.backup[i], g.upBackup[i], 0.f);
+    }
     void CleanUp() {
         if (!g.ready) return;
+        BackupHome();
         HideNow(g.cChase);
     }
     void CleanUpGuarded() {
+        __try { BackupHome(); } __except (EXCEPTION_EXECUTE_HANDLER) {}   // first: a bad copy must not leave it down
         __try { CleanUp(); } __except (EXCEPTION_EXECUTE_HANDLER) {}
     }
     int ApplyGuarded(int kind, int value, int own, const char** why) {

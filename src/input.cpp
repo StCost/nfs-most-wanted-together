@@ -354,6 +354,13 @@ const char* FEScreens::NextCloseableOverlay() {
     return nullptr;
 }
 bool FEScreens::AnyCloseableOverlay() { return NextCloseableOverlay() != nullptr; }
+bool FEScreens::InGameMenuOpen() {
+    static const char* const kMenus[] = { "Pause_Main.fng", "WorldMapMain.fng", "InGameBounty.fng",
+                                          "InGameRaceSheet.fng", "InGamePhotoMaster.fng" };
+    if (AnyCloseableOverlay()) return true;
+    for (const char* m : kMenus) if (IsPushed(m)) return true;
+    return false;
+}
 
 // ---------------------------------------------------------------------------
 namespace {

@@ -263,6 +263,11 @@ namespace {
         bool     localBusted = false;    // our own pursuit is busted right now (any pursuit: free roam, event, prologue)
         SharedPursuit::ReadyDebounce peerReady;   // the partner's ready, debounced (shared cooldown decisions)
         DWORD    coolEnteredAt = 0;       // when our cooldown began (SharedPursuit::InCooldownGrace)
+        bool     peerReadyBeforeCool = false; // their bar was full as we entered it (else no grace: we went in alone)
+        float    peerBust = 0.f;          // seconds one of their cops has pinned us (SharedPursuit::PeerCopBustStep)
+        DWORD    peerBustAt = 0;
+        DWORD    peerBustLog = 0;
+        void*    peerBustPursuit = nullptr;  // the pursuit peerBust belongs to (a new one starts empty)
         void*    backHoldPursuit = nullptr; // left the cooldown for the partner: back at full evade, not the middle
         float    backHoldSince = 0.f; DWORD backHoldUntil = 0;
         bool     holdValid = false;       // waited at the evade limit: the progress then, put back at the cooldown (UndoEvadeWait)
@@ -422,6 +427,14 @@ namespace {
         uint16_t f = m.s[m.n - 1].e.flags;
         return (f & 1) && !(f & TE_WRECKED) && (!inPursuitOnly || (f & 4)) && IsVehicle(m.iv);   // a wreck there is no cop here
     }
+    // a copy of their cops that can see or bust us: still a live cop there (sent in the last 1.2 s - a car the
+    // other game removed, e.g. a wreck left from an older pursuit, is no longer sent) and not a wreck here either
+    // (reported: wrecked cops on the road still saw us and started a pursuit)
+    bool PeerCopCanSee(const Mirror& m) {
+        if (!IsPeerCop(m, false) || !VehActive(m.iv)) return false;
+        if (g_lastTrafficPkt - m.lastSeen > 1200) return false;   // cops share packet slots in turns: a live one can miss ~0.5 s
+        return !VCall<bool(__thiscall*)(void*)>(m.iv, 31)(m.iv);                    // destroyed here
+    }
     // when each of the other player's cops last saw us in our current pursuit (minimap: SharedPursuit::PeerCopOnOurMap)
     struct PeerCopSeen { uint16_t id; DWORD at; };
     PeerCopSeen g_peerCopSeen[32] = {};
@@ -446,7 +459,7 @@ namespace {
         if (!rb) return;
         const float* mp = RB_GetVec(rb, RB_GetPosition);
         for (auto& m : g_mirrors) {
-            if (!IsPeerCop(m, false)) continue;
+            if (!PeerCopCanSee(m)) continue;
             void* crb = RigidBodyOf(m.iv);
             if (!crb) continue;
             const float* cp = RB_GetVec(crb, RB_GetPosition);
@@ -459,6 +472,24 @@ namespace {
             if (SharedPursuit::PeerCopSpotsWanted((m.s[m.n - 1].e.flags & 4) != 0, d, facing)) NotePeerCopSawUs(m.id, now);
         }
     }
+    // The nearest copy of their cops (any, chasing or not) and our speed. Returns its id, or -1.
+    int NearestPeerCop(void* me, float* distOut, float* speedOut) {
+        void* rb = me ? RigidBodyOf(me) : nullptr;
+        if (!rb) return -1;
+        const float* mp = RB_GetVec(rb, RB_GetPosition);
+        const float* mv = RB_GetVec(rb, RB_GetLinearVelocity);
+        if (speedOut) *speedOut = sqrtf(mv[0] * mv[0] + mv[1] * mv[1] + mv[2] * mv[2]);
+        int best = -1; float bd = 1e9f;
+        for (auto& m : g_mirrors) {
+            if (!PeerCopCanSee(m) || VehIsHeli(m.iv)) continue;                 // a helicopter busts nobody
+            void* crb = RigidBodyOf(m.iv);
+            if (!crb) continue;
+            float d = Dist(RB_GetVec(crb, RB_GetPosition), mp);
+            if (d < bd) { bd = d; best = (int)m.id; }
+        }
+        if (best >= 0 && distOut) *distOut = bd;
+        return best;
+    }
     // One of the other player's cops (its copy here, at its local interpolated place - not the owner's
     // remote coordinates or a traffic id) sees us while we are already wanted. Returns its id, or -1.
     int PeerCopSpottingUs(void* me, float* distOut) {
@@ -466,7 +497,7 @@ namespace {
         if (!rb) return -1;
         const float* mp = RB_GetVec(rb, RB_GetPosition);
         for (auto& m : g_mirrors) {
-            if (!IsPeerCop(m, false)) continue;
+            if (!PeerCopCanSee(m)) continue;
             void* crb = RigidBodyOf(m.iv);
             if (!crb) continue;
             const float* cp = RB_GetVec(crb, RB_GetPosition);
@@ -534,21 +565,81 @@ namespace {
         float cur = ((float(__thiscall*)(void*, const char*))GM_GetStat)(gm, (const char*)name);
         if (cur >= 0.f) SetStat(name, cur + (float)add);
     }
+    // ---- a cop the other player's game counted as immobilized: the takedown on our screen too ----
+    //  The game's message for a cop taken down reads what AIPursuit::IncNumCopsDestroyed 0x418F30
+    //  (thiscall, IVehicle* cop; IPursuit slot 39) sets: the cop's type +0xF8, its rep points +0xF4 and the
+    //  bonus multiplier +0xEC/+0xF0, then the bounty (IPerpetrator slot 14) and +0x13C. The tally only raised
+    //  +0x13C, so nothing showed. Now, with a wrecked copy of one of their cops here, the game's own call
+    //  counts it (each copy once); the bounty it gave comes off the bounty the tally still adds.
+    struct Credited { uint16_t id; void* iv; };
+    Credited g_takedownIds[16] = {}; int g_takedownNext = 0;     // id + car: a restarted game re-uses ids
+    void* PeerWreckToCredit(uint16_t& id) {
+        void* best = nullptr; float bestD = 1e9f;
+        void* me = RigidBodyOf(LocalVehicle());
+        const float* mp = me ? RB_GetVec(me, RB_GetPosition) : nullptr;
+        for (auto& m : g_mirrors) {
+            if (!m.used || !m.iv || !m.n || m.racer || m.bound) continue;
+            uint16_t f = m.s[m.n - 1].e.flags;
+            if (!(f & 1) || !(f & TE_WRECKED) || !IsVehicle(m.iv)) continue;
+            if (g_lastTrafficPkt - m.lastSeen > 1200) continue;   // their game no longer sends it: an old wreck
+            bool done = false;
+            for (auto& t : g_takedownIds) if (t.id == m.id && t.iv == m.iv) done = true;
+            if (done) continue;
+            void* rb = RigidBodyOf(m.iv);
+            float d = (rb && mp) ? Dist(RB_GetVec(rb, RB_GetPosition), mp) : 1e8f;
+            if (d < bestD) { bestD = d; best = m.iv; id = m.id; }
+        }
+        return best;
+    }
+    // how many of n cops the game's own call counted; *bounty: what it added to the perp's +0x28
+    //  The game's bounty uses our heat and combo; never more than the bounty their game counted (budget).
+    int TakedownsHere(void* pursuit, void* perp, int n, int budget, int* bounty) {
+        int done = 0; *bounty = 0;
+        if (budget < 0) budget = 0;
+        for (int k = 0; k < n; ++k) {
+            uint16_t id = 0;
+            void* cop = PeerWreckToCredit(id);
+            if (!cop) break;
+            g_takedownIds[g_takedownNext] = { id, cop }; g_takedownNext = (g_takedownNext + 1) % 16;
+            int32_t c0 = PRead<int32_t>(pursuit, 0x13C), b0 = perp ? PRead<int32_t>(perp, 0x28) : 0;
+            __try { VCall<void(__thiscall*)(void*, void*)>(pursuit, 39)(pursuit, cop); }
+            __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Pursuit: exception counting the other player's takedown here"); }
+            if (PRead<int32_t>(pursuit, 0x13C) != c0 + 1) {   // not counted there (pursuit not active): direct
+                PWrite<int32_t>(pursuit, 0x13C, c0 + 1);
+            }
+            int got = 0;
+            if (perp) {
+                got = PRead<int32_t>(perp, 0x28) - b0;
+                if (got > budget - *bounty) { got = budget - *bounty; PWrite<int32_t>(perp, 0x28, b0 + got); }
+                if (got < 0) got = 0;
+                *bounty += got;
+            }
+            ++done;
+            LOG("Pursuit: the other player's cop %u was taken down - shown here as a takedown (bounty +%d)",
+                (unsigned)id, got);
+        }
+        return done;
+    }
     void TallyApply(void* pursuit, void* perp, const int32_t* add) {
         using namespace SharedPursuit;
+        int byGame = 0, gameBounty = 0;
+        if (add[T_COPS_DESTROYED] > 0) byGame = TakedownsHere(pursuit, perp, add[T_COPS_DESTROYED], add[T_BOUNTY28], &gameBounty);
         for (int i = 0; i < T_COUNT; ++i) {
-            if (add[i] <= 0) continue;
+            int32_t a = add[i];
+            if (i == T_COPS_DESTROYED) a -= byGame;
+            if (i == T_BOUNTY28) a -= gameBounty;
+            if (a <= 0) continue;
             if (i == T_PROPERTY) {
                 int32_t before = PRead<int32_t>(pursuit, TallyOff[i]);
-                if (perp) VCall<void(__thiscall*)(void*, int)>(perp, 6)(perp, add[i]);   // the game's own path
+                if (perp) VCall<void(__thiscall*)(void*, int)>(perp, 6)(perp, a);   // the game's own path
                 if (PRead<int32_t>(pursuit, TallyOff[i]) <= before)                     // not counted there: direct
-                    PWrite<int32_t>(pursuit, TallyOff[i], before + add[i]);
+                    PWrite<int32_t>(pursuit, TallyOff[i], before + a);
             } else if (i == T_BOUNTY28) {
-                if (perp) VCall<void(__thiscall*)(void*, int)>(perp, 14)(perp, add[i]);  // the game's gates apply
+                if (perp) VCall<void(__thiscall*)(void*, int)>(perp, 14)(perp, a);  // the game's gates apply
             } else if (i == T_BOUNTY24) {
-                if (perp) VCall<void(__thiscall*)(void*, int)>(perp, 15)(perp, add[i]);
+                if (perp) VCall<void(__thiscall*)(void*, int)>(perp, 15)(perp, a);
             } else {
-                PWrite<int32_t>(pursuit, TallyOff[i], PRead<int32_t>(pursuit, TallyOff[i]) + add[i]);
+                PWrite<int32_t>(pursuit, TallyOff[i], PRead<int32_t>(pursuit, TallyOff[i]) + a);
             }
         }
         if (add[T_COPS_DESTROYED] > 0) {
@@ -739,7 +830,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
             float heat = 0.f;
             if (void* pp = Find(me, IPerpetratorHandle)) heat = VCall<float(__thiscall*)(void*)>(pp, 1)(pp);
             for (auto& m : g_mirrors) {
-                if (!IsPeerCop(m, false)) continue;
+                if (!PeerCopCanSee(m)) continue;
                 void* rb = RigidBodyOf(m.iv);
                 if (!rb) continue;
                 const float* cp = RB_GetVec(rb, RB_GetPosition);
@@ -821,7 +912,9 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
                 uint32_t sinceHit = g_sp.peerCopHitAt ? now - g_sp.peerCopHitAt : 0xFFFFFFFFu;
                 if (SharedPursuit::PeerCopKeepsUsSeen(true, hidingNow, g_sp.peerCopsEngage, id >= 0, sinceHit)) {
                     bool ownSeen = (g_sp.flags & PURSUIT_SEEN) != 0;
-                    if (!ownSeen) PWrite<float>(pursuit, P_SinceSeen, 0.f);   // OnTask: seen -> search 0, cooldown ends
+                    // OnTask: seen -> search 0, cooldown ends. Also when ours count as seeing us: their "seen" is any
+                    // sighting in the last 7 s, the game's evade bar ran on regardless (1.9.6: it filled under their cop)
+                    PWrite<float>(pursuit, P_SinceSeen, 0.f);
                     g_sp.flags |= PURSUIT_SEEN;
                     g_sp.flags &= ~PURSUIT_READY;
                     if (!g_sp.peerSpotting || now - g_sp.peerSpotLog > 5000) {
@@ -836,6 +929,23 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
                     g_sp.peerSpotting = false;
                     LOG("Pursuit: the other player's cops no longer see us%s", hidingNow ? " (hiding spot)" : "");
                 }
+            }
+            {   // their cops bust us too: one next to us while we are (nearly) stopped fills our bust meter
+                float d = -1.f, speed = 99.f;
+                int id = (me && g_sp.peerCopsEngage && status != PS_COOLDOWN) ? NearestPeerCop(me, &d, &speed) : -1;
+                bool pinned = id >= 0 && SharedPursuit::PeerCopPinsUs(d, speed);
+                float dt = g_sp.peerBustAt ? (now - g_sp.peerBustAt) / 1000.f : 0.f;
+                g_sp.peerBustAt = now;
+                if (dt > 1.f || pursuit != g_sp.peerBustPursuit) g_sp.peerBust = 0.f;
+                g_sp.peerBustPursuit = pursuit;   // not ticked for a while: a new pursuit (or a pause), start empty
+                bool was = g_sp.peerBust > 0.f;
+                g_sp.peerBust = SharedPursuit::PeerCopBustStep(g_sp.peerBust, pinned, dt);
+                if (g_sp.peerBust > 0.f && PRead<float>(pursuit, P_BustTimer) < g_sp.peerBust)
+                    PWrite<float>(pursuit, P_BustTimer, g_sp.peerBust);   // past BUSTED_AT_S the game busts us itself
+                if (pinned && (!was || now - g_sp.peerBustLog > 3000)) {
+                    g_sp.peerBustLog = now;
+                    LOG("Pursuit: the other player's cop %d is on us (%.0f m, %.0f km/h) - bust meter %.1f s", id, d, speed * 3.6f, g_sp.peerBust);
+                } else if (was && g_sp.peerBust <= 0.f) LOG("Pursuit: away from the other player's cops - their bust meter drained");
             }
         }
         {   // our bar for the other player's screen (after the "seen" above: their cops count too): exactly what our
@@ -878,6 +988,7 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
         // alone again (they left / disconnected): our pursuit is the plain game's from here on
         if (g_sp.sharedHidePerp || g_sp.peerSpotting || g_sp.peerCopHitAt)
             LOG("Pursuit: the other player is gone - our pursuit and cooldown run as in the plain game");
+        g_sp.peerBust = 0.f; g_sp.peerBustAt = 0; g_sp.peerReadyBeforeCool = false;
         g_sp.heat = {}; g_sp.bust = {}; g_sp.pendingBustUntil = 0; g_sp.lastCool = -1; g_sp.peerCopsEngage = false;
         g_sp.holdValid = false; g_sp.coolPrevLeft = -1.f; g_sp.coolPerTick = 0.f; g_sp.coolSkipRate = false;
         g_sp.sentEvaded = false;
@@ -1022,9 +1133,11 @@ static void SharedPursuitTickImpl(bool connected, const Net::Snapshot& peer) {
             LOG("Pursuit: out of the cooldown for the other player - our evade bar stays full (%.1f s unseen)", since);
         }
     }
+    if (status != PS_COOLDOWN) g_sp.peerReadyBeforeCool = peerForCool && theirsIn.ready;
     if ((g_sp.flags & PURSUIT_ACTIVE) && peerForCool) {
         Decision d = peerHere || theirs.evaded ? DecideCooldown(mine, mine.cooling ? theirs : theirsIn, true) : Decision{ Cool::Free };
-        if (d.what == Cool::BackToChase && InCooldownGrace(status == PS_COOLDOWN, now - g_sp.coolEnteredAt)) d = Decision{ Cool::Free };
+        if (d.what == Cool::BackToChase && g_sp.peerReadyBeforeCool && InCooldownGrace(status == PS_COOLDOWN, now - g_sp.coolEnteredAt))
+            d = Decision{ Cool::Free };
         coolNow = (int)d.what;
         if (d.what == Cool::ForceEscape) {
             // not once the event is over for us: the game started a pursuit again on every forced escape
@@ -1140,7 +1253,7 @@ static void PeerBarTickImpl(bool connected, const Net::Snapshot& peer) {
                     : !forced && SharedPlaceNow(peer) == SharedPursuit::Place::None ? "not in the same place"
                     : !FEScreens::IsPushed("HUD_SingleRace.fng") ? "no HUD"
                     : GameHudOff() ? "the game's HUD is off (look-back)"
-                    : FEScreens::AnyCloseableOverlay() || FEScreens::IsPushed("Pause_Main.fng") || FEScreens::IsPushed("WorldMapMain.fng") ? "a menu is open"
+                    : FEScreens::InGameMenuOpen() ? "a menu is open"
                     : nullptr;
     bool show = why == nullptr;
     if (!show && strcmp(why, lastWhy)) { lastWhy = why; if (peer.valid && peer.s.pursuitBarKind) LOG("Pursuit: the other player's bar not shown - %s", why); }

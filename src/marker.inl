@@ -30,7 +30,7 @@ namespace {
         if (g_sp.localBusted) return "we are busted";
         if (g_hudHidden) return "the HUD is hidden (F1)";
         if (!FEScreens::IsPushed("HUD_SingleRace.fng") && !FEScreens::IsPushed("HUD.fng")) return "no HUD";
-        if (FEScreens::AnyCloseableOverlay() || FEScreens::IsPushed("Pause_Main.fng") || FEScreens::IsPushed("WorldMapMain.fng")) return "a menu is open";
+        if (FEScreens::InGameMenuOpen()) return "a menu is open";
         void* grb = RigidBodyOf(g_ghost);
         const float* gp = grb ? RB_GetVec(grb, RB_GetPosition) : nullptr;
         if (!gp || !NetUtil::FiniteWithin(gp, 3, NetUtil::MAX_POS)) return "no car of theirs";
