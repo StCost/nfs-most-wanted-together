@@ -393,14 +393,14 @@ namespace CoopRace {
     // What the results list does with a message (coopwin.inl hk_ResultsNotify). swapEvent: the event whose losing
     // list is closing for the winner's photo - its Continue / exit must not end the race then. A shared win's
     // Continue skips the "you did not win" dialog of a Blacklist race (our racer may not be 1st here).
-    // The winner's photo is for whoever really won: a win we only have because the other player won
-    // (event `teamWinEvent`) shows the results list instead (coopwin.inl ShowPostRaceCoop).
+    // A win we only have because the other player won (event `teamWinEvent`): the winner's photo with its
+    // cameras on the partner's car (coopwin.inl ShowPeerWinPhoto).
     inline bool TeamWinResults(bool won, uint32_t event, uint32_t teamWinEvent) {
         return won && event && event == teamWinEvent;
     }
-    // The partner of the winner gets the results list, not the photo. Its way out for that win:
-    //  outroEvent: shown by the race script's "postrace" state (we were given place 1) - that state only moves on
-    //    with the photo's Continue, so the list's exit does the photo's Continue (kResultsOutro);
+    // The results list after a shared win (the partner's photo's "results" button, or a build without the photo). Its way out:
+    //  outroEvent: a list standing in for the photo in the "postrace" state, whose exit does the photo's
+    //    Continue (kResultsOutro; unused while the photo itself shows);
     //  outWinEvent: the win was counted after we were out ("raceover") - the list's own exit would call
     //    RaceAbandoned, which clears a Blacklist rival's won races, so it ends the race without it (kResultsEndOut).
     enum TeamResultsStep { kResultsAsIs = 0, kResultsNoDialog = 1, kResultsHold = 2, kResultsOutro = 3, kResultsEndOut = 4 };

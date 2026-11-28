@@ -163,40 +163,56 @@ uint8_t Game::LocalFinishRank(void* localRi) {
 namespace {
     uint32_t g_teamWinEvent = 0;       // event whose win came from the other player
     uint32_t g_outWinEvent = 0;        // ... whose win was counted for us after we were out ("raceover")
-    uint32_t g_teamOutroEvent = 0;     // ... whose results list stands in for the photo in the "postrace" state
     bool     g_inPostRaceFlow = false; // ShowPostRaceCoop called by EnterPostRaceFlow (the "postrace" state)
 }
 static void MarkTeamWin() { g_teamWinEvent = Game::CurrentEventHash(); }
 
-// ---- the winner's photo is for whoever really won (as up to 1.7.x early builds, asked for again) ----
-//  ShowPostRace 0x60AC20(won) shows the photo for a won race; a win we only have because the other player won
-//  gets the results list (EShowResults 0x642140(0, 0)) instead: the win, cash and progress counted as before.
-//  The list's way out for that win: hk_ResultsNotify (CoopRace::TeamResultsAction).
-static bool ShowTeamResultsImpl() {
-    void* rs = nullptr; void* parms = nullptr; int mode = 0;
-    if (!Mem::Read(0x91E000, rs) || !rs || !Mem::Read((uintptr_t)rs + 0x1968, parms) || !parms) return false;
-    if (!Mem::Read((uintptr_t)rs + 0x1960, mode) || mode != 1) return false;
-    if (((bool(__thiscall*)(void*))0x5FBE70)(parms)) return false;     // a milestone event: no photo there
-    ((void(__thiscall*)(void*))0x6021B0)(rs);                          // as ShowPostRace starts
-    if (((bool(__cdecl*)())0x605690)()) return true;                    // (it posted the results itself)
-    void* ev = ((void*(__cdecl*)(uint32_t))0x627400)(0x10);
-    if (!ev) return true;
-    ((void(__thiscall*)(void*, int, int))0x642140)(ev, 0, 0);          // EShowResults: the standings
-    return true;
+// ---- the partner's win: the winner's photo, its cameras on the partner's car ----
+//  The photo is a picture (GLOBAL\HUDTEXTURESPHOTOFINISH.BIN) over the live race; the cameras behind it
+//  (CameraAI::Director's actions: the finish cinematic ECinematicMoment "DefaultFinish", the chase camera...)
+//  take their car from the local IPlayer's GetSimable (LocalPlayer vtable 0x8B0B10, slot 1 at 0x8B0B14 =
+//  0x6F8FB0) and re-acquire whenever it changes. While the photo of the partner's win is up, calls from the
+//  camera code (0x468000-0x486000) get the partner's car: the photo shows around the winner. Back to ours after.
+namespace {
+    constexpr uintptr_t kPlayerSimSlot = 0x8B0B14, kPlayerSimFn = 0x6F8FB0;
+    constexpr uintptr_t kCamCodeLo = 0x468000, kCamCodeHi = 0x486000;
+    using PlayerSimFn = void*(__thiscall*)(void*);
+    uint32_t g_peerPhotoEvent = 0;     // event whose winner's photo is the partner's (cameras on their car)
+    void* volatile g_camPeerSim = nullptr;   // ISimable the cameras get instead of ours (null: ours)
+    void* volatile g_camPeerCar = nullptr;   // the IVehicle it came from: the cameras drop it once g_ghost moves on
+    void* __fastcall hk_PlayerSimable(void* self, void*) {
+        void* own = ((PlayerSimFn)kPlayerSimFn)(self);
+        void* peer = g_camPeerSim;
+        if (!peer || !own || g_camPeerCar != g_ghost) return own;   // the partner's car gone since the last tick
+        uintptr_t ra = (uintptr_t)_ReturnAddress();
+        return (ra >= kCamCodeLo && ra < kCamCodeHi) ? peer : own;
+    }
+    // per tick: the partner's car for the cameras while their win's photo is up
+    void CamOnPeerTick() {
+        void* sim = nullptr;
+        uint32_t ev = Game::CurrentEventHash();
+        if (g_peerPhotoEvent && ev == g_peerPhotoEvent && Game::GameFlowState() == 6 &&
+            FEScreens::IsPushed("InGamePhotoMaster.fng") && IsVehicle(g_ghost) && VehActive(g_ghost))
+            sim = VCall<void* (__thiscall*)(void*)>(g_ghost, IV_GetSimable)(g_ghost);
+        if (sim != g_camPeerSim) {
+            LOG("Race: winner's photo cameras on %s", sim ? "the partner's car" : "our car");
+            g_camPeerSim = sim;
+        }
+        g_camPeerCar = sim ? g_ghost : nullptr;
+        if (ev != g_peerPhotoEvent && Game::GameFlowState() == 6) g_peerPhotoEvent = 0;
+    }
 }
-static bool ShowTeamResults(const char* why) {
-    bool done = false;
-    __try { done = ShowTeamResultsImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) { done = false; }
-    if (done) LOG("Race: the other player won - the results list here (%s), the winner's photo is theirs", why);
-    return done;
-}
-static void __cdecl ShowPostRaceCoop(bool won) {
+static void ShowPeerWinPhoto(bool won, const char* why) {
     uint32_t ev = Game::CurrentEventHash();
-    if (CoopRace::TeamWinResults(won, ev, g_teamWinEvent) && ShowTeamResults(g_inPostRaceFlow ? "we were given place 1" : "won screen")) {
-        if (g_inPostRaceFlow) g_teamOutroEvent = ev;                  // its exit must end the race like the photo's
-        return;
+    bool peers = CoopRace::TeamWinResults(won, ev, g_teamWinEvent);
+    g_peerPhotoEvent = peers ? ev : 0;                                 // our own win: the cameras stay on us
+    if (peers) {
+        LOG("Race: the other player won - the winner's photo around their car (%s)", why);
     }
     ((void(__cdecl*)(bool))0x60AC20)(won);                             // ShowPostRace
+}
+static void __cdecl ShowPostRaceCoop(bool won) {
+    ShowPeerWinPhoto(won, g_inPostRaceFlow ? "we were given place 1" : "won screen");
 }
 // EnterPostRaceFlow 0x611F20 (only from stategraph_basicrace_postrace_handler_stateenter) -> ShowPostRace(true)
 static void __cdecl ShowPostRaceFromFlow(bool won) {
@@ -291,29 +307,21 @@ namespace {
         }
         g_origPhotoNotify(scr, msg, obj, a, b);
     }
-    // the photo's own Continue with a race's mode (0): EUnPause + MFlowReadyForOutro / the Blacklist flow.
-    // It reads only +0x10 (the package: null = no button check) and +0x34 of its screen.
-    void PhotoContinue() {
-        alignas(4) static uint8_t photo[0x174];
-        memset(photo, 0, sizeof(photo));
-        ((FeNotifyFn)kPhotoNotifyFn)(photo, CoopRace::kFeAccept, nullptr, 0, 0);
-    }
     void __fastcall hk_ResultsNotify(void* scr, void*, uint32_t msg, void* obj, uint32_t a, uint32_t b) {
         int step = CoopRace::kResultsAsIs;
         if (msg == CoopRace::kFeAccept || msg == CoopRace::kFeExitComplete) {
             __try {
                 uint32_t ev = Game::CurrentEventHash();
                 step = CoopRace::TeamResultsAction(msg, ev, g_teamWinEvent, g_swapEvent,
-                                                   FEScreens::IsPushed("PostRace_Results.fng"), g_teamOutroEvent, g_outWinEvent);
+                                                   FEScreens::IsPushed("PostRace_Results.fng"), 0, g_outWinEvent);
             } __except (EXCEPTION_EXECUTE_HANDLER) { step = CoopRace::kResultsAsIs; }
         }
         if (step == CoopRace::kResultsHold) return;              // closing for the photo: no race end from the list
-        if (step == CoopRace::kResultsOutro || step == CoopRace::kResultsEndOut) {
+        if (step == CoopRace::kResultsEndOut) {
             bool ok = false;
-            __try { if (step == CoopRace::kResultsOutro) PhotoContinue(); else EndRaceOut(); ok = true; } __except (EXCEPTION_EXECUTE_HANDLER) {}
+            __try { EndRaceOut(); ok = true; } __except (EXCEPTION_EXECUTE_HANDLER) {}
             if (ok) {
-                if (step == CoopRace::kResultsOutro) g_teamOutroEvent = 0;
-                LOG("Race: results list closed - the race ends as after the winner's photo (%s)", step == CoopRace::kResultsOutro ? "given place 1" : "we were out");
+                LOG("Race: results list closed - the race ends as after the winner's photo (we were out)");
                 return;
             }
             LOG("Race: exception ending the race after the results list - the game's own exit");
@@ -340,7 +348,7 @@ static void CoopWinLatchTick(bool connected, const Net::Snapshot& peer) {
     uint8_t pfin = sameEvent ? peer.s.finished : 0;
     if (ev != lastEvent || (restart && !lastRestart) || (lastPeerFin && !pfin && sameEvent && peer.s.inRace)) {
         g_coopWinLogged = false; g_peerWonEvent = 0; g_peerRacedHere = false; g_teamWinEvent = 0; g_outWinEvent = 0; g_swapEvent = 0;
-        g_teamOutroEvent = 0;
+        g_peerPhotoEvent = 0;
         g_bustedEvent = 0;   // a new run: not busted in it (yet)
         ++g_runGen;
     }
@@ -525,9 +533,8 @@ static void ShowPostRaceOut(bool won) {
         ((void(__cdecl*)(bool))0x60AC20)(false);
         return;
     }
-    // their win: the results list (its exit ends the race the "raceover" way, hk_ResultsNotify), not the photo
-    if (won && ShowTeamResults("we were out")) return;
-    ((void(__cdecl*)(bool))0x60AC20)(won);                       // ShowPostRace
+    // their win: the winner's photo around their car (its Continue ends the race the "raceover" way, hk_PhotoNotify)
+    ShowPeerWinPhoto(won, "we were out");
 }
 
 // ---- lap knockout, and the shared loss ----
@@ -659,7 +666,7 @@ static void LoseScreenWinTickImpl() {
     if (step == CoopRace::OutWin::None) return;
     g_loseToWinEvent = ev; g_loseToWinGen = g_runGen;
     bool list = step == CoopRace::OutWin::ViaResults;
-    if (list) { CreditTeamWinOut("the results list"); return; }   // the list stays, now a won race (its exit: hk_ResultsNotify)
+    if (list && !g_photoOutOk) { CreditTeamWinOut("the results list"); return; }   // (no photo: the list stays, now a won race)
     g_loseToWinFrom = list ? "the results list" : "the Restart / Quit screen";
     if (list) g_swapEvent = ev;                                   // the list must not end the race on its way out
     void* un = ((void*(__cdecl*)(uint32_t))0x627400)(8);          // step 1, EUnPause: the screen goes
@@ -687,6 +694,7 @@ static void CoopWinTickImpl(bool connected, const Net::Snapshot& peer) {
 void Game::CoopWinTick(bool connected, const Net::Snapshot& peer) {
     if (!g_ok) return;
     __try { CoopWinLatchTick(connected, peer); } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    __try { CamOnPeerTick(); } __except (EXCEPTION_EXECUTE_HANDLER) { g_camPeerSim = nullptr; }
     if (GameFlowState() != 6) return;
     // before their racer is marked finished here: our racer then sorts first (rank 1) as well
     __try { if (connected) CoopFinishTickImpl(); } __except (EXCEPTION_EXECUTE_HANDLER) { LOG("Race: exception finishing our racer"); }
@@ -729,7 +737,10 @@ bool Game::InstallCoopWin() {
     g_photoOutOk = g;
     bool tr = g && PatchCallChecked(0x611F9C, 0x60AC20, (void*)&ShowPostRaceFromFlow) &&  // EnterPostRaceFlow
                    PatchCallChecked(0x60E242, 0x60AC20, (void*)&ShowPostRaceCoop);       // ShowWinningPostRaceScreen
-    LOG("Career: the winner's photo only for whoever really won (the partner: the results list) %s", tr ? "ok" : "FAIL (code differs)");
+    uintptr_t curSim = 0;
+    bool cam = tr && Mem::Read(kPlayerSimSlot, curSim) && curSim == kPlayerSimFn &&
+               Mem::PatchPointer((void*)kPlayerSimSlot, (void*)&hk_PlayerSimable) != nullptr;
+    LOG("Career: the partner's win shows the winner's photo %s, its cameras on the partner's car %s", tr ? "ok" : "FAIL (code differs)", cam ? "ok" : "FAIL (code differs)");
     bool f = g && PatchCallChecked(0x5A865D, 0x5A2AD0, (void*)&hk_PhotoSetup);       // PhotoFinishScreen::Setup
     LOG("Career: the winner's photo for a shared win, naming who won %s", f ? "ok" : "FAIL (code differs)");
     LOG("Career: shared wins %s/%s/%s, winner's place for the race script %s, shared loss / knockout hooks %s", a ? "ok" : "FAIL", b ? "ok" : "FAIL", c ? "ok" : "FAIL", d ? "ok" : "FAIL (code differs)", e ? "ok" : "FAIL (code differs)");
